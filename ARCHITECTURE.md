@@ -160,18 +160,16 @@ Test pattern: inject `FixedRandom`/`AlwaysHitRandom` for deterministic combat. A
 
 ## Deployment
 
-Hosted on **Cloudflare Pages** (free tier, supports private repos).
+Hosted on **GitHub Pages**, deployed via GitHub Actions.
 
 | File | Purpose |
 |---|---|
-| `build.sh` | Installs .NET 8 via `dotnet-install.sh`, then runs `dotnet publish`. Used as the Cloudflare build command. |
-| `src/Duels.Web/wwwroot/_redirects` | SPA routing — `/* /index.html 200` so `/game` works on direct load/refresh. |
+| `.github/workflows/deploy.yml` | Builds with .NET 8, fixes base href to `/duels/`, copies `index.html` → `404.html` for SPA routing, deploys via `actions/deploy-pages`. |
 
-**Cloudflare dashboard settings** (set once):
-- Build command: `bash build.sh`
-- Build output directory: `release/wwwroot`
+**GitHub repository settings** (set once):
+- Settings → Pages → Source → **GitHub Actions**
 
-Live URL: `https://duels.pages.dev`
+Live URL: `https://blackpixel-piotr.github.io/duels/`
 
 ---
 
