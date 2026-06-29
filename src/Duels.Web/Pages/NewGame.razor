@@ -48,7 +48,7 @@
     protected override void OnInitialized()
     {
         if (Game.IsStarted)
-            Nav.NavigateTo("/game");
+            Nav.NavigateTo("game");
     }
 
     private async Task OnKeyDown(KeyboardEventArgs e)
@@ -76,7 +76,7 @@
         _starting = false;
 
         if (result.Success)
-            Nav.NavigateTo("/game");
+            Nav.NavigateTo("game");
         else
             _error = string.Join(" ", result.Messages);
     }
