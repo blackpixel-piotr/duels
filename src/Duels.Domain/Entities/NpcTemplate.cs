@@ -48,11 +48,12 @@ public sealed class NpcInstance
 {
     public NpcTemplate Template { get; }
     public int CurrentHp { get; private set; }
+    public int MaxHp => Template.Stats.Hitpoints;
 
     public NpcInstance(NpcTemplate template)
     {
         Template = template;
-        CurrentHp = template.Stats.Hitpoints * 10;
+        CurrentHp = template.Stats.Hitpoints;
     }
 
     public bool IsAlive => CurrentHp > 0;

@@ -20,9 +20,13 @@ public sealed class ListNpcsHandler : ICommandHandler<ListNpcsCommand>
         var state = await _stateRepo.GetAsync(command.PlayerId, ct);
         if (state is null) return CommandResult.Fail("No active game.");
 
-        state.AppendLog("--- Available Enemies ---", LogEntryKind.Info);
-        foreach (var npc in _npcRepo.GetAll().OrderBy(n => n.CombatLevel))
-            state.AppendLog($"  !duel {npc.Id,-20} Level {npc.CombatLevel,3}  {npc.Name}", LogEntryKind.Info);
+        state.AppendLog("--- Unlocked Opponents ---", LogEntryKind.Info);
+        foreach (var id in state.UnlockedOpponents)
+        {
+            var npc = _npcRepo.GetTemplate(id);
+            if (npc is not null)
+                state.AppendLog($"  !duel {npc.Id,-20} Level {npc.CombatLevel,3}  {npc.Name}  ({npc.GoldReward}g reward)", LogEntryKind.Info);
+        }
 
         await _stateRepo.SaveAsync(state, ct);
         return CommandResult.Ok();

@@ -23,10 +23,10 @@
         new("💪", "Aggressive", "!attack aggressive"),
         new("🛡", "Defensive",  "!attack defensive"),
         new("⚡", "Special",    "!spec"),
+        new("🛒", "Shop",       "!shop"),
         new("👤", "Stats",      "!stats"),
         new("🔍", "Inspect",    "!inspect npc"),
         new("📋", "NPCs",       "!npcs"),
-        new("❓", "Help",       "!help"),
     ];
 
     private async Task Fire(string command) => await OnCommand.InvokeAsync(command);

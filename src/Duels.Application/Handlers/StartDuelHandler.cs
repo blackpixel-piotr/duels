@@ -31,6 +31,9 @@ public sealed class StartDuelHandler : ICommandHandler<StartDuelCommand>
         if (template is null)
             return CommandResult.Fail($"Unknown enemy: '{command.NpcId}'. Type !npcs to see available enemies.");
 
+        if (!state.UnlockedOpponents.Contains(command.NpcId))
+            return CommandResult.Fail($"You haven't earned the right to face {template.Name} yet. Defeat weaker foes first.");
+
         state.Player.RestoreHp();
         var npc = new NpcInstance(template);
         state.StartDuel(npc);
@@ -38,7 +41,7 @@ public sealed class StartDuelHandler : ICommandHandler<StartDuelCommand>
         state.AppendLog($"═══ DUEL STARTED ═══", LogEntryKind.System);
         state.AppendLog($"You challenge {template.Name} (level {template.CombatLevel})!", LogEntryKind.System);
         state.AppendLog($"{template.ExamineText}", LogEntryKind.Info);
-        state.AppendLog($"Type !attack, !whip, !dds, or use a quickslot to fight.", LogEntryKind.System);
+        state.AppendLog($"Type !attack, !spec, or use a quickslot to fight.", LogEntryKind.System);
 
         await _stateRepo.SaveAsync(state, ct);
         await _events.PublishAsync(new DuelStarted(command.PlayerId, template.Id, template.Name), ct);

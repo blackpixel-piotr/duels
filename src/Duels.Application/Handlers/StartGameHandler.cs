@@ -22,8 +22,9 @@ public sealed class StartGameHandler : ICommandHandler<StartGameCommand>
         var player = new Player(playerId, command.PlayerName);
         var state = new GameState(playerId, player);
 
-        state.AppendLog($"Welcome, {player.Name}! Your adventure begins...", LogEntryKind.System);
-        state.AppendLog("Type !duel <npc> to start a fight. Try: !duel goblin", LogEntryKind.System);
+        state.AppendLog($"Welcome, {player.Name}! Your dueling career begins.", LogEntryKind.System);
+        state.AppendLog("Start with: !duel bandit  — defeat foes to earn gold and unlock harder opponents.", LogEntryKind.System);
+        state.AppendLog("Visit the shop with !shop, buy gear with !buy <item_id>.", LogEntryKind.System);
         state.AppendLog("Use !help for a list of commands.", LogEntryKind.System);
 
         await _playerRepo.SaveAsync(player, ct);

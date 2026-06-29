@@ -40,8 +40,8 @@ public sealed class InspectHandler : ICommandHandler<InspectCommand>
     {
         var p = state.Player;
         yield return $"--- {p.Name} ---";
-        yield return $"HP: {p.CurrentHp}/{p.MaxHp}  Gold: {p.Gold}  Special: {p.SpecialEnergy}%";
-        yield return $"Attack: {p.AttackLevel}  Strength: {p.StrengthLevel}  Defence: {p.DefenceLevel}  HP: {p.HitpointsLevel}";
+        yield return $"HP: {p.CurrentHp}/{p.MaxHp}  Gold: {p.Gold}g  Special: {p.SpecialEnergy}%";
+        yield return $"Attack: {p.AttackLevel}  Strength: {p.StrengthLevel}  Defence: {p.DefenceLevel}";
         if (p.Equipped.Count > 0)
         {
             yield return "Equipment:";
@@ -56,7 +56,7 @@ public sealed class InspectHandler : ICommandHandler<InspectCommand>
         var npc = state.ActiveNpc!.Template;
         yield return $"--- {npc.Name} (level {npc.CombatLevel}) ---";
         yield return npc.ExamineText;
-        yield return $"HP: {state.ActiveNpc.CurrentHp}/{npc.Stats.Hitpoints * 10}";
+        yield return $"HP: {state.ActiveNpc.CurrentHp}/{state.ActiveNpc.MaxHp}";
         yield return $"Attack: {npc.Stats.Attack}  Strength: {npc.Stats.Strength}  Defence: {npc.Stats.Defence}";
     }
 

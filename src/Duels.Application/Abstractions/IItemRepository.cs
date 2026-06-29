@@ -8,4 +8,5 @@ public interface IItemRepository
     Weapon? GetWeapon(string itemId);
     string? GetItemName(string itemId);
     bool IsWeapon(string itemId);
+    IReadOnlyList<(string Id, string Name, int Price)> GetShopItems();
 }

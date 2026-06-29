@@ -7,17 +7,11 @@ public sealed class Player
     public string Id { get; }
     public string Name { get; }
 
-    public int AttackXp { get; private set; }
-    public int StrengthXp { get; private set; }
-    public int DefenceXp { get; private set; }
-    public int HitpointsXp { get; private set; }
+    public int AttackLevel => 30;
+    public int StrengthLevel => 30;
+    public int DefenceLevel => 30;
+    public int MaxHp => 100;
 
-    public int AttackLevel => LevelForXp(AttackXp);
-    public int StrengthLevel => LevelForXp(StrengthXp);
-    public int DefenceLevel => LevelForXp(DefenceXp);
-    public int HitpointsLevel => LevelForXp(HitpointsXp);
-
-    public int MaxHp => HitpointsLevel * 10;
     public int CurrentHp { get; private set; }
     public int Gold { get; private set; }
     public int SpecialEnergy { get; private set; }
@@ -28,14 +22,10 @@ public sealed class Player
     public IReadOnlyDictionary<EquipmentSlot, string> Equipped => _equipped;
     public IReadOnlyList<string> Inventory => _inventory;
 
-    public Player(string id, string name, int attackXp = 0, int strengthXp = 0, int defenceXp = 0, int hitpointsXp = 1154)
+    public Player(string id, string name)
     {
         Id = id;
         Name = name;
-        AttackXp = attackXp;
-        StrengthXp = strengthXp;
-        DefenceXp = defenceXp;
-        HitpointsXp = hitpointsXp; // level 10 by default
         CurrentHp = MaxHp;
         SpecialEnergy = 100;
     }
@@ -46,6 +36,7 @@ public sealed class Player
     public void Heal(int amount) => CurrentHp = Math.Min(MaxHp, CurrentHp + amount);
     public void RestoreHp() => CurrentHp = MaxHp;
     public void RestoreSpecialEnergy() => SpecialEnergy = 100;
+    public void RechargeSpecial(int amount) => SpecialEnergy = Math.Min(100, SpecialEnergy + amount);
 
     public bool DrainSpecialEnergy(int amount)
     {
@@ -73,28 +64,11 @@ public sealed class Player
     public bool HasItem(string itemId) => _inventory.Contains(itemId) || _equipped.ContainsValue(itemId);
     public string? GetEquippedWeaponId() => _equipped.GetValueOrDefault(EquipmentSlot.Weapon);
 
-    public void GainAttackXp(int xp) => AttackXp += xp;
-    public void GainStrengthXp(int xp) => StrengthXp += xp;
-    public void GainDefenceXp(int xp) => DefenceXp += xp;
-    public void GainHitpointsXp(int xp) => HitpointsXp += xp;
-
     public void AddGold(int amount) => Gold += amount;
-
-    public CombatStats ToCombatStats() => new(AttackLevel, StrengthLevel, DefenceLevel, HitpointsLevel);
-
-    public static int LevelForXp(int xp)
+    public bool SpendGold(int amount)
     {
-        for (int level = 99; level >= 1; level--)
-            if (xp >= XpForLevel(level)) return level;
-        return 1;
-    }
-
-    public static int XpForLevel(int level)
-    {
-        if (level <= 1) return 0;
-        int total = 0;
-        for (int i = 1; i < level; i++)
-            total += (int)(i + 300 * Math.Pow(2, i / 7.0));
-        return total / 4;
+        if (Gold < amount) return false;
+        Gold -= amount;
+        return true;
     }
 }

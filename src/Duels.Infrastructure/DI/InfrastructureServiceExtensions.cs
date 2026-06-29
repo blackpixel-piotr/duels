@@ -2,7 +2,6 @@ using Duels.Application.Abstractions;
 using Duels.Application.Commands;
 using Duels.Application.Handlers;
 using Duels.Application.Parsing;
-using Duels.Application.Services;
 using Duels.Domain.Interfaces;
 using Duels.Domain.Services;
 using Duels.Infrastructure.Messaging;
@@ -30,7 +29,6 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ICommandDispatcher, LocalCommandQueue>();
 
         // Application services
-        services.AddSingleton<ItemUnlockService>();
         services.AddSingleton<CommandParser>();
 
         // Command handlers
@@ -42,6 +40,8 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ICommandHandler<InspectCommand>, InspectHandler>();
         services.AddSingleton<ICommandHandler<ListNpcsCommand>, ListNpcsHandler>();
         services.AddSingleton<ICommandHandler<HelpCommand>, HelpHandler>();
+        services.AddSingleton<ICommandHandler<ShopCommand>, ShopHandler>();
+        services.AddSingleton<ICommandHandler<BuyItemCommand>, BuyItemHandler>();
 
         return services;
     }

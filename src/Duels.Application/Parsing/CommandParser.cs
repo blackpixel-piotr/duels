@@ -47,6 +47,9 @@ public sealed class CommandParser
             "aggressive" or "aggro" => ParseAttack(playerId, [], AttackStyle.Aggressive),
             "defensive" or "def" => ParseAttack(playerId, [], AttackStyle.Defensive),
 
+            "shop" or "store" => new ParseResult(true, new ShopCommand(playerId), null),
+            "buy" or "purchase" => ParseBuy(playerId, args),
+
             "equip" or "wear" or "wield" => ParseEquip(playerId, args),
             "unequip" or "remove" => ParseUnequip(playerId, args),
 
@@ -85,6 +88,15 @@ public sealed class CommandParser
         "defensive" or "def" => AttackStyle.Defensive,
         _ => null
     };
+
+    private static ParseResult ParseBuy(string playerId, string[] args)
+    {
+        if (args.Length == 0)
+            return new ParseResult(false, null, "Usage: !buy <item_id>  (e.g. !buy iron_sword)");
+
+        var itemId = string.Join("_", args).ToLowerInvariant();
+        return new ParseResult(true, new BuyItemCommand(playerId, itemId), null);
+    }
 
     private ParseResult ParseEquip(string playerId, string[] args)
     {

@@ -81,14 +81,6 @@ public sealed class CombatCalculatorTests
     }
 
     [Fact]
-    public void Player_LevelForXp_ReturnsCorrectLevel()
-    {
-        Assert.Equal(1, Entities.Player.LevelForXp(0));
-        Assert.Equal(10, Entities.Player.LevelForXp(1154));
-        Assert.Equal(99, Entities.Player.LevelForXp(13_034_431));
-    }
-
-    [Fact]
     public void Player_TakeDamage_CannotGoBelowZero()
     {
         var player = new Entities.Player("id", "Test");
@@ -97,12 +89,22 @@ public sealed class CombatCalculatorTests
     }
 
     [Fact]
-    public void Player_GainAttackXp_IncreasesLevel()
+    public void Player_BaseStats_AreFixed()
     {
         var player = new Entities.Player("id", "Test");
-        int initialLevel = player.AttackLevel;
-        player.GainAttackXp(10_000);
-        Assert.True(player.AttackLevel >= initialLevel);
+        Assert.Equal(30, player.AttackLevel);
+        Assert.Equal(30, player.StrengthLevel);
+        Assert.Equal(30, player.DefenceLevel);
+        Assert.Equal(100, player.MaxHp);
+    }
+
+    [Fact]
+    public void Player_RechargeSpecial_CapsAt100()
+    {
+        var player = new Entities.Player("id", "Test");
+        player.DrainSpecialEnergy(50);
+        player.RechargeSpecial(200);
+        Assert.Equal(100, player.SpecialEnergy);
     }
 
     [Theory]
