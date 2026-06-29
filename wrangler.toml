@@ -1,2 +1,2 @@
 name = "duels"
-pages_build_output_dir = "release/wwwroot"
+pages_build_output_dir = "dist"
