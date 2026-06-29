@@ -158,6 +158,23 @@ Test pattern: inject `FixedRandom`/`AlwaysHitRandom` for deterministic combat. A
 
 ---
 
+## Deployment
+
+Hosted on **Cloudflare Pages** (free tier, supports private repos).
+
+| File | Purpose |
+|---|---|
+| `build.sh` | Installs .NET 8 via `dotnet-install.sh`, then runs `dotnet publish`. Used as the Cloudflare build command. |
+| `src/Duels.Web/wwwroot/_redirects` | SPA routing — `/* /index.html 200` so `/game` works on direct load/refresh. |
+
+**Cloudflare dashboard settings** (set once):
+- Build command: `bash build.sh`
+- Build output directory: `release/wwwroot`
+
+Live URL: `https://duels.pages.dev`
+
+---
+
 ## Cleanup Rule
 
 > After any feature change, addition, or removal:
