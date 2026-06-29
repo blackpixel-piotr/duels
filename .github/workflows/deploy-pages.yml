@@ -1,0 +1,50 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main, master, "claude/text-duel-game-3t4vkf"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Publish Blazor WASM
+        run: dotnet publish src/Duels.Web/Duels.Web.csproj -c Release -o release --nologo
+
+      - name: Set base href to repo name (required for GitHub Pages sub-path)
+        run: |
+          REPO="${{ github.event.repository.name }}"
+          sed -i "s|<base href=\"/\" />|<base href=\"/$REPO/\" />|g" release/wwwroot/index.html
+
+      - name: Copy index.html → 404.html (fixes direct-link / refresh routing)
+        run: cp release/wwwroot/index.html release/wwwroot/404.html
+
+      - name: Add .nojekyll (prevent GitHub from processing _ files)
+        run: touch release/wwwroot/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: release/wwwroot
+
+      - uses: actions/deploy-pages@v4
+        id: deployment
