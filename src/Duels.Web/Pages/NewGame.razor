@@ -1,0 +1,83 @@
+@page "/"
+@inject Duels.Web.Services.GameService Game
+@inject NavigationManager Nav
+
+<div class="new-game-screen">
+    <div class="new-game-box">
+        <pre class="title-art">
+  ____  _   _ _____ _     ____
+ |  _ \| | | | ____| |   / ___|
+ | | | | | | |  _| | |   \___ \
+ | |_| | |_| | |___| |___ ___) |
+ |____/ \___/|_____|_____|____/
+        </pre>
+        <p class="subtitle">A RuneScape-inspired text duel game</p>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <p class="error-msg">@_error</p>
+        }
+
+        <div class="name-form">
+            <label for="charname">Enter your character name:</label>
+            <input id="charname"
+                   type="text"
+                   @bind="_playerName"
+                   @onkeydown="OnKeyDown"
+                   maxlength="20"
+                   placeholder="e.g. Zezima"
+                   autocomplete="off"
+                   spellcheck="false" />
+            <button @onclick="StartGame" disabled="@_starting">
+                @(_starting ? "Creating..." : "Begin Adventure")
+            </button>
+        </div>
+
+        <div class="hint-text">
+            <p>Fight NPCs · Unlock gear · Level up</p>
+            <p>Commands: <code>!duel goblin</code> · <code>!attack</code> · <code>!whip</code> · <code>!dds</code></p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _playerName = "";
+    private string _error = "";
+    private bool _starting;
+
+    protected override void OnInitialized()
+    {
+        if (Game.IsStarted)
+            Nav.NavigateTo("/game");
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await StartGame();
+    }
+
+    private async Task StartGame()
+    {
+        _error = "";
+        var name = _playerName.Trim();
+        if (name.Length < 1)
+        {
+            _error = "Please enter a name.";
+            return;
+        }
+        if (name.Length > 20)
+        {
+            _error = "Name too long (max 20 characters).";
+            return;
+        }
+
+        _starting = true;
+        var result = await Game.StartNewGameAsync(name);
+        _starting = false;
+
+        if (result.Success)
+            Nav.NavigateTo("/game");
+        else
+            _error = string.Join(" ", result.Messages);
+    }
+}

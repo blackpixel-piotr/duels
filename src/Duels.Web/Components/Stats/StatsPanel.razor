@@ -1,0 +1,39 @@
+@using Duels.Application.GameSession
+
+<div class="stats-panel">
+    <div class="panel-title">Character</div>
+    @if (State?.Player is { } p)
+    {
+        <div class="stat-name">@p.Name</div>
+        <div class="stat-row">
+            <span class="stat-label">HP</span>
+            <div class="hp-bar-wrap">
+                <div class="hp-bar" style="width: @(HpPercent(p))%"></div>
+            </div>
+            <span class="stat-val">@p.CurrentHp / @p.MaxHp</span>
+        </div>
+        <div class="stat-row"><span class="stat-label">Atk</span><span class="stat-val">@p.AttackLevel</span></div>
+        <div class="stat-row"><span class="stat-label">Str</span><span class="stat-val">@p.StrengthLevel</span></div>
+        <div class="stat-row"><span class="stat-label">Def</span><span class="stat-val">@p.DefenceLevel</span></div>
+        <div class="stat-row"><span class="stat-label">Hitpts</span><span class="stat-val">@p.HitpointsLevel</span></div>
+        <div class="stat-row"><span class="stat-label">Gold</span><span class="stat-val">@p.Gold gp</span></div>
+        <div class="stat-row">
+            <span class="stat-label">Special</span>
+            <div class="spec-bar-wrap">
+                <div class="spec-bar" style="width: @p.SpecialEnergy%"></div>
+            </div>
+            <span class="stat-val">@p.SpecialEnergy%</span>
+        </div>
+    }
+    else
+    {
+        <div class="stat-empty">No character</div>
+    }
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+
+    private static int HpPercent(Duels.Domain.Entities.Player p) =>
+        p.MaxHp == 0 ? 0 : (int)(p.CurrentHp * 100.0 / p.MaxHp);
+}

@@ -1,0 +1,21 @@
+## .NET
+bin/
+obj/
+*.user
+.vs/
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Rider / JetBrains
+.idea/
+
+## VS Code
+.vscode/
+
+## Build output
+publish/
+dist/
+
+## dotnet local tools
+.config/dotnet-tools.json

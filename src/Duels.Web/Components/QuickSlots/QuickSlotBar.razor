@@ -1,0 +1,35 @@
+@*
+    QuickSlot bar: each slot stores a command string and fires it via OnCommand.
+    The same pipeline as typed text — no special casing.
+    Future: drag-to-reorder, per-character slot config.
+*@
+
+<div class="quickslot-bar">
+    @foreach (var slot in _slots)
+    {
+        <button class="quickslot" title="@slot.Command" @onclick="() => Fire(slot.Command)">
+            <span class="qs-icon">@slot.Icon</span>
+            <span class="qs-label">@slot.Label</span>
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter] public EventCallback<string> OnCommand { get; set; }
+
+    private readonly QuickSlotDefinition[] _slots =
+    [
+        new("⚔", "Accurate",   "!attack accurate"),
+        new("💪", "Aggressive", "!attack aggressive"),
+        new("🛡", "Defensive",  "!attack defensive"),
+        new("⚡", "Special",    "!spec"),
+        new("👤", "Stats",      "!stats"),
+        new("🔍", "Inspect",    "!inspect npc"),
+        new("📋", "NPCs",       "!npcs"),
+        new("❓", "Help",       "!help"),
+    ];
+
+    private async Task Fire(string command) => await OnCommand.InvokeAsync(command);
+
+    private sealed record QuickSlotDefinition(string Icon, string Label, string Command);
+}

@@ -1,0 +1,41 @@
+@using Duels.Application.GameSession
+
+<div class="inventory-panel">
+    <div class="panel-title">Inventory</div>
+    <div class="inv-grid">
+        @foreach (var itemId in Items)
+        {
+            <button class="inv-slot" title="@itemId" @onclick="() => Equip(itemId)">
+                <span class="inv-item-name">@ShortName(itemId)</span>
+            </button>
+        }
+        @for (int i = Items.Count; i < 28; i++)
+        {
+            <div class="inv-slot inv-empty"></div>
+        }
+    </div>
+    @if (State?.Player?.Equipped.Count > 0)
+    {
+        <div class="panel-title" style="margin-top:8px">Equipped</div>
+        @foreach (var (slot, id) in State.Player.Equipped)
+        {
+            <div class="equipped-row">
+                <span class="eq-slot">@slot</span>
+                <span class="eq-item">@ShortName(id)</span>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public EventCallback<string> OnEquip { get; set; }
+
+    private IReadOnlyList<string> Items => State?.Player?.Inventory ?? [];
+
+    private async Task Equip(string itemId) =>
+        await OnEquip.InvokeAsync($"!equip {itemId}");
+
+    private static string ShortName(string id) =>
+        string.Join(" ", id.Split('_').Select(w => char.ToUpper(w[0]) + w[1..]));
+}

@@ -1,0 +1,18 @@
+@using Duels.Application.GameSession
+@inject IJSRuntime JS
+
+<div class="terminal-log" id="terminal-log">
+    @foreach (var entry in LogEntries)
+    {
+        <div class="log-entry log-@entry.Kind.ToString().ToLower()">@entry.Message</div>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<CombatLogEntry> LogEntries { get; set; } = [];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await JS.InvokeVoidAsync("scrollToBottom", "terminal-log");
+    }
+}

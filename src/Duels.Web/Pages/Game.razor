@@ -1,0 +1,70 @@
+@page "/game"
+@inject Duels.Web.Services.GameService GameSvc
+@inject NavigationManager Nav
+@implements IDisposable
+
+@if (!GameSvc.IsStarted)
+{
+    <p class="redirecting">Redirecting...</p>
+}
+else
+{
+    <div class="game-layout">
+        <div class="game-left">
+            <StatsPanel State="@_state" />
+        </div>
+
+        <div class="game-center">
+            @if (_state?.InDuel == true)
+            {
+                <NpcCard Npc="@_state.ActiveNpc" />
+            }
+            <TerminalComponent LogEntries="@(_state?.CombatLog ?? [])" />
+            <QuickSlotBar OnCommand="HandleCommand" />
+            <TerminalInput OnSubmit="HandleCommand" />
+        </div>
+
+        <div class="game-right">
+            <InventoryGrid State="@_state" OnEquip="HandleCommand" />
+        </div>
+    </div>
+}
+
+@using Duels.Application.GameSession
+@using Duels.Web.Components.Combat
+@using Duels.Web.Components.Stats
+@using Duels.Web.Components.Terminal
+@using Duels.Web.Components.QuickSlots
+@using Duels.Web.Components.Inventory
+
+@code {
+    private GameState? _state;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!GameSvc.IsStarted)
+        {
+            Nav.NavigateTo("/");
+            return;
+        }
+        GameSvc.StateChanged += OnStateChanged;
+        _state = await GameSvc.GetStateAsync();
+    }
+
+    private async void OnStateChanged()
+    {
+        _state = await GameSvc.GetStateAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleCommand(string command)
+    {
+        if (string.IsNullOrWhiteSpace(command)) return;
+        await GameSvc.ExecuteCommandAsync(command);
+    }
+
+    public void Dispose()
+    {
+        GameSvc.StateChanged -= OnStateChanged;
+    }
+}
