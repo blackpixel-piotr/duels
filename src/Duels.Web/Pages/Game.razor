@@ -3,33 +3,6 @@
 @inject NavigationManager Nav
 @implements IDisposable
 
-@if (!GameSvc.IsStarted)
-{
-    <p class="redirecting">Redirecting...</p>
-}
-else
-{
-    <div class="game-layout">
-        <div class="game-left">
-            <StatsPanel State="@_state" />
-        </div>
-
-        <div class="game-center">
-            @if (_state?.InDuel == true)
-            {
-                <NpcCard Npc="@_state.ActiveNpc" />
-            }
-            <TerminalComponent LogEntries="@(_state?.CombatLog ?? [])" />
-            <QuickSlotBar OnCommand="HandleCommand" />
-            <TerminalInput OnSubmit="HandleCommand" />
-        </div>
-
-        <div class="game-right">
-            <InventoryGrid State="@_state" OnEquip="HandleCommand" />
-        </div>
-    </div>
-}
-
 @using Duels.Application.GameSession
 @using Duels.Web.Components.Combat
 @using Duels.Web.Components.Stats
@@ -37,8 +10,46 @@ else
 @using Duels.Web.Components.QuickSlots
 @using Duels.Web.Components.Inventory
 
+@if (!GameSvc.IsStarted)
+{
+    <p class="redirecting">Redirecting...</p>
+}
+else
+{
+    <div class="game-wrapper">
+        <nav class="mobile-tabs">
+            <button class="mobile-tab @(_tab == "combat"    ? "active" : "")" @onclick='() => _tab = "combat"'>Combat</button>
+            <button class="mobile-tab @(_tab == "stats"     ? "active" : "")" @onclick='() => _tab = "stats"'>Stats</button>
+            <button class="mobile-tab @(_tab == "inventory" ? "active" : "")" @onclick='() => _tab = "inventory"'>Items</button>
+        </nav>
+
+        <div class="game-layout tab-@_tab">
+            <div class="game-left">
+                <StatsPanel State="@_state" />
+            </div>
+
+            <div class="game-center">
+                @if (_state?.InDuel == true)
+                {
+                    <NpcCard Npc="@_state.ActiveNpc" />
+                }
+                <TerminalComponent LogEntries="@(_state?.CombatLog ?? [])" />
+                <div class="bottom-bar">
+                    <QuickSlotBar OnCommand="HandleCommand" />
+                    <TerminalInput OnSubmit="HandleCommand" />
+                </div>
+            </div>
+
+            <div class="game-right">
+                <InventoryGrid State="@_state" OnEquip="HandleCommand" />
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private GameState? _state;
+    private string _tab = "combat";
 
     protected override async Task OnInitializedAsync()
     {
@@ -57,6 +68,7 @@ else
     {
         if (string.IsNullOrWhiteSpace(command)) return;
         await GameSvc.ExecuteCommandAsync(command);
+        _tab = "combat";
     }
 
     public void Dispose()

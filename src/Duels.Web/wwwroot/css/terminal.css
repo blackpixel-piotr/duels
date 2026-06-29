@@ -20,18 +20,27 @@
 /* ─── Reset ─── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
+html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    overflow: hidden;
+}
 
 /* ─── Loading screen ─── */
 .loading-screen { display: flex; align-items: center; justify-content: center; height: 100vh; color: var(--green); }
+.redirecting { color: var(--text-dim); padding: 20px; }
 
 /* ─── New game screen ─── */
 .new-game-screen {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 100vh;
+    min-height: 100dvh;
     background: var(--bg);
+    overflow-y: auto;
 }
 .new-game-box {
     border: 1px solid var(--border);
@@ -53,12 +62,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     margin-bottom: 24px;
     font-size: 12px;
 }
-.name-form {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 20px;
-}
+.name-form { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
 .name-form label { color: var(--amber); }
 .name-form input {
     background: var(--bg-input);
@@ -88,16 +92,29 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .hint-text { color: var(--text-dim); font-size: 11px; line-height: 1.8; }
 .hint-text code { color: var(--amber); }
 
-/* ─── Game layout ─── */
+/* ─── Game wrapper (full viewport, flex column) ─── */
+.game-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+    background: var(--bg);
+}
+
+/* ─── Mobile tab bar (hidden on desktop) ─── */
+.mobile-tabs { display: none; }
+
+/* ─── Game layout — desktop 3-column grid ─── */
 .game-layout {
     display: grid;
     grid-template-columns: 160px 1fr 180px;
-    grid-template-rows: 100vh;
     gap: var(--panel-gap);
     padding: var(--panel-gap);
-    background: var(--bg);
+    flex: 1;
     overflow: hidden;
+    min-height: 0;
 }
+
 .game-left, .game-right {
     display: flex;
     flex-direction: column;
@@ -109,6 +126,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     flex-direction: column;
     gap: var(--panel-gap);
     min-height: 0;
+    overflow: hidden;
 }
 
 /* ─── Terminal log ─── */
@@ -135,6 +153,14 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .log-system    { color: var(--amber); }
 .log-loot      { color: var(--yellow); font-weight: bold; }
 .log-levelup   { color: var(--purple); font-weight: bold; }
+
+/* ─── Bottom bar (quickslots + input) ─── */
+.bottom-bar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--panel-gap);
+    flex-shrink: 0;
+}
 
 /* ─── Terminal input ─── */
 .terminal-input-row {
@@ -239,6 +265,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
     border: 1px solid var(--border);
     padding: 8px 10px;
     border-radius: var(--radius);
+    flex-shrink: 0;
 }
 .npc-name  { color: var(--red); margin-bottom: 4px; }
 .npc-level { color: var(--text-dim); font-size: 11px; }
@@ -284,18 +311,116 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 ::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #444; }
 
-/* ─── Mobile (iPhone) ─── */
+/* ─── Mobile: chat-app layout ─── */
 @media (max-width: 700px) {
-    .game-layout {
-        grid-template-columns: 1fr;
-        grid-template-rows: auto;
-        height: auto;
-        min-height: 100vh;
-        overflow: auto;
+    /* Tab bar */
+    .mobile-tabs {
+        display: flex;
+        flex-shrink: 0;
+        background: var(--bg-panel);
+        border-bottom: 1px solid var(--border);
     }
-    .game-left { order: 2; }
-    .game-center { order: 1; min-height: 60vh; }
-    .game-right { order: 3; }
+    .mobile-tab {
+        flex: 1;
+        padding: 11px 0;
+        font-family: var(--font);
+        font-size: 12px;
+        color: var(--text-dim);
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        letter-spacing: 0.5px;
+    }
+    .mobile-tab.active {
+        color: var(--amber);
+        border-bottom-color: var(--amber);
+    }
+
+    /* Layout: single flex column */
+    .game-layout {
+        display: flex;
+        flex-direction: column;
+        padding: 0;
+        gap: 0;
+    }
+
+    /* Hide side panels by default; show combat center */
+    .game-left, .game-right { display: none; }
+    .game-center {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        gap: 0;
+    }
+
+    /* Stats tab */
+    .game-layout.tab-stats .game-center { display: none; }
+    .game-layout.tab-stats .game-left {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px;
+        gap: 8px;
+    }
+
+    /* Inventory tab */
+    .game-layout.tab-inventory .game-center { display: none; }
+    .game-layout.tab-inventory .game-right {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px;
+        gap: 8px;
+    }
+
+    /* Terminal fills all remaining space */
+    .terminal-log {
+        flex: 1;
+        border-left: none;
+        border-right: none;
+        border-radius: 0;
+        padding: 8px;
+    }
+
+    /* Bottom bar docked above keyboard */
+    .bottom-bar {
+        flex-shrink: 0;
+        gap: 0;
+        border-top: 1px solid var(--border);
+    }
+
+    /* Quickslots: single row, horizontal scroll */
+    .quickslot-bar {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        border-left: none;
+        border-right: none;
+        border-radius: 0;
+        border-bottom: none;
+        padding: 5px 6px;
+        gap: 5px;
+        -webkit-overflow-scrolling: touch;
+    }
+    .quickslot { flex-shrink: 0; min-width: 52px; }
+
+    /* Input row: no radius, flush */
+    .terminal-input-row {
+        border-left: none;
+        border-right: none;
+        border-bottom: none;
+        border-radius: 0;
+        padding: 8px 10px;
+    }
+
+    /* NPC card compact */
+    .npc-card { border-left: none; border-right: none; border-radius: 0; border-top: none; }
+
+    /* New game screen adjustments */
+    .new-game-box { padding: 28px 20px; }
 }
 
 /* ─── Blazor error UI ─── */
