@@ -33,7 +33,7 @@ else
                 {
                     <NpcCard Npc="@_state.ActiveNpc" />
                 }
-                <TerminalComponent LogEntries="@(_state?.CombatLog ?? [])" />
+                <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
                 <div class="bottom-bar">
                     <QuickSlotBar OnCommand="HandleCommand" />
                     <TerminalInput OnSubmit="HandleCommand" />
