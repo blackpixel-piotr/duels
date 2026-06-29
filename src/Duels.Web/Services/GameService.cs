@@ -45,7 +45,7 @@ public sealed class GameService
             return CommandResult.Fail(parsed.Error ?? "Parse error.");
         }
 
-        var result = await _dispatcher.DispatchAsync(parsed.Command!);
+        var result = await _dispatcher.DispatchAsync((dynamic)parsed.Command!);
         NotifyStateChanged();
         return result;
     }
