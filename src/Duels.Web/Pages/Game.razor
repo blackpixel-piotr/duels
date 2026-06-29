@@ -51,11 +51,7 @@ else
         _state = await GameSvc.GetStateAsync();
     }
 
-    private async void OnStateChanged()
-    {
-        _state = await GameSvc.GetStateAsync();
-        await InvokeAsync(StateHasChanged);
-    }
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
 
     private async Task HandleCommand(string command)
     {
