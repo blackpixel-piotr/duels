@@ -1,11 +1,18 @@
-@*
-    QuickSlot bar: each slot stores a command string and fires it via OnCommand.
-    The same pipeline as typed text — no special casing.
-    Future: drag-to-reorder, per-character slot config.
-*@
+@using Duels.Application.GameSession
+@using Duels.Domain.ValueObjects
 
 <div class="quickslot-bar">
-    @foreach (var slot in _slots)
+    @foreach (var slot in WeaponSlots())
+    {
+        var isEquipped = State?.Player?.GetEquippedWeaponId() == slot.WeaponId;
+        <button class="quickslot @(isEquipped ? "qs-equipped" : "")"
+                title="@slot.Command"
+                @onclick="() => Fire(slot.Command)">
+            <span class="qs-icon">⚔</span>
+            <span class="qs-label">@slot.Label</span>
+        </button>
+    }
+    @foreach (var slot in _fixedSlots)
     {
         <button class="quickslot" title="@slot.Command" @onclick="() => Fire(slot.Command)">
             <span class="qs-icon">@slot.Icon</span>
@@ -15,21 +22,68 @@
 </div>
 
 @code {
+    [Parameter] public GameState? State { get; set; }
     [Parameter] public EventCallback<string> OnCommand { get; set; }
 
-    private readonly QuickSlotDefinition[] _slots =
+    private static readonly Dictionary<string, string> _shorthands = new()
+    {
+        ["armadyl_godsword"]   = "ags",
+        ["bandos_godsword"]    = "bgs",
+        ["zamorak_godsword"]   = "zgs",
+        ["saradomin_godsword"] = "sgs",
+        ["dragon_dagger"]      = "dds",
+        ["dragon_claws"]       = "claws",
+        ["abyssal_whip"]       = "whip",
+        ["scythe_of_vitur"]    = "scythe",
+    };
+
+    private static readonly HashSet<string> _knownWeaponIds = new()
+    {
+        "rune_scimitar", "dragon_scimitar", "dragon_dagger", "abyssal_whip",
+        "armadyl_sword", "dragon_claws", "bandos_godsword", "zamorak_godsword",
+        "saradomin_godsword", "armadyl_godsword", "scythe_of_vitur",
+    };
+
+    private static readonly QuickSlotDefinition[] _fixedSlots =
     [
-        new("⚔", "Accurate",   "!attack accurate"),
-        new("💪", "Aggressive", "!attack aggressive"),
-        new("🛡", "Defensive",  "!attack defensive"),
-        new("⚡", "Special",    "!spec"),
-        new("👤", "Stats",      "!stats"),
-        new("🔍", "Inspect",    "!inspect npc"),
-        new("📋", "NPCs",       "!npcs"),
-        new("❓", "Help",       "!help"),
+        new("⚡", "Special",  "spec"),
+        new("🛒", "Shop",     "shop"),
+        new("👤", "Stats",    "stats"),
+        new("🔍", "Inspect",  "inspect npc"),
+        new("📋", "NPCs",     "npcs"),
     ];
+
+    private IEnumerable<WeaponSlotDef> WeaponSlots()
+    {
+        if (State?.Player is not { } player) yield break;
+
+        var seen = new HashSet<string>();
+
+        var equippedId = player.GetEquippedWeaponId();
+        if (equippedId is not null && _knownWeaponIds.Contains(equippedId))
+        {
+            seen.Add(equippedId);
+            yield return MakeWeaponSlot(equippedId);
+        }
+
+        foreach (var id in player.Inventory)
+        {
+            if (seen.Contains(id) || !_knownWeaponIds.Contains(id)) continue;
+            seen.Add(id);
+            yield return MakeWeaponSlot(id);
+        }
+    }
+
+    private static WeaponSlotDef MakeWeaponSlot(string weaponId)
+    {
+        var shorthand = _shorthands.TryGetValue(weaponId, out var sh) ? sh : null;
+        var cmd = shorthand ?? weaponId;
+        var label = (shorthand ?? weaponId.Replace("_", " ")).ToUpperInvariant();
+        return new WeaponSlotDef(weaponId, label, cmd);
+    }
 
     private async Task Fire(string command) => await OnCommand.InvokeAsync(command);
 
     private sealed record QuickSlotDefinition(string Icon, string Label, string Command);
+    private sealed record WeaponSlotDef(string WeaponId, string Label, string Command);
 }

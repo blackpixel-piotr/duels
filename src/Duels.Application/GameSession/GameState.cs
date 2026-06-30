@@ -9,6 +9,7 @@ public sealed class GameState
     public NpcInstance? ActiveNpc { get; private set; }
     public bool InDuel => ActiveNpc is { IsAlive: true };
     public List<CombatLogEntry> CombatLog { get; } = new();
+    public List<string> UnlockedOpponents { get; } = ["swashbuckler"];
 
     public GameState(string playerId, Player player)
     {
@@ -25,6 +26,12 @@ public sealed class GameState
     public void EndDuel()
     {
         ActiveNpc = null;
+    }
+
+    public void UnlockOpponent(string id)
+    {
+        if (!UnlockedOpponents.Contains(id))
+            UnlockedOpponents.Add(id);
     }
 
     public void AppendLog(string message, LogEntryKind kind = LogEntryKind.Info)
@@ -46,5 +53,4 @@ public enum LogEntryKind
     NpcMiss,
     System,
     Loot,
-    LevelUp
 }

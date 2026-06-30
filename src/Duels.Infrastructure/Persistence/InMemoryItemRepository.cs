@@ -8,11 +8,13 @@ public sealed class InMemoryItemRepository : IItemRepository
 {
     private readonly Dictionary<string, GearPiece> _gear;
     private readonly Dictionary<string, Weapon> _weapons;
+    private readonly Dictionary<string, int> _shopPrices;
 
     public InMemoryItemRepository()
     {
         _weapons = BuildWeapons().ToDictionary(w => w.Id);
         _gear = BuildGear(_weapons).ToDictionary(g => g.Id);
+        _shopPrices = BuildShopPrices();
     }
 
     public GearPiece? GetGear(string itemId) => _gear.GetValueOrDefault(itemId);
@@ -21,65 +23,98 @@ public sealed class InMemoryItemRepository : IItemRepository
         (_gear.GetValueOrDefault(itemId)?.Name) ?? (_weapons.GetValueOrDefault(itemId)?.Name);
     public bool IsWeapon(string itemId) => _weapons.ContainsKey(itemId);
 
+    public IReadOnlyList<(string Id, string Name, int Price)> GetShopItems()
+    {
+        var result = new List<(string, string, int)>();
+        foreach (var (id, price) in _shopPrices.OrderBy(kv => kv.Value))
+        {
+            var name = GetItemName(id) ?? id;
+            result.Add((id, name, price));
+        }
+        return result;
+    }
+
+    private static Dictionary<string, int> BuildShopPrices() => new()
+    {
+        ["rune_scimitar"]      = 200,
+        ["dragon_scimitar"]    = 600,
+        ["dragon_dagger"]      = 800,
+        ["abyssal_whip"]       = 2_500,
+        ["armadyl_sword"]      = 5_000,
+        ["dragon_claws"]       = 15_000,
+        ["bandos_godsword"]    = 30_000,
+        ["zamorak_godsword"]   = 40_000,
+        ["saradomin_godsword"] = 50_000,
+        ["armadyl_godsword"]   = 65_000,
+        ["scythe_of_vitur"]    = 150_000,
+    };
+
     private static IEnumerable<Weapon> BuildWeapons() =>
     [
-        new("bronze_dagger", "Bronze Dagger", AttackType.Stab,
-            new ItemModifiers(StabAttack: 4, SlashAttack: 3, StrengthBonus: 3),
-            attackSpeed: 4, examineText: "A dagger made of bronze. Better than nothing."),
-        new("bronze_sword", "Bronze Sword", AttackType.Slash,
-            new ItemModifiers(StabAttack: 4, SlashAttack: 5, CrushAttack: -2, StrengthBonus: 6),
-            attackSpeed: 5, examineText: "A short bronze sword."),
-        new("iron_sword", "Iron Sword", AttackType.Slash,
-            new ItemModifiers(StabAttack: 7, SlashAttack: 9, CrushAttack: -2, StrengthBonus: 10),
-            attackSpeed: 5, examineText: "An iron sword."),
-        new("steel_longsword", "Steel Longsword", AttackType.Slash,
-            new ItemModifiers(StabAttack: 12, SlashAttack: 17, CrushAttack: -1, StrengthBonus: 17),
-            attackSpeed: 5, examineText: "A sturdy steel longsword."),
-        new("mithril_scimitar", "Mithril Scimitar", AttackType.Slash,
-            new ItemModifiers(StabAttack: 18, SlashAttack: 30, CrushAttack: -2, StrengthBonus: 26),
-            attackSpeed: 4, examineText: "A fast mithril scimitar."),
-        new("adamant_scimitar", "Adamant Scimitar", AttackType.Slash,
-            new ItemModifiers(StabAttack: 25, SlashAttack: 42, CrushAttack: -2, StrengthBonus: 38),
-            attackSpeed: 4, examineText: "A sharp adamant scimitar."),
         new("rune_scimitar", "Rune Scimitar", AttackType.Slash,
-            new ItemModifiers(StabAttack: 45, SlashAttack: 67, CrushAttack: -2, StrengthBonus: 66),
+            new ItemModifiers(StabAttack: 45, SlashAttack: 67, StrengthBonus: 66),
             attackSpeed: 4, examineText: "A powerful rune scimitar."),
+
+        new("dragon_scimitar", "Dragon Scimitar", AttackType.Slash,
+            new ItemModifiers(StabAttack: 40, SlashAttack: 60, StrengthBonus: 67),
+            attackSpeed: 4, examineText: "A fearsome dragon scimitar."),
+
         new("dragon_dagger", "Dragon Dagger", AttackType.Stab,
             new ItemModifiers(StabAttack: 40, SlashAttack: 25, StrengthBonus: 40),
             attackSpeed: 4, examineText: "A vicious dragon dagger.",
-            special: new SpecialAttack("!dds", 25, 1.15, "Rapid double stab — 115% damage, uses 25% special energy.")),
+            special: new SpecialAttack("!spec", 25, 1.0, "Double stab — boosted accuracy, uses 25% energy.",
+                Hits: 2, AccuracyMultiplier: 1.15)),
+
         new("abyssal_whip", "Abyssal Whip", AttackType.Slash,
-            new ItemModifiers(StabAttack: 82, SlashAttack: 82, CrushAttack: 0, StrengthBonus: 82),
-            attackSpeed: 4, examineText: "A weapon from the Abyssal Demons.",
-            special: new SpecialAttack("!whip", 50, 1.0, "Drain target attack level by 5.")),
+            new ItemModifiers(StabAttack: 82, SlashAttack: 82, StrengthBonus: 82),
+            attackSpeed: 4, examineText: "A weapon from the Abyssal Plane.",
+            special: new SpecialAttack("!spec", 25, 1.0, "Leeches energy. Uses 25% special energy.",
+                Hits: 1, AccuracyMultiplier: 1.0)),
+
+        new("armadyl_sword", "Armadyl Sword", AttackType.Slash,
+            new ItemModifiers(StabAttack: 75, SlashAttack: 80, StrengthBonus: 85),
+            attackSpeed: 4, examineText: "A sword blessed by Armadyl."),
+
+        new("dragon_claws", "Dragon Claws", AttackType.Slash,
+            new ItemModifiers(StabAttack: 41, SlashAttack: 57, StrengthBonus: 56),
+            attackSpeed: 4, examineText: "Four rapid slashes.",
+            special: new SpecialAttack("!spec", 50, 0.5, "Four rapid hits — each at half max hit. Uses 50% energy.",
+                Hits: 4, AccuracyMultiplier: 1.0)),
+
+        new("bandos_godsword", "Bandos Godsword", AttackType.Slash,
+            new ItemModifiers(StabAttack: 132, SlashAttack: 132, StrengthBonus: 132),
+            attackSpeed: 6, examineText: "The weapon of the Big High War God.",
+            special: new SpecialAttack("!spec", 50, 1.0, "Two powerful strikes. Uses 50% energy.",
+                Hits: 2, AccuracyMultiplier: 1.0)),
+
+        new("zamorak_godsword", "Zamorak Godsword", AttackType.Slash,
+            new ItemModifiers(StabAttack: 132, SlashAttack: 132, StrengthBonus: 132),
+            attackSpeed: 6, examineText: "Frozen in time, twice as deadly.",
+            special: new SpecialAttack("!spec", 50, 1.0, "Two hits — second always connects. Uses 50% energy.",
+                Hits: 2, AccuracyMultiplier: 1.0, SecondHitGuaranteed: true)),
+
+        new("saradomin_godsword", "Saradomin Godsword", AttackType.Slash,
+            new ItemModifiers(StabAttack: 132, SlashAttack: 132, StrengthBonus: 132),
+            attackSpeed: 6, examineText: "Heals the faithful.",
+            special: new SpecialAttack("!spec", 50, 1.0, "Heals 50% of damage dealt. Uses 50% energy.",
+                Hits: 1, AccuracyMultiplier: 1.0, HealOnHit: true)),
+
+        new("armadyl_godsword", "Armadyl Godsword", AttackType.Slash,
+            new ItemModifiers(StabAttack: 132, SlashAttack: 132, StrengthBonus: 132),
+            attackSpeed: 6, examineText: "The most powerful spec in the arena.",
+            special: new SpecialAttack("!spec", 50, 1.25, "Massive single hit — 125% damage, boosted accuracy. Uses 50% energy.",
+                Hits: 1, AccuracyMultiplier: 1.375)),
+
+        new("scythe_of_vitur", "Scythe of Vitur", AttackType.Slash,
+            new ItemModifiers(StabAttack: 75, SlashAttack: 110, StrengthBonus: 75),
+            attackSpeed: 5, examineText: "Three hits per special. Costs 100% energy.",
+            special: new SpecialAttack("!spec", 100, 1.0, "Three sweeping hits. Uses 100% energy.",
+                Hits: 3, AccuracyMultiplier: 1.0)),
     ];
 
     private static IEnumerable<GearPiece> BuildGear(Dictionary<string, Weapon> weapons)
     {
-        // Include weapon gear pieces
         foreach (var w in weapons.Values)
             yield return w.AsGearPiece();
-
-        // Helmets
-        yield return new("bronze_med_helm", "Bronze Med Helm", EquipmentSlot.Helmet,
-            new ItemModifiers(StabDefence: 4, SlashDefence: 6, CrushDefence: 3), "A basic bronze helmet.");
-        yield return new("iron_full_helm", "Iron Full Helm", EquipmentSlot.Helmet,
-            new ItemModifiers(StabDefence: 8, SlashDefence: 9, CrushDefence: 7), "A sturdy iron helm.");
-        yield return new("rune_full_helm", "Rune Full Helm", EquipmentSlot.Helmet,
-            new ItemModifiers(StabDefence: 30, SlashDefence: 32, CrushDefence: 27), "A full helm of rune.");
-
-        // Bodies
-        yield return new("bronze_chainbody", "Bronze Chainbody", EquipmentSlot.Body,
-            new ItemModifiers(StabDefence: 6, SlashDefence: 10, CrushDefence: 4), "A chain of bronze rings.");
-        yield return new("iron_platebody", "Iron Platebody", EquipmentSlot.Body,
-            new ItemModifiers(StabDefence: 16, SlashDefence: 17, CrushDefence: 15), "A solid iron platebody.");
-        yield return new("rune_platebody", "Rune Platebody", EquipmentSlot.Body,
-            new ItemModifiers(StabDefence: 82, SlashDefence: 80, CrushDefence: 72), "The finest melee armour.");
-
-        // Shields
-        yield return new("wooden_shield", "Wooden Shield", EquipmentSlot.Shield,
-            new ItemModifiers(StabDefence: 3, SlashDefence: 2, CrushDefence: 4), "A simple wooden shield.");
-        yield return new("iron_kiteshield", "Iron Kiteshield", EquipmentSlot.Shield,
-            new ItemModifiers(StabDefence: 11, SlashDefence: 12, CrushDefence: 10), "An iron kite shield.");
     }
 }

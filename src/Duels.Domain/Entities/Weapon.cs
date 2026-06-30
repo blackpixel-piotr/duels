@@ -34,4 +34,12 @@ public sealed class Weapon
         new(Id, Name, EquipmentSlot.Weapon, Modifiers, ExamineText);
 }
 
-public sealed record SpecialAttack(string CommandAlias, int EnergyRequired, double DamageMultiplier, string Description);
+public sealed record SpecialAttack(
+    string CommandAlias,
+    int EnergyRequired,
+    double DamageMultiplier,
+    string Description,
+    int Hits = 1,
+    double AccuracyMultiplier = 1.0,
+    bool SecondHitGuaranteed = false,
+    bool HealOnHit = false);

@@ -2,7 +2,6 @@ using Duels.Application.Abstractions;
 using Duels.Application.Commands;
 using Duels.Application.GameSession;
 using Duels.Application.Handlers;
-using Duels.Application.Services;
 using Duels.Domain.Entities;
 using Duels.Domain.Events;
 using Duels.Domain.Interfaces;
@@ -36,6 +35,7 @@ public sealed class AttackHandlerTests
         public Weapon? GetWeapon(string id) => _weapon;
         public string? GetItemName(string id) => "Sword";
         public bool IsWeapon(string id) => true;
+        public IReadOnlyList<(string Id, string Name, int Price)> GetShopItems() => [];
     }
 
     private sealed class StubEventBus : IEventBus
@@ -60,9 +60,8 @@ public sealed class AttackHandlerTests
         var itemRepo = new StubItemRepo();
         var events = new StubEventBus();
         var calc = new CombatCalculator(random);
-        var unlockSvc = new ItemUnlockService(random, itemRepo);
 
-        var handler = new AttackHandler(stateRepo, itemRepo, calc, events, unlockSvc);
+        var handler = new AttackHandler(stateRepo, itemRepo, npcRepo, calc, events, random);
         return (handler, state, events);
     }
 
@@ -96,7 +95,8 @@ public sealed class AttackHandlerTests
         var events = new StubEventBus();
         var random = new AlwaysHitRandom();
         var itemRepo = new StubItemRepo();
-        var handler = new AttackHandler(stateRepo, itemRepo, new CombatCalculator(random), events, new ItemUnlockService(random, itemRepo));
+        var dummyNpc = new NpcTemplate("dummy", "Dummy", "", new CombatStats(1,1,1,1), ItemModifiers.Zero, AttackType.Slash, []);
+        var handler = new AttackHandler(stateRepo, itemRepo, new StubNpcRepo(dummyNpc), new CombatCalculator(random), events, random);
 
         var result = await handler.HandleAsync(new AttackCommand("p1", AttackStyle.Accurate));
 
