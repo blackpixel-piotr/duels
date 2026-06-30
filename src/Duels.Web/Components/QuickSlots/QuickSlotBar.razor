@@ -2,15 +2,28 @@
 @using Duels.Domain.ValueObjects
 
 <div class="quickslot-bar">
-    @foreach (var slot in WeaponSlots())
+    @{
+        var weaponSlots = WeaponSlots().ToList();
+    }
+    @if (weaponSlots.Count == 0)
     {
-        var isEquipped = State?.Player?.GetEquippedWeaponId() == slot.WeaponId;
-        <button class="quickslot @(isEquipped ? "qs-equipped" : "")"
-                title="@slot.Command"
-                @onclick="() => Fire(slot.Command)">
+        <button class="quickslot" title="attack" @onclick='() => Fire("attack")'>
             <span class="qs-icon">⚔</span>
-            <span class="qs-label">@slot.Label</span>
+            <span class="qs-label">ATTACK</span>
         </button>
+    }
+    else
+    {
+        @foreach (var slot in weaponSlots)
+        {
+            var isEquipped = State?.Player?.GetEquippedWeaponId() == slot.WeaponId;
+            <button class="quickslot @(isEquipped ? "qs-equipped" : "")"
+                    title="@slot.Command"
+                    @onclick="() => Fire(slot.Command)">
+                <span class="qs-icon">⚔</span>
+                <span class="qs-label">@slot.Label</span>
+            </button>
+        }
     }
     @foreach (var slot in _fixedSlots)
     {
