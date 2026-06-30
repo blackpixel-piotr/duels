@@ -34,6 +34,12 @@ else
                     <NpcCard Npc="@_state.ActiveNpc" />
                 }
                 <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
+                @if (_state is { InDuel: false, LastOpponentId: { } lastNpc })
+                {
+                    <div class="retry-bar">
+                        <button class="retry-btn" @onclick='() => HandleCommand($"duel {lastNpc}")'>⚔ Retry</button>
+                    </div>
+                }
                 <div class="bottom-bar">
                     <QuickSlotBar State="@_state" OnCommand="HandleCommand" />
                     <TerminalInput OnSubmit="HandleCommand" />

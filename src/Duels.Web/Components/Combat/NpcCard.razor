@@ -3,18 +3,18 @@
 <div class="npc-card">
     @if (Npc is not null)
     {
-        <div class="npc-name">@Npc.Template.Name <span class="npc-level">(level @Npc.Template.CombatLevel)</span></div>
+        <div class="npc-name">@Npc.Template.Name</div>
         <div class="hp-bar-wrap npc-hp-wrap">
             <div class="hp-bar npc-hp-bar" style="width: @HpPercent%"></div>
         </div>
-        <div class="npc-hp-text">@Npc.CurrentHp / @(Npc.Template.Stats.Hitpoints * 10) HP</div>
+        <div class="npc-hp-text">@Npc.CurrentHp / @Npc.MaxHp HP</div>
     }
 </div>
 
 @code {
     [Parameter] public NpcInstance? Npc { get; set; }
 
-    private int HpPercent => Npc is null || Npc.Template.Stats.Hitpoints == 0
+    private int HpPercent => Npc is null || Npc.MaxHp == 0
         ? 0
-        : (int)(Npc.CurrentHp * 100.0 / (Npc.Template.Stats.Hitpoints * 10));
+        : (int)(Npc.CurrentHp * 100.0 / Npc.MaxHp);
 }

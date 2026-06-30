@@ -8,6 +8,7 @@ public sealed class GameState
     public Player Player { get; }
     public NpcInstance? ActiveNpc { get; private set; }
     public bool InDuel => ActiveNpc is { IsAlive: true };
+    public string? LastOpponentId { get; private set; }
     public List<CombatLogEntry> CombatLog { get; } = new();
     public List<string> UnlockedOpponents { get; } = ["swashbuckler"];
 
@@ -19,6 +20,7 @@ public sealed class GameState
 
     public void StartDuel(NpcInstance npc)
     {
+        LastOpponentId = npc.Template.Id;
         ActiveNpc = npc;
         CombatLog.Clear();
     }
