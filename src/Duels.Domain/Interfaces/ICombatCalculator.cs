@@ -16,4 +16,5 @@ public sealed record CombatRollResult(bool Hit, int Damage);
 public interface ICombatCalculator
 {
     CombatRollResult Roll(CombatantSnapshot attacker, CombatantSnapshot defender);
+    int MaxHit(CombatantSnapshot attacker);
 }

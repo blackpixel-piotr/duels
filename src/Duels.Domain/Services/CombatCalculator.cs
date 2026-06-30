@@ -49,7 +49,7 @@ public sealed class CombatCalculator : ICombatCalculator
     }
 
     // OSRS formula: floor(0.5 + effective_strength * (strength_bonus + 64) / 640)
-    private static int MaxHit(CombatantSnapshot s)
+    public int MaxHit(CombatantSnapshot s)
     {
         int effective = s.StrengthLevel + StyleStrengthBonus(s.Style) + 8;
         return (int)(0.5 + effective * (s.Modifiers.StrengthBonus + 64) / 640.0);

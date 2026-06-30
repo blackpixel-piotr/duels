@@ -10,26 +10,29 @@ namespace Duels.Application.Handlers;
 public sealed class AttackHandler : ICommandHandler<AttackCommand>
 {
     private static readonly string[] Ladder =
-        ["bandit", "skeleton", "ghoul", "troll", "dark_mage", "vampire", "orc_warlord", "shadow_dragon"];
+        ["swashbuckler", "barbarian", "desert_bandit", "gladiator", "corsair", "berserker", "warlord", "champion"];
 
     private readonly IGameStateRepository _stateRepo;
     private readonly IItemRepository _itemRepo;
     private readonly INpcRepository _npcRepo;
     private readonly ICombatCalculator _combat;
     private readonly IEventBus _events;
+    private readonly IRandomProvider _random;
 
     public AttackHandler(
         IGameStateRepository stateRepo,
         IItemRepository itemRepo,
         INpcRepository npcRepo,
         ICombatCalculator combat,
-        IEventBus events)
+        IEventBus events,
+        IRandomProvider random)
     {
         _stateRepo = stateRepo;
         _itemRepo = itemRepo;
         _npcRepo = npcRepo;
         _combat = combat;
         _events = events;
+        _random = random;
     }
 
     public async Task<CommandResult> HandleAsync(AttackCommand command, CancellationToken ct = default)
@@ -131,29 +134,38 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
             return false;
         }
 
-        int hits = weaponId == "dragon_dagger" ? 2 : 1;
         var baseSnapshot = BuildPlayerSnapshot(player, AttackStyle.Accurate);
-        var boostedSnapshot = baseSnapshot with { AttackLevel = (int)(baseSnapshot.AttackLevel * 1.15) };
+        var boostedSnapshot = baseSnapshot with { AttackLevel = (int)(baseSnapshot.AttackLevel * spec.AccuracyMultiplier) };
         var npcSnapshot = BuildNpcSnapshot(npc);
 
-        for (int i = 0; i < hits; i++)
+        for (int i = 0; i < spec.Hits; i++)
         {
-            var roll = _combat.Roll(boostedSnapshot, npcSnapshot);
-            string suffix = hits > 1 ? $" (hit {i + 1})" : "";
+            bool forced = i == 1 && spec.SecondHitGuaranteed;
+            var roll = forced
+                ? new CombatRollResult(true, _random.Next(0, _combat.MaxHit(boostedSnapshot) + 1))
+                : _combat.Roll(boostedSnapshot, npcSnapshot);
+
+            string suffix = spec.Hits > 1 ? $" (hit {i + 1})" : "";
             if (roll.Hit)
             {
                 int damage = (int)(roll.Damage * spec.DamageMultiplier);
                 npc.TakeDamage(damage);
-                state.AppendLog($"Special! You hit {npc.Template.Name} for {damage}{suffix}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.PlayerHit);
+                string healMsg = "";
+                if (spec.HealOnHit)
+                {
+                    int healAmount = damage / 2;
+                    player.Heal(healAmount);
+                    healMsg = $" [healed {healAmount}]";
+                }
+                state.AppendLog($"Special! You hit {npc.Template.Name} for {damage}{healMsg}{suffix}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.PlayerHit);
             }
             else
             {
                 state.AppendLog($"Special! You miss {npc.Template.Name}{suffix}.", LogEntryKind.PlayerMiss);
             }
-        }
 
-        if (weaponId == "abyssal_whip")
-            state.AppendLog($"The whip leeches energy from {npc.Template.Name}!", LogEntryKind.System);
+            if (!npc.IsAlive) break;
+        }
 
         return true;
     }

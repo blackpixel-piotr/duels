@@ -42,6 +42,7 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ICommandHandler<HelpCommand>, HelpHandler>();
         services.AddSingleton<ICommandHandler<ShopCommand>, ShopHandler>();
         services.AddSingleton<ICommandHandler<BuyItemCommand>, BuyItemHandler>();
+        services.AddSingleton<ICommandHandler<WeaponShortcutCommand>, WeaponShortcutHandler>();
 
         return services;
     }

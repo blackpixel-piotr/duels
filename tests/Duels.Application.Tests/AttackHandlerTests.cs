@@ -61,7 +61,7 @@ public sealed class AttackHandlerTests
         var events = new StubEventBus();
         var calc = new CombatCalculator(random);
 
-        var handler = new AttackHandler(stateRepo, itemRepo, npcRepo, calc, events);
+        var handler = new AttackHandler(stateRepo, itemRepo, npcRepo, calc, events, random);
         return (handler, state, events);
     }
 
@@ -96,7 +96,7 @@ public sealed class AttackHandlerTests
         var random = new AlwaysHitRandom();
         var itemRepo = new StubItemRepo();
         var dummyNpc = new NpcTemplate("dummy", "Dummy", "", new CombatStats(1,1,1,1), ItemModifiers.Zero, AttackType.Slash, []);
-        var handler = new AttackHandler(stateRepo, itemRepo, new StubNpcRepo(dummyNpc), new CombatCalculator(random), events);
+        var handler = new AttackHandler(stateRepo, itemRepo, new StubNpcRepo(dummyNpc), new CombatCalculator(random), events, random);
 
         var result = await handler.HandleAsync(new AttackCommand("p1", AttackStyle.Accurate));
 

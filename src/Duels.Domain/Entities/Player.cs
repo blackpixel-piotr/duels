@@ -7,10 +7,10 @@ public sealed class Player
     public string Id { get; }
     public string Name { get; }
 
-    public int AttackLevel => 30;
-    public int StrengthLevel => 30;
-    public int DefenceLevel => 30;
-    public int MaxHp => 100;
+    public int AttackLevel => 99;
+    public int StrengthLevel => 99;
+    public int DefenceLevel => 99;
+    public int MaxHp => 99;
 
     public int CurrentHp { get; private set; }
     public int Gold { get; private set; }

@@ -11,6 +11,18 @@ public sealed class CommandParser
     private readonly INpcRepository _npcRepo;
     private readonly IItemRepository _itemRepo;
 
+    private static readonly Dictionary<string, string> Shorthands = new()
+    {
+        ["ags"]    = "armadyl_godsword",
+        ["bgs"]    = "bandos_godsword",
+        ["zgs"]    = "zamorak_godsword",
+        ["sgs"]    = "saradomin_godsword",
+        ["dds"]    = "dragon_dagger",
+        ["claws"]  = "dragon_claws",
+        ["whip"]   = "abyssal_whip",
+        ["scythe"] = "scythe_of_vitur",
+    };
+
     public CommandParser(INpcRepository npcRepo, IItemRepository itemRepo)
     {
         _npcRepo = npcRepo;
@@ -23,28 +35,29 @@ public sealed class CommandParser
             return new ParseResult(false, null, "Empty command.");
 
         var raw = input.Trim();
-        if (!raw.StartsWith('!'))
-            return new ParseResult(false, null, "Commands start with !  (e.g. !attack, !duel goblin)");
+        if (raw.StartsWith('!')) raw = raw[1..];
 
-        var parts = raw[1..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var parts = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0)
             return new ParseResult(false, null, "Empty command.");
 
         var cmd = parts[0].ToLowerInvariant();
         var args = parts[1..];
 
+        // Weapon shorthand or full weapon ID → auto-equip + attack
+        if (Shorthands.TryGetValue(cmd, out var weaponId))
+            return new ParseResult(true, new WeaponShortcutCommand(playerId, weaponId), null);
+        if (_itemRepo.IsWeapon(cmd))
+            return new ParseResult(true, new WeaponShortcutCommand(playerId, cmd), null);
+
         return cmd switch
         {
             "duel" or "fight" or "challenge" => ParseDuel(playerId, args),
-            "attack" or "hit" or "fight" => ParseAttack(playerId, args, AttackStyle.Accurate),
-
-            // weapon aliases — mIRC style
-            "whip" => ParseAttack(playerId, [], AttackStyle.Accurate),
-            "dds" => new ParseResult(true, new AttackCommand(playerId, AttackStyle.Aggressive, UseSpecial: true), null),
+            "attack" or "hit" => ParseAttack(playerId, args, AttackStyle.Accurate),
             "spec" or "special" => new ParseResult(true, new AttackCommand(playerId, AttackStyle.Accurate, UseSpecial: true), null),
 
-            "accurate" => ParseAttack(playerId, [], AttackStyle.Accurate),
-            "aggressive" or "aggro" => ParseAttack(playerId, [], AttackStyle.Aggressive),
+            "accurate" or "acc" => ParseAttack(playerId, [], AttackStyle.Accurate),
+            "aggressive" or "aggro" or "str" => ParseAttack(playerId, [], AttackStyle.Aggressive),
             "defensive" or "def" => ParseAttack(playerId, [], AttackStyle.Defensive),
 
             "shop" or "store" => new ParseResult(true, new ShopCommand(playerId), null),
@@ -62,14 +75,14 @@ public sealed class CommandParser
 
             "help" or "?" => new ParseResult(true, new HelpCommand(playerId), null),
 
-            _ => new ParseResult(false, null, $"Unknown command: !{cmd}. Type !help for a list.")
+            _ => new ParseResult(false, null, $"Unknown command: {cmd}. Type help for a list.")
         };
     }
 
     private ParseResult ParseDuel(string playerId, string[] args)
     {
         if (args.Length == 0)
-            return new ParseResult(false, null, "Usage: !duel <enemy>  (e.g. !duel goblin)");
+            return new ParseResult(false, null, "Usage: duel <enemy>  (e.g. duel swashbuckler)");
 
         var npcId = string.Join("_", args).ToLowerInvariant().Replace(" ", "_");
         return new ParseResult(true, new StartDuelCommand(playerId, npcId), null);
@@ -92,7 +105,7 @@ public sealed class CommandParser
     private static ParseResult ParseBuy(string playerId, string[] args)
     {
         if (args.Length == 0)
-            return new ParseResult(false, null, "Usage: !buy <item_id>  (e.g. !buy iron_sword)");
+            return new ParseResult(false, null, "Usage: buy <item_id>  (e.g. buy rune_scimitar)");
 
         var itemId = string.Join("_", args).ToLowerInvariant();
         return new ParseResult(true, new BuyItemCommand(playerId, itemId), null);
@@ -101,7 +114,7 @@ public sealed class CommandParser
     private ParseResult ParseEquip(string playerId, string[] args)
     {
         if (args.Length == 0)
-            return new ParseResult(false, null, "Usage: !equip <item_id>");
+            return new ParseResult(false, null, "Usage: equip <item_id>");
 
         var itemId = string.Join("_", args).ToLowerInvariant();
         return new ParseResult(true, new EquipItemCommand(playerId, itemId), null);
@@ -110,7 +123,7 @@ public sealed class CommandParser
     private static ParseResult ParseUnequip(string playerId, string[] args)
     {
         if (args.Length == 0)
-            return new ParseResult(false, null, "Usage: !unequip <slot>  (e.g. !unequip weapon)");
+            return new ParseResult(false, null, "Usage: unequip <slot>  (e.g. unequip weapon)");
 
         if (!Enum.TryParse<EquipmentSlot>(args[0], ignoreCase: true, out var slot))
             return new ParseResult(false, null, $"Unknown slot: '{args[0]}'. Slots: {string.Join(", ", Enum.GetNames<EquipmentSlot>())}");

@@ -9,7 +9,7 @@ public sealed class GameState
     public NpcInstance? ActiveNpc { get; private set; }
     public bool InDuel => ActiveNpc is { IsAlive: true };
     public List<CombatLogEntry> CombatLog { get; } = new();
-    public List<string> UnlockedOpponents { get; } = ["bandit"];
+    public List<string> UnlockedOpponents { get; } = ["swashbuckler"];
 
     public GameState(string playerId, Player player)
     {

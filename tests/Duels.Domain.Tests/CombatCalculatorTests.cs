@@ -92,10 +92,25 @@ public sealed class CombatCalculatorTests
     public void Player_BaseStats_AreFixed()
     {
         var player = new Entities.Player("id", "Test");
-        Assert.Equal(30, player.AttackLevel);
-        Assert.Equal(30, player.StrengthLevel);
-        Assert.Equal(30, player.DefenceLevel);
-        Assert.Equal(100, player.MaxHp);
+        Assert.Equal(99, player.AttackLevel);
+        Assert.Equal(99, player.StrengthLevel);
+        Assert.Equal(99, player.DefenceLevel);
+        Assert.Equal(99, player.MaxHp);
+    }
+
+    [Fact]
+    public void MaxHit_AtMaxStats_ReturnsExpectedValue()
+    {
+        // 99 Str + Aggressive (+3) + 8 = 110 effective; str bonus 66 (rune scimitar)
+        // MaxHit = floor(0.5 + 110 * (66 + 64) / 640) = floor(0.5 + 110 * 130 / 640) = floor(0.5 + 22.34) = 22
+        var random = new FixedRandom([], []);
+        var calc = new CombatCalculator(random);
+        var snapshot = new CombatantSnapshot(99, 99, 1,
+            new ItemModifiers(StrengthBonus: 66), AttackType.Slash, AttackStyle.Aggressive);
+
+        int maxHit = calc.MaxHit(snapshot);
+
+        Assert.Equal(22, maxHit);
     }
 
     [Fact]

@@ -39,7 +39,7 @@ public sealed class StartDuelHandler : ICommandHandler<StartDuelCommand>
         state.StartDuel(npc);
 
         state.AppendLog($"═══ DUEL STARTED ═══", LogEntryKind.System);
-        state.AppendLog($"You challenge {template.Name} (level {template.CombatLevel})!", LogEntryKind.System);
+        state.AppendLog($"You challenge {template.Name} ({npc.MaxHp} HP)!", LogEntryKind.System);
         state.AppendLog($"{template.ExamineText}", LogEntryKind.Info);
         state.AppendLog($"Type !attack, !spec, or use a quickslot to fight.", LogEntryKind.System);
 

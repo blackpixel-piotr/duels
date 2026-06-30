@@ -35,7 +35,7 @@ else
                 }
                 <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
                 <div class="bottom-bar">
-                    <QuickSlotBar OnCommand="HandleCommand" />
+                    <QuickSlotBar State="@_state" OnCommand="HandleCommand" />
                     <TerminalInput OnSubmit="HandleCommand" />
                 </div>
             </div>
