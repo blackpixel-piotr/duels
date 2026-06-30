@@ -16,6 +16,11 @@
 }
 else
 {
+    @if (_showOverlay)
+    {
+        <AttackTraceOverlay WeaponId="@_overlayWeaponId" OnComplete="OnOverlayComplete" />
+    }
+
     <div class="game-wrapper">
         <nav class="mobile-tabs">
             <button class="mobile-tab @(_tab == "combat"    ? "active" : "")" @onclick='() => _tab = "combat"'>Combat</button>
@@ -34,6 +39,12 @@ else
                     <NpcCard Npc="@_state.ActiveNpc" />
                 }
                 <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
+                @if (_state is { InDuel: false, LastOpponentId: { } lastNpc })
+                {
+                    <div class="retry-bar">
+                        <button class="retry-btn" @onclick='() => HandleCommand($"duel {lastNpc}")'>⚔ Retry</button>
+                    </div>
+                }
                 <div class="bottom-bar">
                     <QuickSlotBar State="@_state" OnCommand="HandleCommand" />
                     <TerminalInput OnSubmit="HandleCommand" />
@@ -51,6 +62,32 @@ else
     private GameState? _state;
     private string _tab = "combat";
 
+    private bool _showOverlay;
+    private string _overlayWeaponId = "";
+    private string? _pendingCommand;
+
+    private static readonly HashSet<string> _attackCommands = new(StringComparer.OrdinalIgnoreCase)
+        { "attack", "hit", "accurate", "acc", "aggressive", "aggro", "str", "defensive", "def", "spec", "special" };
+
+    private static readonly Dictionary<string, string> _shorthands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ags"]    = "armadyl_godsword",
+        ["bgs"]    = "bandos_godsword",
+        ["zgs"]    = "zamorak_godsword",
+        ["sgs"]    = "saradomin_godsword",
+        ["dds"]    = "dragon_dagger",
+        ["claws"]  = "dragon_claws",
+        ["whip"]   = "abyssal_whip",
+        ["scythe"] = "scythe_of_vitur",
+    };
+
+    private static readonly HashSet<string> _weaponIds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "rune_scimitar", "dragon_scimitar", "dragon_dagger", "abyssal_whip",
+        "armadyl_sword", "dragon_claws", "bandos_godsword", "zamorak_godsword",
+        "saradomin_godsword", "armadyl_godsword", "scythe_of_vitur",
+    };
+
     protected override async Task OnInitializedAsync()
     {
         if (!GameSvc.IsStarted)
@@ -67,8 +104,49 @@ else
     private async Task HandleCommand(string command)
     {
         if (string.IsNullOrWhiteSpace(command)) return;
+
+        if (_state?.InDuel == true && IsAttackCommand(command))
+        {
+            _pendingCommand = command;
+            _overlayWeaponId = ResolveWeaponId(command) ?? _state.Player.GetEquippedWeaponId() ?? "";
+            _showOverlay = true;
+            return;
+        }
+
         await GameSvc.ExecuteCommandAsync(command);
         _tab = "combat";
+    }
+
+    private async Task OnOverlayComplete(int accuracy)
+    {
+        _showOverlay = false;
+        var pending = _pendingCommand;
+        _pendingCommand = null;
+
+        if (pending is not null)
+            await GameSvc.ExecuteCommandWithAccuracyAsync(pending, accuracy);
+
+        _tab = "combat";
+    }
+
+    private static bool IsAttackCommand(string command)
+    {
+        var raw = command.Trim();
+        if (raw.StartsWith('!')) raw = raw[1..];
+        var cmd = raw.Split(' ', 2)[0].ToLowerInvariant();
+        return _attackCommands.Contains(cmd)
+            || _shorthands.ContainsKey(cmd)
+            || _weaponIds.Contains(cmd);
+    }
+
+    private static string? ResolveWeaponId(string command)
+    {
+        var raw = command.Trim();
+        if (raw.StartsWith('!')) raw = raw[1..];
+        var cmd = raw.Split(' ', 2)[0].ToLowerInvariant();
+        if (_shorthands.TryGetValue(cmd, out var id)) return id;
+        if (_weaponIds.Contains(cmd)) return cmd;
+        return null;
     }
 
     public void Dispose()

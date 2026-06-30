@@ -28,6 +28,15 @@
             const el = document.getElementById(id);
             if (el) el.focus();
         };
+        window.getSvgRect = (id) => {
+            const el = document.getElementById(id);
+            if (!el) return [0, 0, 400, 300];
+            const r = el.getBoundingClientRect();
+            return [r.left, r.top, r.width, r.height];
+        };
+        window.scheduleTraceTimeout = (dotnet, ms) => {
+            setTimeout(() => { try { dotnet.invokeMethodAsync('TimerExpired'); } catch {} }, ms);
+        };
     </script>
 </body>
 </html>

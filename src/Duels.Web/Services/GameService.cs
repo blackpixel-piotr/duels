@@ -50,6 +50,26 @@ public sealed class GameService
         return result;
     }
 
+    public async Task<CommandResult> ExecuteCommandWithAccuracyAsync(string input, int accuracy)
+    {
+        if (PlayerId is null) return CommandResult.Fail("No active game.");
+
+        var parsed = _parser.Parse(PlayerId, input);
+        if (!parsed.Success || parsed.Command is null)
+            return CommandResult.Fail(parsed.Error ?? "Parse error.");
+
+        Application.Abstractions.IGameCommand cmd = parsed.Command switch
+        {
+            AttackCommand ac      => ac with { SkillAccuracy = accuracy },
+            WeaponShortcutCommand ws => ws with { SkillAccuracy = accuracy },
+            _                    => parsed.Command,
+        };
+
+        var result = await _dispatcher.DispatchAsync((dynamic)cmd);
+        NotifyStateChanged();
+        return result;
+    }
+
     public async Task<GameState?> GetStateAsync() =>
         PlayerId is null ? null : await _stateRepo.GetAsync(PlayerId);
 
