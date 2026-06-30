@@ -49,6 +49,6 @@ public sealed class WeaponShortcutHandler : ICommandHandler<WeaponShortcutComman
         var weapon = _itemRepo.GetWeapon(command.WeaponId);
         bool useSpec = weapon?.Special is not null;
         return await _dispatcher.DispatchAsync(
-            new AttackCommand(command.PlayerId, AttackStyle.Accurate, UseSpecial: useSpec), ct);
+            new AttackCommand(command.PlayerId, AttackStyle.Accurate, UseSpecial: useSpec, SkillAccuracy: command.SkillAccuracy), ct);
     }
 }

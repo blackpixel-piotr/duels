@@ -423,6 +423,111 @@ html, body {
     .new-game-box { padding: 28px 20px; }
 }
 
+/* ─── Retry bar ─── */
+.retry-bar {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    padding: 4px 0;
+}
+.retry-btn {
+    background: transparent;
+    border: 1px solid var(--amber);
+    color: var(--amber);
+    font-family: var(--font);
+    font-size: 13px;
+    padding: 6px 20px;
+    cursor: pointer;
+    border-radius: var(--radius);
+    letter-spacing: 0.5px;
+    transition: background 0.15s;
+}
+.retry-btn:hover { background: rgba(255,160,0,0.12); }
+
+/* ─── Equipped quickslot highlight ─── */
+.qs-equipped { border-color: var(--amber) !important; color: var(--amber) !important; }
+
+/* ─── Attack trace overlay ─── */
+.trace-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    background: rgba(0, 0, 0, 0.82);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+    user-select: none;
+}
+.trace-container {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    width: min(96vw, 480px);
+}
+.trace-label {
+    color: var(--amber);
+    font-family: var(--font);
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+.trace-svg {
+    width: 100%;
+    max-width: 420px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.03);
+    border-radius: var(--radius);
+    touch-action: none;
+}
+.trace-svg path.ideal {
+    stroke: rgba(255, 255, 255, 0.25);
+    stroke-width: 10;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.trace-svg polyline.traced {
+    stroke: #ffd700;
+    stroke-width: 7;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.guide-dot {
+    fill: #ffffff;
+    filter: drop-shadow(0 0 6px #fff);
+    offset-anchor: center;
+}
+@keyframes travel {
+    from { offset-distance: 0%; }
+    to   { offset-distance: 100%; }
+}
+.accuracy-flash {
+    position: absolute;
+    bottom: -10px;
+    font-size: 2.8rem;
+    font-weight: bold;
+    font-family: var(--font);
+    animation: flash 0.9s ease-out forwards;
+    pointer-events: none;
+}
+.acc-great { color: #4caf50; }
+.acc-ok    { color: var(--amber); }
+.acc-miss  { color: var(--red); }
+@keyframes flash {
+    0%   { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.8); }
+}
+.trace-hint {
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 11px;
+    letter-spacing: 1px;
+}
+
 /* ─── Blazor error UI ─── */
 #blazor-error-ui {
     background: #1a0000;

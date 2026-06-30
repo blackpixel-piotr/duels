@@ -48,19 +48,32 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
 
         if (command.UseSpecial)
         {
-            npcRetaliates = PerformSpecialAttack(state, player, npc);
+            npcRetaliates = PerformSpecialAttack(state, player, npc, command.SkillAccuracy);
         }
         else
         {
             var playerSnapshot = BuildPlayerSnapshot(player, command.Style);
             var npcSnapshot = BuildNpcSnapshot(npc);
-            var roll = _combat.Roll(playerSnapshot, npcSnapshot);
 
-            if (roll.Hit)
+            int damage;
+            bool hit;
+            if (command.SkillAccuracy is { } acc)
             {
-                npc.TakeDamage(roll.Damage);
-                state.AppendLog($"You hit {npc.Template.Name} for {roll.Damage} damage. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.PlayerHit);
-                await _events.PublishAsync(new AttackLanded(player.Id, npc.Template.Id, roll.Damage), ct);
+                damage = AccuracyToDamage(acc, _combat.MaxHit(playerSnapshot));
+                hit = damage > 0;
+            }
+            else
+            {
+                var roll = _combat.Roll(playerSnapshot, npcSnapshot);
+                damage = roll.Damage;
+                hit = roll.Hit;
+            }
+
+            if (hit)
+            {
+                npc.TakeDamage(damage);
+                state.AppendLog($"You hit {npc.Template.Name} for {damage} damage. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.PlayerHit);
+                await _events.PublishAsync(new AttackLanded(player.Id, npc.Template.Id, damage), ct);
             }
             else
             {
@@ -116,7 +129,10 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
         return CommandResult.Ok();
     }
 
-    private bool PerformSpecialAttack(GameState state, Domain.Entities.Player player, Domain.Entities.NpcInstance npc)
+    private static int AccuracyToDamage(int acc, int maxHit) =>
+        acc < 40 ? 0 : (int)(maxHit * (acc - 40) / 60.0);
+
+    private bool PerformSpecialAttack(GameState state, Domain.Entities.Player player, Domain.Entities.NpcInstance npc, int? skillAccuracy = null)
     {
         var weaponId = player.GetEquippedWeaponId();
         var weapon = weaponId is not null ? _itemRepo.GetWeapon(weaponId) : null;
@@ -141,14 +157,27 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
         for (int i = 0; i < spec.Hits; i++)
         {
             bool forced = i == 1 && spec.SecondHitGuaranteed;
-            var roll = forced
-                ? new CombatRollResult(true, _random.Next(0, _combat.MaxHit(boostedSnapshot) + 1))
-                : _combat.Roll(boostedSnapshot, npcSnapshot);
+
+            bool hit;
+            int damage;
+            if (skillAccuracy is { } acc)
+            {
+                int baseMax = (int)(_combat.MaxHit(boostedSnapshot) * spec.DamageMultiplier);
+                damage = AccuracyToDamage(acc, baseMax);
+                hit = damage > 0;
+            }
+            else
+            {
+                var roll = forced
+                    ? new CombatRollResult(true, _random.Next(0, _combat.MaxHit(boostedSnapshot) + 1))
+                    : _combat.Roll(boostedSnapshot, npcSnapshot);
+                damage = (int)(roll.Damage * spec.DamageMultiplier);
+                hit = roll.Hit;
+            }
 
             string suffix = spec.Hits > 1 ? $" (hit {i + 1})" : "";
-            if (roll.Hit)
+            if (hit)
             {
-                int damage = (int)(roll.Damage * spec.DamageMultiplier);
                 npc.TakeDamage(damage);
                 string healMsg = "";
                 if (spec.HealOnHit)
