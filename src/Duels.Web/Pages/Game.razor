@@ -9,6 +9,7 @@
 @using Duels.Web.Components.Terminal
 @using Duels.Web.Components.QuickSlots
 @using Duels.Web.Components.Inventory
+@using Duels.Web.Components.Shop
 
 @if (!GameSvc.IsStarted)
 {
@@ -22,6 +23,13 @@ else
             <button class="mobile-tab @(_tab == "stats"     ? "active" : "")" @onclick='() => _tab = "stats"'>Stats</button>
             <button class="mobile-tab @(_tab == "inventory" ? "active" : "")" @onclick='() => _tab = "inventory"'>Items</button>
         </nav>
+
+        @if (_shopOpen)
+        {
+            <ShopModal State="@_state"
+                       OnClose="@(() => { _shopOpen = false; StateHasChanged(); })"
+                       OnBuy="HandleBuy" />
+        }
 
         <div class="game-layout tab-@_tab">
             <div class="game-left">
@@ -56,6 +64,7 @@ else
 @code {
     private GameState? _state;
     private string _tab = "combat";
+    private bool _shopOpen = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -73,8 +82,17 @@ else
     private async Task HandleCommand(string command)
     {
         if (string.IsNullOrWhiteSpace(command)) return;
+        var verb = command.Trim().TrimStart('!').Split(' ', 2)[0].ToLowerInvariant();
+        if (verb is "shop" or "store") { _shopOpen = true; StateHasChanged(); return; }
         await GameSvc.ExecuteCommandAsync(command);
         _tab = "combat";
+    }
+
+    private async Task HandleBuy(string buyCmd)
+    {
+        await GameSvc.ExecuteCommandAsync(buyCmd);
+        _state = await GameSvc.GetStateAsync();
+        StateHasChanged();
     }
 
     public void Dispose()

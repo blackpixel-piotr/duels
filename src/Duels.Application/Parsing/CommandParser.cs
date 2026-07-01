@@ -118,10 +118,17 @@ public sealed class CommandParser
     private static ParseResult ParseBuy(string playerId, string[] args)
     {
         if (args.Length == 0)
-            return new ParseResult(false, null, "Usage: buy <item_id>  (e.g. buy rune_scimitar)");
+            return new ParseResult(false, null, "Usage: buy <item_id> [qty]  (e.g. buy shark 5)");
 
-        var itemId = string.Join("_", args).ToLowerInvariant();
-        return new ParseResult(true, new BuyItemCommand(playerId, itemId), null);
+        int qty = 1;
+        var parts = args;
+        if (args.Length > 1 && int.TryParse(args[^1], out int parsed) && parsed > 0)
+        {
+            qty = parsed;
+            parts = args[..^1];
+        }
+        var itemId = string.Join("_", parts).ToLowerInvariant();
+        return new ParseResult(true, new BuyItemCommand(playerId, itemId, qty), null);
     }
 
     private ParseResult ParseEquip(string playerId, string[] args)

@@ -1,0 +1,112 @@
+@using Duels.Application.GameSession
+
+<div class="shop-overlay" @onclick="OnClose">
+    <div class="shop-panel" @onclick:stopPropagation>
+        <div class="shop-header">
+            <span class="shop-title">Shop</span>
+            <span class="shop-gold">@(State?.Player?.Gold.ToString("N0") ?? "0") gp</span>
+            <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
+        </div>
+
+        <div class="shop-tabs">
+            <button class="shop-tab @(_tab == "weapons" ? "active" : "")" @onclick='() => SetTab("weapons")'>Weapons</button>
+            <button class="shop-tab @(_tab == "food"    ? "active" : "")" @onclick='() => SetTab("food")'>Food</button>
+            <button class="shop-tab @(_tab == "potions" ? "active" : "")" @onclick='() => SetTab("potions")'>Potions</button>
+        </div>
+
+        <div class="shop-qty-row">
+            @foreach (var q in _quantities)
+            {
+                var qLocal = q;
+                <button class="shop-qty @(_qty == qLocal ? "active" : "")"
+                        @onclick="() => { _qty = qLocal; _confirmItemId = null; }">×@qLocal</button>
+            }
+        </div>
+
+        <div class="shop-grid">
+            @foreach (var item in CurrentItems())
+            {
+                var itemLocal = item;
+                @if (_confirmItemId == item.Id)
+                {
+                    <div class="shop-confirm-cell">
+                        <span class="shop-cell-name">@item.Name</span>
+                        <span class="shop-cell-price">@((item.Price * _qty).ToString("N0"))g</span>
+                        <button class="shop-confirm-btn" @onclick="() => ExecuteBuy(itemLocal)">Confirm</button>
+                        <button class="shop-cancel-btn"  @onclick="() => _confirmItemId = null">Cancel</button>
+                    </div>
+                }
+                else
+                {
+                    <button class="shop-cell" @onclick="() => OnCellClick(itemLocal)"
+                            title="@item.Name — @item.Price.ToString("N0")g">
+                        <span class="shop-cell-icon">@item.Icon</span>
+                        <span class="shop-cell-name">@item.Name</span>
+                        <span class="shop-cell-price">@item.Price.ToString("N0")g</span>
+                    </button>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<string> OnBuy { get; set; }
+
+    private string _tab = "weapons";
+    private int _qty = 1;
+    private string? _confirmItemId = null;
+    private static readonly int[] _quantities = [1, 5, 10];
+
+    private sealed record ShopItem(string Id, string Name, int Price, string Icon, bool NeedsConfirm = false);
+
+    private static readonly ShopItem[] _weapons =
+    [
+        new("rune_scimitar",      "Rune Scim",    200,    "⚔"),
+        new("dragon_scimitar",    "D Scim",       600,    "⚔"),
+        new("dragon_dagger",      "D Dagger",     800,    "⚔"),
+        new("abyssal_whip",       "Whip",         2_500,  "⚔"),
+        new("armadyl_sword",      "A Sword",      5_000,  "⚔"),
+        new("dragon_claws",       "D Claws",      15_000, "⚔"),
+        new("bandos_godsword",    "BGS",          30_000, "⚔"),
+        new("zamorak_godsword",   "ZGS",          40_000, "⚔"),
+        new("saradomin_godsword", "SGS",          50_000, "⚔"),
+        new("armadyl_godsword",   "AGS",          65_000, "⚔", NeedsConfirm: true),
+        new("scythe_of_vitur",    "Scythe",      150_000, "⚔", NeedsConfirm: true),
+    ];
+
+    private static readonly ShopItem[] _food =
+    [
+        new("karambwan",  "Karambwan", 200, "🦑"),
+        new("shark",      "Shark",     500, "🦈"),
+        new("anglerfish", "Angler",    700, "🐟"),
+    ];
+
+    private static readonly ShopItem[] _potions =
+    [
+        new("super_combat_potion", "Super Cbt", 1_000, "⚗"),
+    ];
+
+    private ShopItem[] CurrentItems() => _tab switch
+    {
+        "food"    => _food,
+        "potions" => _potions,
+        _         => _weapons,
+    };
+
+    private void SetTab(string tab) { _tab = tab; _confirmItemId = null; }
+
+    private async Task OnCellClick(ShopItem item)
+    {
+        if (item.NeedsConfirm) { _confirmItemId = item.Id; return; }
+        await ExecuteBuy(item);
+    }
+
+    private async Task ExecuteBuy(ShopItem item)
+    {
+        _confirmItemId = null;
+        await OnBuy.InvokeAsync($"buy {item.Id} {_qty}");
+    }
+}
