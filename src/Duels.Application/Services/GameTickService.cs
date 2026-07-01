@@ -89,6 +89,14 @@ public sealed class GameTickService : IDisposable
             int speed = GetPlayerWeaponSpeed(player);
             state.ResetPlayerCooldown(speed);
             state.SetQueuedAction(null);
+
+            // Revert to previous weapon after a one-shot weapon switch
+            if (state.RevertWeaponId is { } revertId)
+            {
+                if (player.HasItem(revertId))
+                    player.Equip(revertId, EquipmentSlot.Weapon);
+                state.SetRevertWeapon(null);
+            }
         }
 
         // Check if NPC died from player attack
