@@ -625,6 +625,101 @@ html, body {
 }
 .shop-cancel-btn:hover { color: var(--red); border-color: var(--red); }
 
+/* ─── NPC Ladder modal ─── */
+.ladder-overlay {
+    position: fixed; inset: 0;
+    background: rgba(10,8,5,0.82);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+}
+.ladder-panel {
+    background: var(--bg-panel);
+    border: var(--border-w) double var(--border);
+    box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
+    width: min(560px, 96vw);
+    max-height: 90dvh;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+}
+.ladder-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.ladder-title { color: var(--amber); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; flex: 1; }
+.ladder-gold  { color: var(--yellow); font-size: 12px; }
+
+/* Wager row */
+.ladder-wager-row {
+    display: flex; align-items: center; gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0; flex-wrap: wrap;
+}
+.ladder-wager-label { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
+.ladder-wager-input {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--green);
+    font-family: var(--font); font-size: 12px;
+    padding: 3px 6px; border-radius: 0; outline: none; width: 84px;
+    -moz-appearance: textfield;
+}
+.ladder-wager-input::-webkit-outer-spin-button,
+.ladder-wager-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.ladder-wager-input:focus { border-color: var(--amber); box-shadow: 0 0 0 2px rgba(201,135,14,0.25); }
+.ladder-wager-input.wager-invalid { border-color: var(--red); color: var(--red); }
+.ladder-bet-btn {
+    background: linear-gradient(160deg, #2e2518, #1e160d);
+    border: 1px solid var(--border); color: var(--text-dim);
+    font-family: var(--font); font-size: 10px; padding: 3px 8px;
+    cursor: pointer; border-radius: 0; touch-action: manipulation;
+}
+.ladder-bet-btn:hover { border-color: var(--amber); color: var(--amber); }
+.ladder-bet-max       { border-color: var(--yellow); color: var(--yellow); }
+.ladder-bet-max:hover { background: rgba(255,215,0,0.08); }
+
+/* Grid */
+.ladder-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 6px; padding: 8px; overflow-y: auto;
+}
+
+/* Card — shared */
+.ladder-card {
+    display: flex; flex-direction: column; align-items: center;
+    border: 1px solid var(--border);
+    padding: 8px 4px; gap: 4px;
+    min-height: 120px;
+}
+.ladder-stage { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* Locked card */
+.ladder-locked   { background: #120e0a; }
+.ladder-lock-icon   { font-size: 22px; margin: auto 0; }
+.ladder-locked-text { font-size: 9px; color: var(--text-dim); }
+
+/* Unlocked card */
+.ladder-unlocked { background: var(--bg); }
+.ladder-npc-name { color: var(--amber); font-size: 10px; text-align: center; font-weight: bold; line-height: 1.3; }
+.ladder-stats    { display: flex; gap: 8px; font-size: 9px; color: var(--text-dim); }
+.ladder-reward   { font-size: 9px; color: var(--yellow); }
+.ladder-fight-btn {
+    margin-top: auto; width: 100%;
+    background: linear-gradient(160deg, #2e2518, #1e160d);
+    border: 1px solid var(--green); color: var(--green);
+    font-family: var(--font); font-size: 10px; padding: 4px 0;
+    cursor: pointer; border-radius: 0; touch-action: manipulation;
+    transition: background 0.1s;
+}
+.ladder-fight-btn:hover  { background: rgba(57,211,57,0.12); }
+.ladder-fight-btn:active { transform: translateY(1px); }
+
+@media (max-width: 400px) {
+    .ladder-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
 /* ─── Blazor error UI ─── */
 #blazor-error-ui {
     background: #1a0000;

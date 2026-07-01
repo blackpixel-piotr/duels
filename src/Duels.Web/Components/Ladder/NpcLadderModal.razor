@@ -1,0 +1,112 @@
+@using Duels.Application.GameSession
+
+<div class="ladder-overlay" @onclick="OnClose">
+    <div class="ladder-panel" @onclick:stopPropagation>
+
+        <div class="ladder-header">
+            <span class="ladder-title">Duel Arena</span>
+            <span class="ladder-gold">@(State?.Player?.Gold.ToString("N0") ?? "0") gp</span>
+            <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
+        </div>
+
+        <div class="ladder-wager-row">
+            <span class="ladder-wager-label">Set Active Stake</span>
+            <input class="ladder-wager-input @(_wagerTooHigh ? "wager-invalid" : "")"
+                   type="number" min="0"
+                   value="@_wagerStr"
+                   @oninput="OnWagerInput"
+                   placeholder="0" />
+            <button class="ladder-bet-btn" @onclick="() => AddWager(1_000)">+1k</button>
+            <button class="ladder-bet-btn" @onclick="() => AddWager(10_000)">+10k</button>
+            <button class="ladder-bet-btn" @onclick="() => AddWager(100_000)">+100k</button>
+            <button class="ladder-bet-btn ladder-bet-max" @onclick="() => SetWager(MaxGold)">Max</button>
+        </div>
+
+        <div class="ladder-grid">
+            @foreach (var npc in _ladder)
+            {
+                var npcLocal = npc;
+                bool unlocked = State?.UnlockedOpponents.Contains(npc.Id) ?? false;
+                <div class="ladder-card @(unlocked ? "ladder-unlocked" : "ladder-locked")">
+                    <div class="ladder-stage">@(npc.Stage == 0 ? "Starter" : $"Stage {npc.Stage}")</div>
+                    @if (unlocked)
+                    {
+                        <div class="ladder-npc-name">@npc.Name</div>
+                        <div class="ladder-stats">
+                            <span>Lvl @npc.CombatLevel</span>
+                            <span>HP @npc.Hp</span>
+                        </div>
+                        <div class="ladder-reward">@npc.GoldReward.ToString("N0")g</div>
+                        <button class="ladder-fight-btn" @onclick="() => Fight(npcLocal)">⚔ Fight</button>
+                    }
+                    else
+                    {
+                        <div class="ladder-lock-icon">🔒</div>
+                        <div class="ladder-locked-text">LOCKED</div>
+                    }
+                </div>
+            }
+        </div>
+
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<string> OnDuel { get; set; }
+
+    private int    _wager        = 0;
+    private string _wagerStr     = "0";
+    private bool   _wagerTooHigh = false;
+
+    private int MaxGold => State?.Player?.Gold ?? 0;
+
+    private sealed record LadderNpc(
+        string Id, string Name, int Stage,
+        int CombatLevel, int Hp, int GoldReward);
+
+    private static readonly LadderNpc[] _ladder =
+    [
+        new("goblin",            "Arena Goblin",        0,   3,   10,       5),
+        new("swashbuckler",      "Swashbuckler Pete",   1, 101,   50,      30),
+        new("barbarian",         "Iron Barbarian",      2, 105,   65,     100),
+        new("desert_bandit",     "Desert Bandit",       3, 106,   70,     300),
+        new("gladiator",         "Arena Gladiator",     4, 109,   80,   1_000),
+        new("corsair",           "Pirate Corsair",      5, 110,   85,   3_500),
+        new("berserker",         "Frenzied Berserker",  6, 111,   90,  12_000),
+        new("warlord",           "Battle Warlord",      7, 112,   95,  40_000),
+        new("champion",          "Duel Champion",       8, 113,   99, 120_000),
+    ];
+
+    private void SetWager(int value)
+    {
+        _wager        = Math.Clamp(value, 0, MaxGold);
+        _wagerStr     = _wager.ToString();
+        _wagerTooHigh = false;
+    }
+
+    private void AddWager(int amount) => SetWager(_wager + amount);
+
+    private void OnWagerInput(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int v) && v >= 0)
+        {
+            _wagerTooHigh = v > MaxGold;
+            _wager        = Math.Min(v, MaxGold);
+            _wagerStr     = v.ToString();
+        }
+        else
+        {
+            _wager        = 0;
+            _wagerStr     = "0";
+            _wagerTooHigh = false;
+        }
+    }
+
+    private async Task Fight(LadderNpc npc)
+    {
+        var cmd = _wager > 0 ? $"duel {npc.Id} {_wager}" : $"duel {npc.Id}";
+        await OnDuel.InvokeAsync(cmd);
+    }
+}

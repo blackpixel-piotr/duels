@@ -10,6 +10,7 @@
 @using Duels.Web.Components.QuickSlots
 @using Duels.Web.Components.Inventory
 @using Duels.Web.Components.Shop
+@using Duels.Web.Components.Ladder
 
 @if (!GameSvc.IsStarted)
 {
@@ -29,6 +30,13 @@ else
             <ShopModal State="@_state"
                        OnClose="@(() => { _shopOpen = false; StateHasChanged(); })"
                        OnBuy="HandleBuy" />
+        }
+
+        @if (_ladderOpen)
+        {
+            <NpcLadderModal State="@_state"
+                            OnClose="@(() => { _ladderOpen = false; StateHasChanged(); })"
+                            OnDuel="HandleDuel" />
         }
 
         <div class="game-layout tab-@_tab">
@@ -64,7 +72,8 @@ else
 @code {
     private GameState? _state;
     private string _tab = "combat";
-    private bool _shopOpen = false;
+    private bool _shopOpen   = false;
+    private bool _ladderOpen = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -83,7 +92,8 @@ else
     {
         if (string.IsNullOrWhiteSpace(command)) return;
         var verb = command.Trim().TrimStart('!').Split(' ', 2)[0].ToLowerInvariant();
-        if (verb is "shop" or "store") { _shopOpen = true; StateHasChanged(); return; }
+        if (verb is "shop" or "store")               { _shopOpen   = true; StateHasChanged(); return; }
+        if (verb is "npcs" or "enemies" or "list")   { _ladderOpen = true; StateHasChanged(); return; }
         await GameSvc.ExecuteCommandAsync(command);
         _tab = "combat";
     }
@@ -91,6 +101,15 @@ else
     private async Task HandleBuy(string buyCmd)
     {
         await GameSvc.ExecuteCommandAsync(buyCmd);
+        _state = await GameSvc.GetStateAsync();
+        StateHasChanged();
+    }
+
+    private async Task HandleDuel(string duelCmd)
+    {
+        _ladderOpen = false;
+        await GameSvc.ExecuteCommandAsync(duelCmd);
+        _tab   = "combat";
         _state = await GameSvc.GetStateAsync();
         StateHasChanged();
     }
