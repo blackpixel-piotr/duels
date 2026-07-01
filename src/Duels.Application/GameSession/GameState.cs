@@ -164,4 +164,6 @@ public enum LogEntryKind
     Vengeance,
     Prayer,
     BossSpecial,
+    HitsplatPlayer,
+    HitsplatNpc,
 }
