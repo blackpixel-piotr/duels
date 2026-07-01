@@ -18,6 +18,14 @@ public sealed class InMemoryNpcRepository : INpcRepository
 
     private static IEnumerable<NpcTemplate> BuildNpcs() =>
     [
+        new("goblin", "Arena Goblin",
+            "A pitiful creature. No shame in starting here.",
+            new CombatStats(1, 1, 1, 10),
+            new ItemModifiers(),
+            AttackType.Slash,
+            [],
+            goldReward: 5),
+
         new("swashbuckler", "Swashbuckler Pete",
             "A quick pirate with a cutlass.",
             new CombatStats(99, 99, 99, 50),
@@ -81,5 +89,21 @@ public sealed class InMemoryNpcRepository : INpcRepository
             AttackType.Slash,
             [],
             goldReward: 120_000),
+
+        new("rare_tourist", "Wealthy Tourist",
+            "Lost in the wrong part of the arena. Very wealthy.",
+            new CombatStats(99, 99, 99, 55),
+            new ItemModifiers(SlashAttack: 20, StrengthBonus: 20),
+            AttackType.Slash,
+            [],
+            goldReward: 8_000),
+
+        new("rare_gladiator", "Corrupted Gladiator",
+            "A former champion, twisted by dark magic. Drops a unique weapon.",
+            new CombatStats(99, 99, 99, 80),
+            new ItemModifiers(SlashAttack: 90, StrengthBonus: 90),
+            AttackType.Slash,
+            [],
+            goldReward: 0),
     ];
 }

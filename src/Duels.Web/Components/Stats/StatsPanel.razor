@@ -4,6 +4,10 @@
     <div class="panel-title">Character</div>
     @if (State?.Player is { } p)
     {
+        @if (p.PrestigeLevel > 0)
+        {
+            <div class="stat-phat stat-phat-@p.PrestigeLevel">@PhatLabel(p.PrestigeLevel)</div>
+        }
         <div class="stat-name">@p.Name</div>
         <div class="stat-row">
             <span class="stat-label">HP</span>
@@ -12,10 +16,14 @@
             </div>
             <span class="stat-val">@p.CurrentHp / @p.MaxHp</span>
         </div>
-        <div class="stat-row"><span class="stat-label">Atk</span><span class="stat-val">@p.AttackLevel</span></div>
-        <div class="stat-row"><span class="stat-label">Str</span><span class="stat-val">@p.StrengthLevel</span></div>
+        <div class="stat-row"><span class="stat-label">Atk</span><span class="stat-val">@BoostVal(p.AttackLevel, p.CombatBoostRoundsLeft)</span></div>
+        <div class="stat-row"><span class="stat-label">Str</span><span class="stat-val">@BoostVal(p.StrengthLevel, p.CombatBoostRoundsLeft)</span></div>
         <div class="stat-row"><span class="stat-label">Def</span><span class="stat-val">@p.DefenceLevel</span></div>
         <div class="stat-row"><span class="stat-label">Gold</span><span class="stat-val">@p.Gold gp</span></div>
+        @if (p.CombatBoostRoundsLeft > 0)
+        {
+            <div class="stat-row"><span class="stat-label">Boost</span><span class="stat-val stat-boosted">@p.CombatBoostRoundsLeft rds</span></div>
+        }
         <div class="stat-row">
             <span class="stat-label">Special</span>
             <div class="spec-bar-wrap">
@@ -23,6 +31,22 @@
             </div>
             <span class="stat-val">@p.SpecialEnergy%</span>
         </div>
+        @if (State.WinStreak > 1)
+        {
+            <div class="stat-row"><span class="stat-label">Streak</span><span class="stat-val stat-streak">@State.WinStreak ×@(State.WinStreakMultiplier.ToString("F1"))</span></div>
+        }
+        @if (State.VengActive)
+        {
+            <div class="stat-row"><span class="stat-label">Veng</span><span class="stat-val stat-veng">READY</span></div>
+        }
+        @if (State.BestEndlessWave > 0)
+        {
+            <div class="stat-row"><span class="stat-label">Best</span><span class="stat-val">Wave @State.BestEndlessWave</span></div>
+        }
+        @if (State.InEndlessMode)
+        {
+            <div class="stat-row"><span class="stat-label">Wave</span><span class="stat-val stat-streak">@State.EndlessWave</span></div>
+        }
     }
     else
     {
@@ -35,4 +59,18 @@
 
     private static int HpPercent(Duels.Domain.Entities.Player p) =>
         p.MaxHp == 0 ? 0 : (int)(p.CurrentHp * 100.0 / p.MaxHp);
+
+    private static string BoostVal(int base_, int boostRounds)
+    {
+        if (boostRounds <= 0) return base_.ToString();
+        int boosted = (int)(base_ * 1.15) + 5;
+        return $"{boosted}↑";
+    }
+
+    private static string PhatLabel(int level) => level switch
+    {
+        1 => "[Red Phat]",
+        2 => "[Blue Phat]",
+        _ => "[White Phat]"
+    };
 }

@@ -1,7 +1,12 @@
+using System.Text.Json;
 using Duels.Application.Abstractions;
 using Duels.Application.Commands;
 using Duels.Application.GameSession;
 using Duels.Application.Parsing;
+using Duels.Domain.Entities;
+using Duels.Domain.ValueObjects;
+using Duels.Web.Models;
+using Microsoft.JSInterop;
 
 namespace Duels.Web.Services;
 
@@ -10,17 +15,21 @@ public sealed class GameService
     private readonly ICommandDispatcher _dispatcher;
     private readonly CommandParser _parser;
     private readonly IGameStateRepository _stateRepo;
+    private readonly IPlayerRepository _playerRepo;
+    private readonly IJSRuntime _js;
 
     public string? PlayerId { get; private set; }
     public bool IsStarted => PlayerId is not null;
 
     public event Action? StateChanged;
 
-    public GameService(ICommandDispatcher dispatcher, CommandParser parser, IGameStateRepository stateRepo)
+    public GameService(ICommandDispatcher dispatcher, CommandParser parser, IGameStateRepository stateRepo, IPlayerRepository playerRepo, IJSRuntime js)
     {
         _dispatcher = dispatcher;
         _parser = parser;
         _stateRepo = stateRepo;
+        _playerRepo = playerRepo;
+        _js = js;
     }
 
     public async Task<CommandResult> StartNewGameAsync(string playerName)
@@ -28,6 +37,7 @@ public sealed class GameService
         PlayerId = Guid.NewGuid().ToString("N");
         var result = await _dispatcher.DispatchAsync(new StartGameCommand(PlayerId, playerName));
         NotifyStateChanged();
+        await PersistAsync();
         return result;
     }
 
@@ -40,23 +50,105 @@ public sealed class GameService
         {
             var state = await _stateRepo.GetAsync(PlayerId);
             state?.AppendLog(parsed.Error ?? "Unknown error.", LogEntryKind.System);
-            if (state is not null) await SaveErrorToLog(state);
             NotifyStateChanged();
             return CommandResult.Fail(parsed.Error ?? "Parse error.");
         }
 
         var result = await _dispatcher.DispatchAsync((dynamic)parsed.Command!);
         NotifyStateChanged();
+        await PersistAsync();
         return result;
     }
 
     public async Task<GameState?> GetStateAsync() =>
         PlayerId is null ? null : await _stateRepo.GetAsync(PlayerId);
 
-    private async Task SaveErrorToLog(GameState state)
+    public async Task<bool> HasSaveAsync()
     {
-        // state is already mutated in-memory (InMemoryGameStateRepository returns the same instance)
-        await Task.CompletedTask;
+        try
+        {
+            var json = await _js.InvokeAsync<string?>("loadGame");
+            return json is not null;
+        }
+        catch { return false; }
+    }
+
+    public async Task<string?> GetSaveNameAsync()
+    {
+        try
+        {
+            var json = await _js.InvokeAsync<string?>("loadGame");
+            if (json is null) return null;
+            var data = JsonSerializer.Deserialize<SaveData>(json);
+            return data?.PlayerName;
+        }
+        catch { return null; }
+    }
+
+    public async Task<bool> RestoreSaveAsync()
+    {
+        try
+        {
+            var json = await _js.InvokeAsync<string?>("loadGame");
+            if (json is null) return false;
+
+            var data = JsonSerializer.Deserialize<SaveData>(json);
+            if (data is null) return false;
+
+            PlayerId = data.PlayerId;
+
+            var player = new Player(data.PlayerId, data.PlayerName);
+            var equippedKvps = data.Equipped
+                .Select(kv => (Enum.TryParse<EquipmentSlot>(kv.Key, out var slot), slot, kv.Value))
+                .Where(t => t.Item1)
+                .Select(t => new KeyValuePair<EquipmentSlot, string>(t.slot, t.Value));
+            player.RestoreFromSave(data.Gold, data.CurrentHp, data.SpecialEnergy, data.PrestigeLevel,
+                data.Inventory, equippedKvps);
+
+            var state = new GameState(data.PlayerId, player);
+            state.RestoreFromSave(data.WinStreak, data.BestEndlessWave, data.UnlockedOpponents);
+
+            await _playerRepo.SaveAsync(player);
+            await _stateRepo.SaveAsync(state);
+
+            NotifyStateChanged();
+            return true;
+        }
+        catch { return false; }
+    }
+
+    public async Task ClearSaveAsync()
+    {
+        try { await _js.InvokeVoidAsync("clearGame"); } catch { }
+    }
+
+    private async Task PersistAsync()
+    {
+        try
+        {
+            if (PlayerId is null) return;
+            var state = await _stateRepo.GetAsync(PlayerId);
+            if (state is null) return;
+
+            var p = state.Player;
+            var data = new SaveData(
+                PlayerId: p.Id,
+                PlayerName: p.Name,
+                Gold: p.Gold,
+                CurrentHp: p.CurrentHp,
+                SpecialEnergy: p.SpecialEnergy,
+                PrestigeLevel: p.PrestigeLevel,
+                WinStreak: state.WinStreak,
+                BestEndlessWave: state.BestEndlessWave,
+                Inventory: p.Inventory.ToList(),
+                Equipped: p.Equipped.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value),
+                UnlockedOpponents: state.UnlockedOpponents.ToList()
+            );
+
+            var json = JsonSerializer.Serialize(data);
+            await _js.InvokeVoidAsync("saveGame", json);
+        }
+        catch { }
     }
 
     private void NotifyStateChanged() => StateChanged?.Invoke();
