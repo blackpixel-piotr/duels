@@ -61,11 +61,12 @@
         window.spawnHitsplat = (channelId, damage, tier) => {
             const channel = document.getElementById(channelId);
             if (!channel) return;
+            const existing = channel.querySelectorAll('.hitsplat').length;
             const el = document.createElement('div');
             el.className = 'hitsplat hitsplat-' + tier;
             el.textContent = damage;
             el.style.left   = (4 + Math.random() * 8) + 'px';
-            el.style.bottom = '8px';
+            el.style.bottom = (8 + existing * 44) + 'px';
             channel.appendChild(el);
             el.addEventListener('animationend', () => el.remove(), { once: true });
         };
