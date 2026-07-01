@@ -1,27 +1,57 @@
 @using Duels.Application.GameSession
 @inject IJSRuntime JS
 
-<div class="tick-bar" id="tick-bar"></div>
-<div class="terminal-log" id="terminal-log">
-    @foreach (var entry in LogEntries)
-    {
-        <div class="log-entry log-@entry.Kind.ToString().ToLower()">@entry.Message</div>
-    }
+<div class="tick-bar @(PlayerCooldown > 0 ? "tick-bar--locked" : "")" id="tick-bar"></div>
+<div class="terminal-wrapper">
+    <div class="hitsplat-channel" id="channel-left"></div>
+    <div class="terminal-log" id="terminal-log">
+        @foreach (var entry in LogEntries.Where(FilterForLog))
+        {
+            <div class="log-entry log-@entry.Kind.ToString().ToLower()">@entry.Message</div>
+        }
+    </div>
+    <div class="hitsplat-channel" id="channel-right"></div>
 </div>
 
 @code {
     [Parameter] public IReadOnlyList<CombatLogEntry> LogEntries { get; set; } = [];
+    [Parameter] public int PlayerCooldown { get; set; }
 
     private int _lastCount;
 
+    private static bool FilterForLog(CombatLogEntry e) =>
+        e.Kind is not LogEntryKind.HitsplatPlayer
+               and not LogEntryKind.HitsplatNpc
+               and not LogEntryKind.PlayerHit
+               and not LogEntryKind.PlayerMiss
+               and not LogEntryKind.NpcHit
+               and not LogEntryKind.NpcMiss;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (LogEntries.Count > _lastCount)
+        var newEntries = LogEntries.Count > _lastCount
+            ? LogEntries.Skip(_lastCount).ToList()
+            : [];
+
+        // Narrative shake on heavy moments
+        var lastNarrative = newEntries.LastOrDefault(FilterForLog);
+        if (lastNarrative?.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit
+                                or LogEntryKind.Vengeance or LogEntryKind.BossSpecial)
+            await JS.InvokeVoidAsync("triggerShake", "terminal-log", 180);
+
+        // Spawn hitsplats in side channels
+        foreach (var entry in newEntries.Where(e =>
+            e.Kind is LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc))
         {
-            var last = LogEntries.LastOrDefault();
-            if (last?.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit or LogEntryKind.Vengeance or LogEntryKind.BossSpecial)
-                await JS.InvokeVoidAsync("triggerShake", "terminal-log", 180);
+            var parts = entry.Message.Split(':');
+            int dmg   = int.TryParse(parts[0], out var d) ? d : 0;
+            string tier = parts.Length > 1 ? parts[1] : "normal";
+            string ch   = entry.Kind == LogEntryKind.HitsplatPlayer ? "channel-left" : "channel-right";
+            await JS.InvokeVoidAsync("spawnHitsplat", ch, dmg, tier);
+            if (tier == "heavy")
+                await JS.InvokeVoidAsync("triggerShake", ch, 180);
         }
+
         _lastCount = LogEntries.Count;
         await JS.InvokeVoidAsync("scrollToBottom", "terminal-log");
     }

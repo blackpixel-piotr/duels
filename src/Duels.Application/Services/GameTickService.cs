@@ -163,15 +163,27 @@ public sealed class GameTickService : IDisposable
                 {
                     damage = (int)(damage * 0.25);
                     state.AppendLog($"⛉ {npc.Template.Name}'s prayer absorbs your strike. You hit {damage}. [{npc.CurrentHp - damage}/{npc.MaxHp} HP]", LogEntryKind.BossSpecial);
+                    state.AppendLog($"{damage}:normal", LogEntryKind.HitsplatPlayer);
                 }
                 else
                 {
                     int maxPossible = _combat.MaxHit(playerSnapshot);
                     bool isMax     = maxPossible > 0 && roll.Damage == maxPossible;
                     bool isTopTier = maxPossible > 0 && roll.Damage >= (int)(maxPossible * 0.80);
-                    var kind       = isTopTier ? LogEntryKind.MaxHit : LogEntryKind.PlayerHit;
-                    string prefix  = isMax ? "MAX HIT! " : isTopTier ? "HEAVY HIT! " : "";
-                    state.AppendLog($"{player.PhatPrefix}{prefix}You hit {npc.Template.Name} for {damage} damage. [{npc.CurrentHp - damage}/{npc.MaxHp} HP]", kind);
+                    if (isMax)
+                    {
+                        state.AppendLog($"{player.PhatPrefix}MAXIMUM DAMAGE! {npc.Template.Name} is pulverized!", LogEntryKind.MaxHit);
+                        state.AppendLog($"{damage}:heavy", LogEntryKind.HitsplatPlayer);
+                    }
+                    else if (isTopTier)
+                    {
+                        state.AppendLog($"{player.PhatPrefix}Critical Impact — {npc.Template.Name} staggers from the blow!", LogEntryKind.MaxHit);
+                        state.AppendLog($"{damage}:heavy", LogEntryKind.HitsplatPlayer);
+                    }
+                    else
+                    {
+                        state.AppendLog($"{damage}:normal", LogEntryKind.HitsplatPlayer);
+                    }
                 }
 
                 npc.TakeDamage(damage);
@@ -179,7 +191,7 @@ public sealed class GameTickService : IDisposable
             }
             else
             {
-                state.AppendLog($"{player.PhatPrefix}You miss {npc.Template.Name}.", LogEntryKind.PlayerMiss);
+                state.AppendLog("0:miss", LogEntryKind.HitsplatPlayer);
                 await _events.PublishAsync(new AttackMissed(player.Id, npc.Template.Id));
             }
         }
@@ -235,10 +247,12 @@ public sealed class GameTickService : IDisposable
                 }
                 string blockMsg = warlordBlocking ? " (⛉ blocked)" : "";
                 state.AppendLog($"{player.PhatPrefix}⚡ SPEC! You hit {npc.Template.Name} for {damage}{healMsg}{blockMsg}{suffix}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.SpecHit);
+                state.AppendLog($"{damage}:spec", LogEntryKind.HitsplatPlayer);
             }
             else
             {
                 state.AppendLog($"{player.PhatPrefix}⚡ SPEC! You miss {npc.Template.Name}{suffix}.", LogEntryKind.PlayerMiss);
+                state.AppendLog("0:miss", LogEntryKind.HitsplatPlayer);
             }
 
             if (!npc.IsAlive) break;
@@ -286,7 +300,7 @@ public sealed class GameTickService : IDisposable
                     damage = (int)(damage * (1.0 - reduction));
 
                 player.TakeDamage(damage);
-                state.AppendLog($"{npc.Template.Name} hits you for {damage} damage. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+                state.AppendLog($"{damage}:normal", LogEntryKind.HitsplatNpc);
                 await _events.PublishAsync(new AttackLanded(npc.Template.Id, player.Id, damage));
 
                 if (state.VengActive && damage > 0)
@@ -299,7 +313,7 @@ public sealed class GameTickService : IDisposable
             }
             else
             {
-                state.AppendLog($"{npc.Template.Name} misses.", LogEntryKind.NpcMiss);
+                state.AppendLog("0:miss", LogEntryKind.HitsplatNpc);
                 await _events.PublishAsync(new AttackMissed(npc.Template.Id, player.Id));
             }
         }
@@ -354,6 +368,7 @@ public sealed class GameTickService : IDisposable
 
         player.TakeDamage(damage);
         state.AppendLog($"★ {npc.Template.Name} unleashes their special attack for {damage} damage! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.BossSpecial);
+        state.AppendLog($"{damage}:boss", LogEntryKind.HitsplatNpc);
         await _events.PublishAsync(new AttackLanded(npc.Template.Id, player.Id, damage));
 
         if (state.VengActive && damage > 0)

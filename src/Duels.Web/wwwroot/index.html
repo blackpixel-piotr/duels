@@ -58,6 +58,17 @@
             const b = document.getElementById('tick-bar');
             if (b) b.style.transform = 'scaleX(0)';
         };
+        window.spawnHitsplat = (channelId, damage, tier) => {
+            const channel = document.getElementById(channelId);
+            if (!channel) return;
+            const el = document.createElement('div');
+            el.className = 'hitsplat hitsplat-' + tier;
+            el.textContent = damage;
+            el.style.left   = (4 + Math.random() * 8) + 'px';
+            el.style.bottom = '8px';
+            channel.appendChild(el);
+            el.addEventListener('animationend', () => el.remove(), { once: true });
+        };
     </script>
 </body>
 </html>

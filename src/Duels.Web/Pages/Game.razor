@@ -48,7 +48,8 @@ else
 
             <div class="game-center">
                 <CombatStatusBar State="@_state" />
-                <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
+                <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])"
+                                   PlayerCooldown="@(_state?.PlayerCooldown ?? 0)" />
                 @if (_state is { InDuel: false, LastOpponentId: { } lastNpc })
                 {
                     <div class="retry-bar">

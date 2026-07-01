@@ -148,6 +148,52 @@ html, body {
     transition: transform 150ms ease-in-out;
     margin-bottom: 4px;
 }
+.tick-bar--locked { background: linear-gradient(90deg, #e65100, #ff9800); }
+
+/* ─── Terminal wrapper (log flanked by hitsplat channels) ─── */
+.terminal-wrapper {
+    display: flex;
+    flex-direction: row;
+    flex: 1 1 0;
+    min-height: 0;
+    gap: 4px;
+}
+.hitsplat-channel {
+    width: 50px;
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+}
+
+/* ─── Hitsplats ─── */
+.hitsplat {
+    position: absolute;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font);
+    font-weight: bold;
+    pointer-events: none;
+    animation: hitsplat-rise 1.4s ease-out forwards;
+}
+.hitsplat-normal { width: 36px; height: 36px; font-size: 12px; background: #c62828; color: #fff; border: 2px solid #ff5252; }
+.hitsplat-miss   { width: 36px; height: 36px; font-size: 12px; background: #1565c0; color: #fff; border: 2px solid #42a5f5; }
+.hitsplat-heavy  { width: 54px; height: 54px; font-size: 16px; background: #f9a825; color: #000; border: 2px solid #ffe57f; box-shadow: 0 0 14px rgba(255,229,127,0.7); animation: hitsplat-rise-heavy 1.4s ease-out forwards; }
+.hitsplat-spec   { width: 36px; height: 36px; font-size: 12px; background: #e65100; color: #fff; border: 2px solid #ff6d00; }
+.hitsplat-boss   { width: 36px; height: 36px; font-size: 12px; background: #6a1b9a; color: #fff; border: 2px solid #ce93d8; }
+
+@keyframes hitsplat-rise {
+    0%   { transform: translateY(0);      opacity: 1; }
+    70%  { opacity: 1; }
+    100% { transform: translateY(-90px);  opacity: 0; }
+}
+@keyframes hitsplat-rise-heavy {
+    0%   { transform: translateY(0) scale(1);      opacity: 1; }
+    15%  { transform: translateY(-8px) scale(1.15); }
+    70%  { opacity: 1; }
+    100% { transform: translateY(-90px) scale(1);  opacity: 0; }
+}
 
 /* ─── Terminal log ─── */
 .terminal-log {
@@ -530,6 +576,8 @@ html, body {
     }
 
     /* Terminal fills all remaining space */
+    .terminal-wrapper { gap: 2px; }
+    .hitsplat-channel { width: 32px; }
     .terminal-log {
         flex: 1;
         border-left: none;
