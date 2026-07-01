@@ -1,4 +1,5 @@
 @using Duels.Application.GameSession
+@using Duels.Domain.ValueObjects
 
 <div class="stats-panel">
     <div class="panel-title">Character</div>
@@ -31,6 +32,21 @@
             </div>
             <span class="stat-val">@p.SpecialEnergy%</span>
         </div>
+        <div class="stat-row">
+            <span class="stat-label">Prayer</span>
+            <div class="spec-bar-wrap">
+                <div class="prayer-bar" style="width: @p.PrayerPoints%"></div>
+            </div>
+            <span class="stat-val">@p.PrayerPoints</span>
+        </div>
+        @if (p.ActiveProtection != ProtectionPrayer.None)
+        {
+            <div class="stat-row"><span class="stat-label">Protect</span><span class="stat-val stat-prayer">⛉ @p.ActiveProtection</span></div>
+        }
+        @if (p.PietyActive)
+        {
+            <div class="stat-row"><span class="stat-label">Piety</span><span class="stat-val stat-piety">⚡ ON</span></div>
+        }
         @if (State.WinStreak > 1)
         {
             <div class="stat-row"><span class="stat-label">Streak</span><span class="stat-val stat-streak">@State.WinStreak ×@(State.WinStreakMultiplier.ToString("F1"))</span></div>

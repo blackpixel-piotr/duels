@@ -19,6 +19,7 @@ public sealed class GameState
     public double WinStreakMultiplier => 1.0 + Math.Min(WinStreak * 0.10, 1.0);
 
     // Action economy
+    public bool UtilityUsedThisTurn { get; private set; }
     public bool HasBegged { get; private set; }
 
     // Prestige
@@ -44,6 +45,8 @@ public sealed class GameState
         LastOpponentId = npc.Template.Id;
         ActiveNpc = npc;
         CombatLog.Clear();
+        UtilityUsedThisTurn = false;
+        Player.RestorePrayer();
     }
 
     public void EndDuel()
@@ -69,6 +72,10 @@ public sealed class GameState
     public void SetLastWager(int amount) => LastWager = amount;
     public void IncrementWinStreak() => WinStreak++;
     public void ResetWinStreak() => WinStreak = 0;
+
+    // Turn economy
+    public void SetUtilityUsed() => UtilityUsedThisTurn = true;
+    public void ResetTurnState() => UtilityUsedThisTurn = false;
 
     // Beg
     public void SetHasBegged() => HasBegged = true;
@@ -133,4 +140,6 @@ public enum LogEntryKind
     MaxHit,
     SpecHit,
     Vengeance,
+    Prayer,
+    BossSpecial,
 }

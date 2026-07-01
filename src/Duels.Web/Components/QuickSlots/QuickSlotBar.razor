@@ -1,9 +1,13 @@
 @using Duels.Application.GameSession
 @using Duels.Domain.ValueObjects
+@using Duels.Domain.Entities
 
 <div class="quickslot-bar">
     @{
-        var weaponSlots = WeaponSlots().ToList();
+        var weaponSlots     = WeaponSlots().ToList();
+        var protectActive   = State?.Player?.ActiveProtection == ProtectionPrayer.Melee;
+        var pietyActive     = State?.Player?.PietyActive == true;
+        var noPrayer        = (State?.Player?.PrayerPoints ?? 0) <= 0;
     }
     @if (State?.InDuel == true)
     {
@@ -34,6 +38,21 @@
                 </button>
             }
         }
+
+        <button class="quickslot @(protectActive ? "qs-equipped" : "") @(noPrayer ? "qs-spec-depleted" : "")"
+                title="protect_melee"
+                disabled="@Disabled"
+                @onclick='() => Fire("protect_melee")'>
+            <span class="qs-icon">⛉</span>
+            <span class="qs-label">PROTECT</span>
+        </button>
+        <button class="quickslot @(pietyActive ? "qs-equipped" : "") @(noPrayer ? "qs-spec-depleted" : "")"
+                title="piety"
+                disabled="@Disabled"
+                @onclick='() => Fire("piety")'>
+            <span class="qs-icon">⚡</span>
+            <span class="qs-label">PIETY</span>
+        </button>
     }
     @foreach (var slot in ActiveFixedSlots)
     {

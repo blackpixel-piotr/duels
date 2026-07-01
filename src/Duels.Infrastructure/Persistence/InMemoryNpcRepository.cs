@@ -34,7 +34,10 @@ public sealed class InMemoryNpcRepository : INpcRepository
             AttackType.Slash,
             [],
             goldReward: 0,
-            maxWager: 1_000),
+            maxWager: 1_000,
+            telegraphedMove: new NpcSpecialMove(
+                "Swashbuckler Pete winds up for a brutal overhead slash!",
+                1.5, 4)),
 
         new("barbarian", "Iron Barbarian",
             "A brutish northerner. Hits hard.",
@@ -43,7 +46,10 @@ public sealed class InMemoryNpcRepository : INpcRepository
             AttackType.Slash,
             [],
             goldReward: 0,
-            maxWager: 5_000),
+            maxWager: 5_000,
+            telegraphedMove: new NpcSpecialMove(
+                "The Iron Barbarian bellows a war cry and raises his axe!",
+                1.7, 5)),
 
         new("desert_bandit", "Desert Bandit",
             "A dagger specialist. Spec at your peril.",
@@ -52,7 +58,10 @@ public sealed class InMemoryNpcRepository : INpcRepository
             AttackType.Slash,
             [],
             goldReward: 0,
-            maxWager: 20_000),
+            maxWager: 20_000,
+            telegraphedMove: new NpcSpecialMove(
+                "The Desert Bandit poises for a vicious double-stab!",
+                1.6, 5)),
 
         new("gladiator", "Arena Gladiator",
             "Pit-trained, whip in hand.",
@@ -61,7 +70,10 @@ public sealed class InMemoryNpcRepository : INpcRepository
             AttackType.Slash,
             [],
             goldReward: 0,
-            maxWager: 75_000),
+            maxWager: 75_000,
+            telegraphedMove: new NpcSpecialMove(
+                "The Arena Gladiator coils their whip for a crushing lash!",
+                1.8, 5)),
 
         new("corsair", "Pirate Corsair",
             "Elite sea raider with dragon claws.",
@@ -70,34 +82,46 @@ public sealed class InMemoryNpcRepository : INpcRepository
             AttackType.Slash,
             [],
             goldReward: 0,
-            maxWager: 250_000),
+            maxWager: 250_000,
+            telegraphedMove: new NpcSpecialMove(
+                "The Pirate Corsair draws dragon claws — a four-hit flurry incoming!",
+                1.9, 5)),
 
         new("berserker", "Frenzied Berserker",
-            "Godsword in hand, no fear in heart.",
+            "Godsword in hand, no fear in heart. Gains +5% damage per 10 HP lost.",
             new CombatStats(99, 99, 99, 90),
             new ItemModifiers(SlashAttack: 100, StrengthBonus: 100),
             AttackType.Slash,
             [],
             goldReward: 0,
-            maxWager: 750_000),
+            maxWager: 750_000,
+            telegraphedMove: new NpcSpecialMove(
+                "The Frenzied Berserker enters a blood frenzy — SPEC INCOMING!",
+                2.0, 6)),
 
         new("warlord", "Battle Warlord",
-            "A veteran dueler in top-tier gear.",
+            "A veteran dueler in top-tier gear. Flicks protection prayers every 3 rounds.",
             new CombatStats(99, 99, 99, 95),
             new ItemModifiers(SlashAttack: 115, StrengthBonus: 115),
             AttackType.Slash,
             [],
             goldReward: 0,
-            maxWager: 2_500_000),
+            maxWager: 2_500_000,
+            telegraphedMove: new NpcSpecialMove(
+                "The Battle Warlord channels dark energy — a massive strike is coming!",
+                2.0, 6)),
 
         new("champion", "Duel Champion",
-            "Undefeated. Maxed. Waiting for you.",
+            "Undefeated. Maxed. Waiting for you. Enters Phase 2 at 50% HP.",
             new CombatStats(99, 99, 99, 99),
             new ItemModifiers(SlashAttack: 132, StrengthBonus: 132),
             AttackType.Slash,
             [],
             goldReward: 0,
-            maxWager: 10_000_000),
+            maxWager: 10_000_000,
+            telegraphedMove: new NpcSpecialMove(
+                "The Champion charges their legendary technique!",
+                2.2, 7)),
 
         new("rare_tourist", "Wealthy Tourist",
             "Lost in the wrong part of the arena. Very wealthy.",
@@ -113,6 +137,9 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 90, StrengthBonus: 90),
             AttackType.Slash,
             [],
-            goldReward: 0),
+            goldReward: 0,
+            telegraphedMove: new NpcSpecialMove(
+                "The Corrupted Gladiator channels dark energy for a devastating strike!",
+                1.9, 5)),
     ];
 }

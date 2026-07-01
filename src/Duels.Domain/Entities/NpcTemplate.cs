@@ -2,6 +2,8 @@ using Duels.Domain.ValueObjects;
 
 namespace Duels.Domain.Entities;
 
+public sealed record NpcSpecialMove(string WarningText, double DamageMultiplier, int CooldownTurns);
+
 public sealed class NpcTemplate
 {
     public string Id { get; }
@@ -13,6 +15,7 @@ public sealed class NpcTemplate
     public IReadOnlyList<LootEntry> LootTable { get; }
     public int GoldReward { get; }
     public int MaxWager { get; }
+    public NpcSpecialMove? TelegraphedMove { get; }
     public int CombatLevel => CalculateCombatLevel(Stats);
 
     public NpcTemplate(
@@ -24,7 +27,8 @@ public sealed class NpcTemplate
         AttackType attackType,
         IReadOnlyList<LootEntry> lootTable,
         int goldReward = 0,
-        int maxWager = 0)
+        int maxWager = 0,
+        NpcSpecialMove? telegraphedMove = null)
     {
         Id = id;
         Name = name;
@@ -35,6 +39,7 @@ public sealed class NpcTemplate
         LootTable = lootTable;
         GoldReward = goldReward;
         MaxWager = maxWager;
+        TelegraphedMove = telegraphedMove;
     }
 
     private static int CalculateCombatLevel(CombatStats s)
@@ -52,14 +57,59 @@ public sealed class NpcInstance
     public NpcTemplate Template { get; }
     public int CurrentHp { get; private set; }
     public int MaxHp => Template.Stats.Hitpoints;
+    public bool IsAlive => CurrentHp > 0;
+
+    // Telegraphed attack state
+    public NpcSpecialMove? PendingSpecial { get; private set; }
+    public int SpecialCooldown { get; private set; }
+
+    // Boss state
+    public int TurnsInFight { get; private set; }
+    public bool PhaseShiftUsed { get; private set; }
+    public bool WarlordPrayerActive { get; private set; }
+    public int WarlordPrayerCountdown { get; private set; }
 
     public NpcInstance(NpcTemplate template)
     {
         Template = template;
         CurrentHp = template.Stats.Hitpoints;
+        SpecialCooldown = template.TelegraphedMove?.CooldownTurns ?? 0;
+        WarlordPrayerCountdown = 3;
     }
 
-    public bool IsAlive => CurrentHp > 0;
-
     public void TakeDamage(int amount) => CurrentHp = Math.Max(0, CurrentHp - amount);
+
+    public void TickFight()
+    {
+        TurnsInFight++;
+        if (SpecialCooldown > 0) SpecialCooldown--;
+    }
+
+    public void SetPendingSpecial(NpcSpecialMove move) => PendingSpecial = move;
+
+    public void ConsumePendingSpecial()
+    {
+        SpecialCooldown = PendingSpecial?.CooldownTurns ?? 4;
+        PendingSpecial = null;
+    }
+
+    public bool UsePhaseShift()
+    {
+        if (PhaseShiftUsed) return false;
+        PhaseShiftUsed = true;
+        return true;
+    }
+
+    // Returns true if prayer just flipped state
+    public bool TickWarlordPrayer()
+    {
+        if (WarlordPrayerCountdown > 0) WarlordPrayerCountdown--;
+        if (WarlordPrayerCountdown == 0)
+        {
+            WarlordPrayerActive = !WarlordPrayerActive;
+            WarlordPrayerCountdown = 3;
+            return true;
+        }
+        return false;
+    }
 }
