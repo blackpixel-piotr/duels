@@ -2,15 +2,11 @@
 @inject IJSRuntime JS
 
 <div class="tick-bar @(PlayerCooldown > 0 ? "tick-bar--locked" : "")" id="tick-bar"></div>
-<div class="terminal-wrapper">
-    <div class="hitsplat-channel" id="channel-left"></div>
-    <div class="terminal-log" id="terminal-log">
-        @foreach (var entry in LogEntries.Where(FilterForLog))
-        {
-            <div class="log-entry log-@entry.Kind.ToString().ToLower()">@entry.Message</div>
-        }
-    </div>
-    <div class="hitsplat-channel" id="channel-right"></div>
+<div class="terminal-log" id="terminal-log">
+    @foreach (var entry in LogEntries.Where(FilterForLog))
+    {
+        <div class="log-entry log-@entry.Kind.ToString().ToLower()">@entry.Message</div>
+    }
 </div>
 
 @code {
@@ -39,24 +35,23 @@
                                 or LogEntryKind.Vengeance or LogEntryKind.BossSpecial)
             await JS.InvokeVoidAsync("triggerShake", "terminal-log", 180);
 
-        // Spawn hitsplats in side channels — all in one JS call so DOM updates atomically
+        // Spawn hitsplats anchored to the status panel zones — all in one JS call
         var hitsplats = newEntries
             .Where(e => e.Kind is LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)
             .Select(e =>
             {
-                var parts = e.Message.Split(':');
-                int dmg   = int.TryParse(parts[0], out var d) ? d : 0;
+                var parts   = e.Message.Split(':');
+                int dmg     = int.TryParse(parts[0], out var d) ? d : 0;
                 string tier = parts.Length > 1 ? parts[1] : "normal";
-                string ch   = e.Kind == LogEntryKind.HitsplatPlayer ? "channel-left" : "channel-right";
-                return new { channelId = ch, damage = dmg, tier };
+                // HitsplatPlayer = NPC hit the player → near player HP bar
+                // HitsplatNpc    = player hit the NPC  → near NPC HP bar
+                string zone = e.Kind == LogEntryKind.HitsplatPlayer ? "zone-player" : "zone-npc";
+                return new { zoneId = zone, damage = dmg, tier };
             })
             .ToList();
 
         if (hitsplats.Count > 0)
             await JS.InvokeVoidAsync("spawnHitsplats", (object)hitsplats);
-
-        foreach (var h in hitsplats.Where(h => h.tier == "heavy"))
-            await JS.InvokeVoidAsync("triggerShake", h.channelId, 180);
 
         _lastCount = LogEntries.Count;
         await JS.InvokeVoidAsync("scrollToBottom", "terminal-log");

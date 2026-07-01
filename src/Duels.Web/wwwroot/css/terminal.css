@@ -150,55 +150,50 @@ html, body {
 }
 .tick-bar--locked { background: linear-gradient(90deg, #e65100, #ff9800); }
 
-/* ─── Terminal wrapper (log flanked by hitsplat channels) ─── */
-.terminal-wrapper {
-    display: flex;
-    flex-direction: row;
-    flex: 1 1 0;
-    min-height: 0;
-    gap: 4px;
-}
-.hitsplat-channel {
-    width: 50px;
-    flex-shrink: 0;
+/* ─── Hitsplat zones (anchored to status panel HP bars) ─── */
+.hitsplat-zone {
     position: relative;
+    height: 0;
     overflow: visible;
-    z-index: 1;
+    pointer-events: none;
 }
 
-/* ─── Hitsplats ─── */
+/* ─── Text-bracket hitsplats ─── */
 .hitsplat {
     position: absolute;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    bottom: 2px;
+    left: 0;
     font-family: var(--font);
     font-weight: bold;
+    font-size: 13px;
     pointer-events: none;
-    animation: hitsplat-rise 1.4s ease-out forwards;
+    white-space: nowrap;
+    animation: hitsplat-rise 1.6s ease-out forwards;
+    z-index: 20;
 }
-.hitsplat-normal { width: 36px; height: 36px; font-size: 12px; background: #c62828; color: #fff; border: 2px solid #ff5252; }
-.hitsplat-miss   { width: 36px; height: 36px; font-size: 12px; background: #1565c0; color: #fff; border: 2px solid #42a5f5; }
-.hitsplat-heavy  { width: 54px; height: 54px; font-size: 16px; background: #f9a825; color: #000; border: 2px solid #ffe57f; box-shadow: 0 0 14px rgba(255,229,127,0.7); animation: hitsplat-rise-heavy 1.4s ease-out forwards; }
-.hitsplat-spec   { width: 36px; height: 36px; font-size: 12px; background: #e65100; color: #fff; border: 2px solid #ff6d00; }
-.hitsplat-boss   { width: 36px; height: 36px; font-size: 12px; background: #6a1b9a; color: #fff; border: 2px solid #ce93d8; }
+.hitsplat-zone-right .hitsplat { left: auto; right: 0; }
+.hitsplat-normal { color: #ff5555; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(255,50,50,0.5); }
+.hitsplat-miss   { color: #4488cc; text-shadow: 1px 1px 0 #000; opacity: 0.8; font-size: 11px; }
+.hitsplat-heavy  { color: #ffd700; font-size: 16px; text-shadow: 1px 1px 0 #000, 0 0 8px rgba(255,215,0,0.8); animation: hitsplat-rise-heavy 1.6s ease-out forwards; }
+.hitsplat-spec   { color: #ff8c00; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(255,140,0,0.6); }
+.hitsplat-boss   { color: #cc44ff; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(180,60,255,0.5); }
 
 @keyframes hitsplat-rise {
     0%   { transform: translateY(0);      opacity: 1; }
-    70%  { opacity: 1; }
-    100% { transform: translateY(-90px);  opacity: 0; }
+    65%  { opacity: 1; }
+    100% { transform: translateY(-36px);  opacity: 0; }
 }
 @keyframes hitsplat-rise-heavy {
-    0%   { transform: translateY(0) scale(1);      opacity: 1; }
-    15%  { transform: translateY(-8px) scale(1.15); }
-    70%  { opacity: 1; }
-    100% { transform: translateY(-90px) scale(1);  opacity: 0; }
+    0%   { transform: translateY(0) scale(1);     opacity: 1; }
+    12%  { transform: translateY(-4px) scale(1.1); }
+    65%  { opacity: 1; }
+    100% { transform: translateY(-42px) scale(1); opacity: 0; }
 }
 
 /* ─── Terminal log ─── */
 .terminal-log {
     flex: 1 1 0;
+    min-height: 0;
     overflow-y: auto;
     background: var(--bg-panel);
     border: var(--border-w) double var(--border);
@@ -325,7 +320,30 @@ html, body {
     transform: translateY(2px) translateX(1px);
     box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo);
 }
-.qs-equipped {
+/* Slot 1 — primary / auto-attack weapon: pulsing dark-grey border */
+.qs-primary {
+    border-color: #555;
+    animation: qs-primary-pulse 2.2s ease-in-out infinite;
+}
+@keyframes qs-primary-pulse {
+    0%, 100% { border-color: #444; box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 0 0 3px rgba(90,90,90,0.2); }
+    50%       { border-color: #686868; box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 0 0 8px rgba(120,120,120,0.35); }
+}
+
+/* Queued spec weapon: flashing dashed amber border (MMO queue indicator) */
+.qs-queued {
+    border: 2px dashed #e65100;
+    color: #ff9800;
+    background: linear-gradient(160deg, #2a1505, #1a0d02);
+    animation: qs-queue-flash 0.45s ease-in-out infinite alternate;
+}
+@keyframes qs-queue-flash {
+    from { border-color: #e65100; box-shadow: inset 1px 1px 0 #5a2800, inset -1px -1px 0 var(--bevel-lo), 0 0 6px rgba(230,81,0,0.4); }
+    to   { border-color: #ff9800; box-shadow: inset 1px 1px 0 #5a2800, inset -1px -1px 0 var(--bevel-lo), 0 0 14px rgba(255,152,0,0.65); }
+}
+
+/* Active prayer / piety */
+.qs-active {
     border-color: var(--green);
     color: var(--green);
     background: linear-gradient(160deg, #1a2e10, #111d09);
@@ -577,8 +595,6 @@ html, body {
     }
 
     /* Terminal fills all remaining space */
-    .terminal-wrapper { gap: 2px; }
-    .hitsplat-channel { width: 32px; }
     .terminal-log {
         flex: 1;
         border-left: none;

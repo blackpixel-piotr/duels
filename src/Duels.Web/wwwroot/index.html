@@ -58,29 +58,16 @@
             const b = document.getElementById('tick-bar');
             if (b) b.style.transform = 'scaleX(0)';
         };
-        window.spawnHitsplat = (channelId, damage, tier) => {
-            const channel = document.getElementById(channelId);
-            if (!channel) return;
-            const existing = channel.querySelectorAll('.hitsplat').length;
-            const el = document.createElement('div');
-            el.className = 'hitsplat hitsplat-' + tier;
-            el.textContent = damage;
-            el.style.left   = (4 + Math.random() * 8) + 'px';
-            el.style.bottom = (8 + existing * 44) + 'px';
-            channel.appendChild(el);
-            el.addEventListener('animationend', () => el.remove(), { once: true });
-        };
         window.spawnHitsplats = (splats) => {
             for (const s of splats) {
-                const channel = document.getElementById(s.channelId);
-                if (!channel) continue;
-                const existing = channel.querySelectorAll('.hitsplat').length;
-                const el = document.createElement('div');
+                const zone = document.getElementById(s.zoneId);
+                if (!zone) continue;
+                const existing = zone.querySelectorAll('.hitsplat').length;
+                const el = document.createElement('span');
                 el.className = 'hitsplat hitsplat-' + s.tier;
-                el.textContent = s.damage;
-                el.style.left   = (4 + Math.random() * 8) + 'px';
-                el.style.bottom = (8 + existing * 44) + 'px';
-                channel.appendChild(el);
+                el.textContent = s.tier === 'miss' ? '[-]' : '[' + s.damage + ']';
+                el.style.bottom = (2 + existing * 22) + 'px';
+                zone.appendChild(el);
                 el.addEventListener('animationend', () => el.remove(), { once: true });
             }
         };
