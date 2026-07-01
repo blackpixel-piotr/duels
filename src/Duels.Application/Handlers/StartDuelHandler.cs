@@ -46,8 +46,11 @@ public sealed class StartDuelHandler : ICommandHandler<StartDuelCommand>
         {
             if (player.Gold < command.Wager)
                 return CommandResult.Fail($"Not enough gold. You have {player.Gold}g, wager requires {command.Wager}g.");
+            if (template.MaxWager > 0 && command.Wager > template.MaxWager)
+                return CommandResult.Fail($"{template.Name} won't match a stake above {template.MaxWager:N0}g.");
             player.SpendGold(command.Wager);
             state.SetWager(command.Wager);
+            state.SetLastWager(command.Wager);
         }
 
         // 5% rare encounter (skip for goblin / rare / endless)

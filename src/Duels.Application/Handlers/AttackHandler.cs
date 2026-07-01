@@ -46,10 +46,12 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
         var npc = state.ActiveNpc!;
 
         bool npcRetaliates;
+        bool actionTaken;
 
         if (command.UseSpecial)
         {
-            npcRetaliates = PerformSpecialAttack(state, player, npc);
+            actionTaken   = PerformSpecialAttack(state, player, npc);
+            npcRetaliates = actionTaken;
         }
         else
         {
@@ -61,9 +63,10 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
             {
                 npc.TakeDamage(roll.Damage);
                 int maxPossible = _combat.MaxHit(playerSnapshot);
-                bool isMax = roll.Damage == maxPossible && maxPossible > 0;
-                var kind = isMax ? LogEntryKind.MaxHit : LogEntryKind.PlayerHit;
-                string prefix = isMax ? "MAX HIT! " : "";
+                bool isMax     = maxPossible > 0 && roll.Damage == maxPossible;
+                bool isTopTier = maxPossible > 0 && roll.Damage >= (int)(maxPossible * 0.80);
+                var kind   = isTopTier ? LogEntryKind.MaxHit : LogEntryKind.PlayerHit;
+                string prefix = isMax ? "MAX HIT! " : isTopTier ? "HEAVY HIT! " : "";
                 state.AppendLog($"{player.PhatPrefix}{prefix}You hit {npc.Template.Name} for {roll.Damage} damage. [{npc.CurrentHp}/{npc.MaxHp} HP]", kind);
                 await _events.PublishAsync(new AttackLanded(player.Id, npc.Template.Id, roll.Damage), ct);
             }
@@ -74,10 +77,14 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
             }
 
             npcRetaliates = true;
+            actionTaken   = true;
         }
 
-        player.RechargeSpecial(10);
-        player.TickCombatBoost();
+        if (actionTaken)
+        {
+            player.RechargeSpecial(10);
+            player.TickCombatBoost();
+        }
 
         if (!npc.IsAlive)
         {

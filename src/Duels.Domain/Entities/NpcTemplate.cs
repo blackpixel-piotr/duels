@@ -12,6 +12,7 @@ public sealed class NpcTemplate
     public AttackType AttackType { get; }
     public IReadOnlyList<LootEntry> LootTable { get; }
     public int GoldReward { get; }
+    public int MaxWager { get; }
     public int CombatLevel => CalculateCombatLevel(Stats);
 
     public NpcTemplate(
@@ -22,7 +23,8 @@ public sealed class NpcTemplate
         ItemModifiers modifiers,
         AttackType attackType,
         IReadOnlyList<LootEntry> lootTable,
-        int goldReward = 0)
+        int goldReward = 0,
+        int maxWager = 0)
     {
         Id = id;
         Name = name;
@@ -32,6 +34,7 @@ public sealed class NpcTemplate
         AttackType = attackType;
         LootTable = lootTable;
         GoldReward = goldReward;
+        MaxWager = maxWager;
     }
 
     private static int CalculateCombatLevel(CombatStats s)
