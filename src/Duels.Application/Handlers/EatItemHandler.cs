@@ -25,9 +25,6 @@ public sealed class EatItemHandler : ICommandHandler<EatItemCommand>
         var state = await _stateRepo.GetAsync(command.PlayerId, ct);
         if (state is null) return CommandResult.Fail("No active game.");
 
-        if (state.InDuel && state.UtilityUsedThisTurn)
-            return CommandResult.Fail("You've already used your utility action this turn. Attack first, then eat next round.");
-
         var player = state.Player;
 
         if (!FoodData.TryGetValue(command.ItemId, out var food))
@@ -46,9 +43,6 @@ public sealed class EatItemHandler : ICommandHandler<EatItemCommand>
         player.HealFood(food.Heal, food.CanOverheal);
         int healed = player.CurrentHp - before;
         state.AppendLog($"You eat the {command.ItemId}. HP: {before} → {player.CurrentHp}/{player.MaxHp} (+{healed})", LogEntryKind.Info);
-
-        if (state.InDuel)
-            state.SetUtilityUsed();
 
         await _stateRepo.SaveAsync(state, ct);
         return CommandResult.Ok();

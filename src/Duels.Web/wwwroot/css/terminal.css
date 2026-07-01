@@ -139,6 +139,16 @@ html, body {
     overflow: hidden;
 }
 
+/* ─── Tick metronome bar ─── */
+.tick-bar {
+    height: 3px;
+    background: linear-gradient(90deg, #00c853, #69f0ae);
+    transform-origin: left;
+    transform: scaleX(0);
+    transition: transform 150ms ease-in-out;
+    margin-bottom: 4px;
+}
+
 /* ─── Terminal log ─── */
 .terminal-log {
     flex: 1 1 0;

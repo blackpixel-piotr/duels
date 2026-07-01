@@ -18,9 +18,6 @@ public sealed class DrinkPotionHandler : ICommandHandler<DrinkPotionCommand>
         var state = await _stateRepo.GetAsync(command.PlayerId, ct);
         if (state is null) return CommandResult.Fail("No active game.");
 
-        if (state.InDuel && state.UtilityUsedThisTurn)
-            return CommandResult.Fail("You've already used your utility action this turn. Attack first, then drink next round.");
-
         var player = state.Player;
 
         if (!player.RemoveFromInventory("super_combat_potion"))
@@ -28,9 +25,6 @@ public sealed class DrinkPotionHandler : ICommandHandler<DrinkPotionCommand>
 
         player.DrinkSuperCombat();
         state.AppendLog($"You drink the Super Combat Potion! Atk/Str boosted for {player.CombatBoostRoundsLeft} rounds.", LogEntryKind.Info);
-
-        if (state.InDuel)
-            state.SetUtilityUsed();
 
         await _stateRepo.SaveAsync(state, ct);
         return CommandResult.Ok();

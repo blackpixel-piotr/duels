@@ -1,4 +1,5 @@
 using Duels.Domain.Entities;
+using Duels.Domain.ValueObjects;
 
 namespace Duels.Application.GameSession;
 
@@ -18,8 +19,12 @@ public sealed class GameState
     public int WinStreak { get; private set; }
     public double WinStreakMultiplier => 1.0 + Math.Min(WinStreak * 0.10, 1.0);
 
-    // Action economy
-    public bool UtilityUsedThisTurn { get; private set; }
+    // Tick engine
+    public int PlayerCooldown { get; private set; }
+    public int NpcCooldown { get; private set; }
+    public string? QueuedAction { get; private set; }
+    public ProtectionPrayer TickStartProtection { get; set; }
+
     public bool HasBegged { get; private set; }
 
     // Prestige
@@ -45,8 +50,26 @@ public sealed class GameState
         LastOpponentId = npc.Template.Id;
         ActiveNpc = npc;
         CombatLog.Clear();
-        UtilityUsedThisTurn = false;
         Player.RestorePrayer();
+        InitDuelCooldowns(npc.Template.AttackSpeedTicks);
+    }
+
+    public void InitDuelCooldowns(int npcSpeed)
+    {
+        PlayerCooldown = 0;
+        NpcCooldown = npcSpeed;
+    }
+
+    public void SetQueuedAction(string? action) => QueuedAction = action;
+
+    public void ResetPlayerCooldown(int ticks) => PlayerCooldown = ticks;
+
+    public void ResetNpcCooldown(int ticks) => NpcCooldown = ticks;
+
+    public void DecrementCooldowns()
+    {
+        if (PlayerCooldown > 0) PlayerCooldown--;
+        if (NpcCooldown > 0) NpcCooldown--;
     }
 
     public void EndDuel()
@@ -72,10 +95,6 @@ public sealed class GameState
     public void SetLastWager(int amount) => LastWager = amount;
     public void IncrementWinStreak() => WinStreak++;
     public void ResetWinStreak() => WinStreak = 0;
-
-    // Turn economy
-    public void SetUtilityUsed() => UtilityUsedThisTurn = true;
-    public void ResetTurnState() => UtilityUsedThisTurn = false;
 
     // Beg
     public void SetHasBegged() => HasBegged = true;

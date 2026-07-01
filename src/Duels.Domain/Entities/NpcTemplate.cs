@@ -16,6 +16,7 @@ public sealed class NpcTemplate
     public int GoldReward { get; }
     public int MaxWager { get; }
     public NpcSpecialMove? TelegraphedMove { get; }
+    public int AttackSpeedTicks { get; }
     public int CombatLevel => CalculateCombatLevel(Stats);
 
     public NpcTemplate(
@@ -28,7 +29,8 @@ public sealed class NpcTemplate
         IReadOnlyList<LootEntry> lootTable,
         int goldReward = 0,
         int maxWager = 0,
-        NpcSpecialMove? telegraphedMove = null)
+        NpcSpecialMove? telegraphedMove = null,
+        int attackSpeedTicks = 4)
     {
         Id = id;
         Name = name;
@@ -40,6 +42,7 @@ public sealed class NpcTemplate
         GoldReward = goldReward;
         MaxWager = maxWager;
         TelegraphedMove = telegraphedMove;
+        AttackSpeedTicks = attackSpeedTicks;
     }
 
     private static int CalculateCombatLevel(CombatStats s)
