@@ -45,10 +45,7 @@ else
             </div>
 
             <div class="game-center">
-                @if (_state?.InDuel == true)
-                {
-                    <NpcCard Npc="@_state.ActiveNpc" />
-                }
+                <CombatStatusBar State="@_state" />
                 <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
                 @if (_state is { InDuel: false, LastOpponentId: { } lastNpc })
                 {

@@ -241,6 +241,7 @@ html, body {
     padding: 6px;
 }
 .quickslot {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -265,10 +266,38 @@ html, body {
     border-color: var(--green);
     color: var(--green);
     background: linear-gradient(160deg, #1a2e10, #111d09);
-    box-shadow: inset 1px 1px 0 #3a5a28, inset -1px -1px 0 var(--bevel-lo), 0 0 6px rgba(57,211,57,0.2);
+    box-shadow: inset 1px 1px 0 #3a5a28, inset -1px -1px 0 var(--bevel-lo),
+                0 0 0 1px var(--green), 0 0 8px rgba(57,211,57,0.3);
 }
 .qs-icon { font-size: 14px; line-height: 1; }
 .qs-label { margin-top: 2px; }
+.qs-spec-badge {
+    position: absolute; top: 2px; right: 3px;
+    background: #0d1f3a; color: var(--blue);
+    font-size: 7px; line-height: 1.4; padding: 0 2px;
+    pointer-events: none;
+}
+.qs-spec-depleted { opacity: 0.38; filter: grayscale(0.5); }
+.qs-spec-depleted .qs-spec-badge { background: #1a1510; color: var(--text-dim); }
+
+/* ─── Combat status bar ─── */
+.combat-status-bar {
+    display: flex; align-items: stretch; gap: 8px;
+    background: var(--bg-panel);
+    border: var(--border-w) double var(--border);
+    box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
+    padding: 8px 10px;
+    flex-shrink: 0;
+}
+.csb-player, .csb-npc { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.csb-npc { align-items: flex-end; }
+.csb-vs { font-size: 10px; color: var(--text-dim); align-self: center; padding: 0 6px; flex-shrink: 0; }
+.csb-name { font-size: 11px; font-weight: bold; color: var(--yellow); }
+.csb-npc-name { color: var(--red); }
+.csb-bar-row { display: flex; align-items: center; gap: 4px; width: 100%; }
+.csb-npc .csb-bar-row { flex-direction: row-reverse; }
+.csb-val { font-size: 9px; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; min-width: 42px; }
+.csb-npc .csb-val { text-align: right; }
 
 /* ─── Retry bar ─── */
 .retry-bar {
