@@ -5,6 +5,7 @@
     <div class="combat-status-bar">
         <div class="csb-player">
             <div class="csb-name">@p.Name</div>
+            <div class="hitsplat-zone" id="zone-player"></div>
             <div class="csb-bar-row">
                 <div class="hp-bar-wrap">
                     <div class="hp-bar" style="width: @PlayerHpPct%"></div>
@@ -23,6 +24,7 @@
 
         <div class="csb-npc">
             <div class="csb-name csb-npc-name">@npc.Template.Name</div>
+            <div class="hitsplat-zone hitsplat-zone-right" id="zone-npc"></div>
             <div class="csb-bar-row">
                 <span class="csb-val">@npc.CurrentHp / @npc.MaxHp</span>
                 <div class="hp-bar-wrap">
