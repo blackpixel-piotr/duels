@@ -43,7 +43,8 @@ public sealed class WeaponShortcutHandler : ICommandHandler<WeaponShortcutComman
         if (state.InDuel)
         {
             var weapon = _itemRepo.GetWeapon(command.WeaponId);
-            state.SetQueuedAction(weapon?.Special is not null ? "spec" : "attack");
+            bool useSpec = switching && weapon?.Special is not null;
+            state.SetQueuedAction(useSpec ? "spec" : "attack");
             // If mid-duel weapon swap, schedule a revert to the previous weapon after this tick
             state.SetRevertWeapon(switching ? previousWeapon : null);
         }
