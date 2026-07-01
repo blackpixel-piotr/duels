@@ -139,6 +139,16 @@ html, body {
     overflow: hidden;
 }
 
+/* ─── Tick metronome bar ─── */
+.tick-bar {
+    height: 3px;
+    background: linear-gradient(90deg, #00c853, #69f0ae);
+    transform-origin: left;
+    transform: scaleX(0);
+    transition: transform 150ms ease-in-out;
+    margin-bottom: 4px;
+}
+
 /* ─── Terminal log ─── */
 .terminal-log {
     flex: 1 1 0;
@@ -170,8 +180,14 @@ html, body {
     text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
     animation: pulse-grow 0.25s ease-in-out 2;
 }
-.log-spechit   { color: #ff8c00; font-weight: bold; }
-.log-vengeance { color: var(--purple); font-weight: bold; }
+.log-spechit    { color: #ff8c00; font-weight: bold; }
+.log-vengeance  { color: var(--purple); font-weight: bold; }
+.log-prayer     { color: #6ec6ff; font-style: italic; }
+.log-bossspecial {
+    color: #ff6b00;
+    font-weight: bold;
+    text-shadow: 0 0 6px rgba(255,107,0,0.4);
+}
 
 @keyframes pulse-grow {
     0%, 100% { transform: scale(1); }
@@ -343,6 +359,8 @@ html, body {
 .stat-boosted { color: var(--blue); font-weight: bold; }
 .stat-streak  { color: var(--yellow); font-weight: bold; }
 .stat-veng    { color: var(--purple); font-weight: bold; }
+.stat-prayer  { color: #6ec6ff; font-weight: bold; }
+.stat-piety   { color: #ff8c00; font-weight: bold; }
 .stat-phat { font-size: 11px; font-weight: bold; margin-bottom: 6px; }
 .stat-phat-1 { color: #e53935; }
 .stat-phat-2 { color: #1e88e5; }
@@ -389,8 +407,9 @@ html, body {
     border-radius: 0;
     overflow: hidden;
 }
-.hp-bar    { height: 100%; background: linear-gradient(90deg, #259925, var(--green)); transition: width 0.2s; }
-.spec-bar  { height: 100%; background: linear-gradient(90deg, #8a5a00, var(--amber)); transition: width 0.2s; }
+.hp-bar      { height: 100%; background: linear-gradient(90deg, #259925, var(--green)); transition: width 0.2s; }
+.spec-bar    { height: 100%; background: linear-gradient(90deg, #8a5a00, var(--amber)); transition: width 0.2s; }
+.prayer-bar  { height: 100%; background: linear-gradient(90deg, #1565c0, #6ec6ff); transition: width 0.2s; }
 
 /* ─── NPC card ─── */
 .npc-card {

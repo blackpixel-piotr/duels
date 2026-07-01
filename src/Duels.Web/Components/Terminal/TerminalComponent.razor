@@ -1,6 +1,7 @@
 @using Duels.Application.GameSession
 @inject IJSRuntime JS
 
+<div class="tick-bar" id="tick-bar"></div>
 <div class="terminal-log" id="terminal-log">
     @foreach (var entry in LogEntries)
     {
@@ -18,7 +19,7 @@
         if (LogEntries.Count > _lastCount)
         {
             var last = LogEntries.LastOrDefault();
-            if (last?.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit or LogEntryKind.Vengeance)
+            if (last?.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit or LogEntryKind.Vengeance or LogEntryKind.BossSpecial)
                 await JS.InvokeVoidAsync("triggerShake", "terminal-log", 180);
         }
         _lastCount = LogEntries.Count;

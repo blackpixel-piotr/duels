@@ -1,5 +1,7 @@
 @page "/game"
 @inject Duels.Web.Services.GameService GameSvc
+@inject Duels.Application.Services.GameTickService TickService
+@inject IJSRuntime JS
 @inject NavigationManager Nav
 @implements IDisposable
 
@@ -72,6 +74,7 @@ else
     private bool _shopOpen   = false;
     private bool _ladderOpen = false;
     private bool _processing = false;
+    private bool _wasDueling = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -80,11 +83,28 @@ else
             Nav.NavigateTo("");
             return;
         }
+        TickService.RegisterNotify(OnTickNotify);
         GameSvc.StateChanged += OnStateChanged;
         _state = await GameSvc.GetStateAsync();
+        _wasDueling = _state?.InDuel ?? false;
     }
 
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnTickNotify()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            bool isDueling = _state?.InDuel ?? false;
+            if (_wasDueling && !isDueling)
+            {
+                TickService.Stop();
+                await JS.InvokeVoidAsync("stopMetronome");
+            }
+            _wasDueling = isDueling;
+            StateHasChanged();
+        });
+    }
 
     private async Task HandleCommand(string command)
     {
@@ -94,6 +114,7 @@ else
         if (verb is "npcs" or "enemies" or "list")   { _ladderOpen = true; StateHasChanged(); return; }
         _processing = true;
         StateHasChanged();
+        bool wasDueling = _state?.InDuel ?? false;
         try
         {
             await GameSvc.ExecuteCommandAsync(command);
@@ -102,6 +123,24 @@ else
         {
             _processing = false;
             _tab = "combat";
+            await SyncTickService(wasDueling);
+        }
+    }
+
+    private async Task SyncTickService(bool wasDueling)
+    {
+        bool isDueling = _state?.InDuel ?? false;
+        if (!wasDueling && isDueling)
+        {
+            _wasDueling = true;
+            TickService.Start(GameSvc.PlayerId!);
+            await JS.InvokeVoidAsync("startMetronome");
+        }
+        else if (wasDueling && !isDueling)
+        {
+            _wasDueling = false;
+            TickService.Stop();
+            await JS.InvokeVoidAsync("stopMetronome");
         }
     }
 
@@ -115,9 +154,11 @@ else
     private async Task HandleDuel(string duelCmd)
     {
         _ladderOpen = false;
+        bool wasDueling = _state?.InDuel ?? false;
         await GameSvc.ExecuteCommandAsync(duelCmd);
-        _tab   = "combat";
+        _tab = "combat";
         _state = await GameSvc.GetStateAsync();
+        await SyncTickService(wasDueling);
         StateHasChanged();
     }
 
@@ -136,5 +177,6 @@ else
     public void Dispose()
     {
         GameSvc.StateChanged -= OnStateChanged;
+        TickService.Stop();
     }
 }

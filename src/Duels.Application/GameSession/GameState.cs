@@ -1,4 +1,5 @@
 using Duels.Domain.Entities;
+using Duels.Domain.ValueObjects;
 
 namespace Duels.Application.GameSession;
 
@@ -18,7 +19,12 @@ public sealed class GameState
     public int WinStreak { get; private set; }
     public double WinStreakMultiplier => 1.0 + Math.Min(WinStreak * 0.10, 1.0);
 
-    // Action economy
+    // Tick engine
+    public int PlayerCooldown { get; private set; }
+    public int NpcCooldown { get; private set; }
+    public string? QueuedAction { get; private set; }
+    public ProtectionPrayer TickStartProtection { get; set; }
+
     public bool HasBegged { get; private set; }
 
     // Prestige
@@ -44,6 +50,26 @@ public sealed class GameState
         LastOpponentId = npc.Template.Id;
         ActiveNpc = npc;
         CombatLog.Clear();
+        Player.RestorePrayer();
+        InitDuelCooldowns(npc.Template.AttackSpeedTicks);
+    }
+
+    public void InitDuelCooldowns(int npcSpeed)
+    {
+        PlayerCooldown = 0;
+        NpcCooldown = npcSpeed;
+    }
+
+    public void SetQueuedAction(string? action) => QueuedAction = action;
+
+    public void ResetPlayerCooldown(int ticks) => PlayerCooldown = ticks;
+
+    public void ResetNpcCooldown(int ticks) => NpcCooldown = ticks;
+
+    public void DecrementCooldowns()
+    {
+        if (PlayerCooldown > 0) PlayerCooldown--;
+        if (NpcCooldown > 0) NpcCooldown--;
     }
 
     public void EndDuel()
@@ -133,4 +159,6 @@ public enum LogEntryKind
     MaxHit,
     SpecHit,
     Vengeance,
+    Prayer,
+    BossSpecial,
 }

@@ -71,6 +71,12 @@ public sealed class CommandParser
             "eat" or "food" => ParseEat(playerId, args),
             "drink" or "potion" => new ParseResult(true, new DrinkPotionCommand(playerId), null),
             "veng" or "vengeance" => new ParseResult(true, new VengeanceCommand(playerId), null),
+
+            "protect_melee" or "pm" or "protect" => new ParseResult(true, new PrayerCommand(playerId, "protect_melee"), null),
+            "protect_range" or "pr" => new ParseResult(true, new PrayerCommand(playerId, "protect_range"), null),
+            "protect_magic" or "pmagic" => new ParseResult(true, new PrayerCommand(playerId, "protect_magic"), null),
+            "piety" or "pie" => new ParseResult(true, new PrayerCommand(playerId, "piety"), null),
+            "pray" or "prayer" => ParsePray(playerId, args),
             "beg" => new ParseResult(true, new BegCommand(playerId), null),
             "prestige" => new ParseResult(true, new PrestigeCommand(playerId), null),
 
@@ -158,6 +164,14 @@ public sealed class CommandParser
 
         var itemId = string.Join("_", args).ToLowerInvariant();
         return new ParseResult(true, new EatItemCommand(playerId, itemId), null);
+    }
+
+    private static ParseResult ParsePray(string playerId, string[] args)
+    {
+        if (args.Length == 0)
+            return new ParseResult(false, null, "Usage: pray <type>  (protect_melee, piety, protect_range, protect_magic)");
+        var name = string.Join("_", args).ToLowerInvariant();
+        return new ParseResult(true, new PrayerCommand(playerId, name), null);
     }
 
     private static ParseResult ParseInspect(string playerId, string[] args)

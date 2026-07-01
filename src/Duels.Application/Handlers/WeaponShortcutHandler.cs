@@ -9,16 +9,11 @@ public sealed class WeaponShortcutHandler : ICommandHandler<WeaponShortcutComman
 {
     private readonly IGameStateRepository _stateRepo;
     private readonly IItemRepository _itemRepo;
-    private readonly ICommandDispatcher _dispatcher;
 
-    public WeaponShortcutHandler(
-        IGameStateRepository stateRepo,
-        IItemRepository itemRepo,
-        ICommandDispatcher dispatcher)
+    public WeaponShortcutHandler(IGameStateRepository stateRepo, IItemRepository itemRepo)
     {
         _stateRepo = stateRepo;
         _itemRepo = itemRepo;
-        _dispatcher = dispatcher;
     }
 
     public async Task<CommandResult> HandleAsync(WeaponShortcutCommand command, CancellationToken ct = default)
@@ -34,21 +29,21 @@ public sealed class WeaponShortcutHandler : ICommandHandler<WeaponShortcutComman
             return CommandResult.Fail($"You don't have {name}.");
         }
 
-        // Equip if not already the active weapon
+        // Equip immediately if not already equipped
         if (player.GetEquippedWeaponId() != command.WeaponId)
         {
             player.Equip(command.WeaponId, EquipmentSlot.Weapon);
             var name = _itemRepo.GetItemName(command.WeaponId) ?? command.WeaponId;
             state.AppendLog($"You ready your {name}.", LogEntryKind.Info);
-            await _stateRepo.SaveAsync(state, ct);
         }
 
-        if (!state.InDuel)
-            return CommandResult.Ok();
+        if (state.InDuel)
+        {
+            var weapon = _itemRepo.GetWeapon(command.WeaponId);
+            state.SetQueuedAction(weapon?.Special is not null ? "spec" : "attack");
+        }
 
-        var weapon = _itemRepo.GetWeapon(command.WeaponId);
-        bool useSpec = weapon?.Special is not null;
-        return await _dispatcher.DispatchAsync(
-            new AttackCommand(command.PlayerId, AttackStyle.Accurate, UseSpecial: useSpec), ct);
+        await _stateRepo.SaveAsync(state, ct);
+        return CommandResult.Ok();
     }
 }

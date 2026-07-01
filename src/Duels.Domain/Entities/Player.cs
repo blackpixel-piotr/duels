@@ -17,6 +17,9 @@ public sealed class Player
     public int SpecialEnergy { get; private set; }
     public int PrestigeLevel { get; private set; }
     public int CombatBoostRoundsLeft { get; private set; }
+    public int PrayerPoints { get; private set; }
+    public ProtectionPrayer ActiveProtection { get; private set; }
+    public bool PietyActive { get; private set; }
 
     public string PhatPrefix => PrestigeLevel switch
     {
@@ -38,6 +41,7 @@ public sealed class Player
         Name = name;
         CurrentHp = MaxHp;
         SpecialEnergy = 100;
+        PrayerPoints = 99;
         Gold = 10_000;
     }
 
@@ -63,6 +67,21 @@ public sealed class Player
 
     public void DrinkSuperCombat() => CombatBoostRoundsLeft = 4;
     public void TickCombatBoost() { if (CombatBoostRoundsLeft > 0) CombatBoostRoundsLeft--; }
+    public void ClearCombatBoost() => CombatBoostRoundsLeft = 0;
+
+    public void RestorePrayer() { PrayerPoints = 99; }
+    public void DrainPrayer(int amount)
+    {
+        PrayerPoints = Math.Max(0, PrayerPoints - amount);
+        if (PrayerPoints == 0)
+        {
+            ActiveProtection = ProtectionPrayer.None;
+            PietyActive = false;
+        }
+    }
+    public void ToggleProtection(ProtectionPrayer prayer)
+        => ActiveProtection = ActiveProtection == prayer ? ProtectionPrayer.None : prayer;
+    public void TogglePiety() => PietyActive = !PietyActive;
 
     public void Equip(string itemId, EquipmentSlot slot)
     {
@@ -107,6 +126,9 @@ public sealed class Player
         if (PrestigeLevel >= 3) _inventory.Add("rune_scimitar");
         CurrentHp = MaxHp;
         SpecialEnergy = 100;
+        PrayerPoints = 99;
+        ActiveProtection = ProtectionPrayer.None;
+        PietyActive = false;
         CombatBoostRoundsLeft = 0;
     }
 
