@@ -39,18 +39,24 @@
                                 or LogEntryKind.Vengeance or LogEntryKind.BossSpecial)
             await JS.InvokeVoidAsync("triggerShake", "terminal-log", 180);
 
-        // Spawn hitsplats in side channels
-        foreach (var entry in newEntries.Where(e =>
-            e.Kind is LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc))
-        {
-            var parts = entry.Message.Split(':');
-            int dmg   = int.TryParse(parts[0], out var d) ? d : 0;
-            string tier = parts.Length > 1 ? parts[1] : "normal";
-            string ch   = entry.Kind == LogEntryKind.HitsplatPlayer ? "channel-left" : "channel-right";
-            await JS.InvokeVoidAsync("spawnHitsplat", ch, dmg, tier);
-            if (tier == "heavy")
-                await JS.InvokeVoidAsync("triggerShake", ch, 180);
-        }
+        // Spawn hitsplats in side channels — all in one JS call so DOM updates atomically
+        var hitsplats = newEntries
+            .Where(e => e.Kind is LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)
+            .Select(e =>
+            {
+                var parts = e.Message.Split(':');
+                int dmg   = int.TryParse(parts[0], out var d) ? d : 0;
+                string tier = parts.Length > 1 ? parts[1] : "normal";
+                string ch   = e.Kind == LogEntryKind.HitsplatPlayer ? "channel-left" : "channel-right";
+                return new { channelId = ch, damage = dmg, tier };
+            })
+            .ToList();
+
+        if (hitsplats.Count > 0)
+            await JS.InvokeVoidAsync("spawnHitsplats", (object)hitsplats);
+
+        foreach (var h in hitsplats.Where(h => h.tier == "heavy"))
+            await JS.InvokeVoidAsync("triggerShake", h.channelId, 180);
 
         _lastCount = LogEntries.Count;
         await JS.InvokeVoidAsync("scrollToBottom", "terminal-log");

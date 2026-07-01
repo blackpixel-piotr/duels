@@ -70,6 +70,20 @@
             channel.appendChild(el);
             el.addEventListener('animationend', () => el.remove(), { once: true });
         };
+        window.spawnHitsplats = (splats) => {
+            for (const s of splats) {
+                const channel = document.getElementById(s.channelId);
+                if (!channel) continue;
+                const existing = channel.querySelectorAll('.hitsplat').length;
+                const el = document.createElement('div');
+                el.className = 'hitsplat hitsplat-' + s.tier;
+                el.textContent = s.damage;
+                el.style.left   = (4 + Math.random() * 8) + 'px';
+                el.style.bottom = (8 + existing * 44) + 'px';
+                channel.appendChild(el);
+                el.addEventListener('animationend', () => el.remove(), { once: true });
+            }
+        };
     </script>
 </body>
 </html>
