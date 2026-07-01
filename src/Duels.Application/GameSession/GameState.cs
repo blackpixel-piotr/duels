@@ -14,6 +14,7 @@ public sealed class GameState
 
     // Staking / winstreak
     public int CurrentWager { get; private set; }
+    public int LastWager { get; private set; }
     public int WinStreak { get; private set; }
     public double WinStreakMultiplier => 1.0 + Math.Min(WinStreak * 0.10, 1.0);
 
@@ -65,6 +66,7 @@ public sealed class GameState
 
     // Staking
     public void SetWager(int amount) => CurrentWager = amount;
+    public void SetLastWager(int amount) => LastWager = amount;
     public void IncrementWinStreak() => WinStreak++;
     public void ResetWinStreak() => WinStreak = 0;
 

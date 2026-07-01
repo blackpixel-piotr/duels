@@ -36,7 +36,7 @@
                             <span>Lvl @npc.CombatLevel</span>
                             <span>HP @npc.Hp</span>
                         </div>
-                        <div class="ladder-reward">@npc.GoldReward.ToString("N0")g</div>
+                        <div class="ladder-reward">Max: @npc.MaxWager.ToString("N0")g</div>
                         <button class="ladder-fight-btn" @onclick="() => Fight(npcLocal)">⚔ Fight</button>
                     }
                     else
@@ -64,19 +64,19 @@
 
     private sealed record LadderNpc(
         string Id, string Name, int Stage,
-        int CombatLevel, int Hp, int GoldReward);
+        int CombatLevel, int Hp, int MaxWager);
 
     private static readonly LadderNpc[] _ladder =
     [
-        new("goblin",            "Arena Goblin",        0,   3,   10,       5),
-        new("swashbuckler",      "Swashbuckler Pete",   1, 101,   50,      30),
-        new("barbarian",         "Iron Barbarian",      2, 105,   65,     100),
-        new("desert_bandit",     "Desert Bandit",       3, 106,   70,     300),
-        new("gladiator",         "Arena Gladiator",     4, 109,   80,   1_000),
-        new("corsair",           "Pirate Corsair",      5, 110,   85,   3_500),
-        new("berserker",         "Frenzied Berserker",  6, 111,   90,  12_000),
-        new("warlord",           "Battle Warlord",      7, 112,   95,  40_000),
-        new("champion",          "Duel Champion",       8, 113,   99, 120_000),
+        new("goblin",            "Arena Goblin",        0,   3,   10,           100),
+        new("swashbuckler",      "Swashbuckler Pete",   1, 101,   50,         1_000),
+        new("barbarian",         "Iron Barbarian",      2, 105,   65,         5_000),
+        new("desert_bandit",     "Desert Bandit",       3, 106,   70,        20_000),
+        new("gladiator",         "Arena Gladiator",     4, 109,   80,        75_000),
+        new("corsair",           "Pirate Corsair",      5, 110,   85,       250_000),
+        new("berserker",         "Frenzied Berserker",  6, 111,   90,       750_000),
+        new("warlord",           "Battle Warlord",      7, 112,   95,     2_500_000),
+        new("champion",          "Duel Champion",       8, 113,   99,    10_000_000),
     ];
 
     private void SetWager(int value)

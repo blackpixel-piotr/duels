@@ -84,9 +84,7 @@ public sealed class InMemoryItemRepository : IItemRepository
 
         new("abyssal_whip", "Abyssal Whip", AttackType.Slash,
             new ItemModifiers(StabAttack: 82, SlashAttack: 82, StrengthBonus: 82),
-            attackSpeed: 4, examineText: "A weapon from the Abyssal Plane.",
-            special: new SpecialAttack("!spec", 25, 1.0, "Leeches energy. Uses 25% special energy.",
-                Hits: 1, AccuracyMultiplier: 1.0)),
+            attackSpeed: 4, examineText: "Fast, accurate, and drains nothing. Pure DPS."),
 
         new("armadyl_sword", "Armadyl Sword", AttackType.Slash,
             new ItemModifiers(StabAttack: 75, SlashAttack: 80, StrengthBonus: 85),

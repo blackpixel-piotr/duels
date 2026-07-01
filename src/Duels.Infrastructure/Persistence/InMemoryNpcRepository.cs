@@ -24,7 +24,8 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(),
             AttackType.Slash,
             [],
-            goldReward: 5),
+            goldReward: 5,
+            maxWager: 100),
 
         new("swashbuckler", "Swashbuckler Pete",
             "A quick pirate with a cutlass.",
@@ -32,7 +33,8 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 30, StrengthBonus: 30),
             AttackType.Slash,
             [],
-            goldReward: 30),
+            goldReward: 0,
+            maxWager: 1_000),
 
         new("barbarian", "Iron Barbarian",
             "A brutish northerner. Hits hard.",
@@ -40,7 +42,8 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 50, StrengthBonus: 50),
             AttackType.Slash,
             [],
-            goldReward: 100),
+            goldReward: 0,
+            maxWager: 5_000),
 
         new("desert_bandit", "Desert Bandit",
             "A dagger specialist. Spec at your peril.",
@@ -48,7 +51,8 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 40, StrengthBonus: 40),
             AttackType.Slash,
             [],
-            goldReward: 300),
+            goldReward: 0,
+            maxWager: 20_000),
 
         new("gladiator", "Arena Gladiator",
             "Pit-trained, whip in hand.",
@@ -56,7 +60,8 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 82, StrengthBonus: 82),
             AttackType.Slash,
             [],
-            goldReward: 1_000),
+            goldReward: 0,
+            maxWager: 75_000),
 
         new("corsair", "Pirate Corsair",
             "Elite sea raider with dragon claws.",
@@ -64,7 +69,8 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 56, StrengthBonus: 56),
             AttackType.Slash,
             [],
-            goldReward: 3_500),
+            goldReward: 0,
+            maxWager: 250_000),
 
         new("berserker", "Frenzied Berserker",
             "Godsword in hand, no fear in heart.",
@@ -72,7 +78,8 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 100, StrengthBonus: 100),
             AttackType.Slash,
             [],
-            goldReward: 12_000),
+            goldReward: 0,
+            maxWager: 750_000),
 
         new("warlord", "Battle Warlord",
             "A veteran dueler in top-tier gear.",
@@ -80,7 +87,8 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 115, StrengthBonus: 115),
             AttackType.Slash,
             [],
-            goldReward: 40_000),
+            goldReward: 0,
+            maxWager: 2_500_000),
 
         new("champion", "Duel Champion",
             "Undefeated. Maxed. Waiting for you.",
@@ -88,7 +96,8 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 132, StrengthBonus: 132),
             AttackType.Slash,
             [],
-            goldReward: 120_000),
+            goldReward: 0,
+            maxWager: 10_000_000),
 
         new("rare_tourist", "Wealthy Tourist",
             "Lost in the wrong part of the arena. Very wealthy.",
