@@ -16,18 +16,25 @@
     {
         @foreach (var slot in weaponSlots)
         {
-            var isEquipped = State?.Player?.GetEquippedWeaponId() == slot.WeaponId;
-            <button class="quickslot @(isEquipped ? "qs-equipped" : "")"
+            var isEquipped  = State?.Player?.GetEquippedWeaponId() == slot.WeaponId;
+            var depleted    = SpecDepleted(slot.WeaponId);
+            var slotLocal   = slot;
+            <button class="quickslot @(isEquipped ? "qs-equipped" : "") @(depleted ? "qs-spec-depleted" : "")"
                     title="@slot.Command"
-                    @onclick="() => Fire(slot.Command)">
+                    @onclick="() => Fire(slotLocal.Command)">
+                @if (_specCosts.TryGetValue(slot.WeaponId, out int cost))
+                {
+                    <span class="qs-spec-badge">@cost%</span>
+                }
                 <span class="qs-icon">⚔</span>
                 <span class="qs-label">@slot.Label</span>
             </button>
         }
     }
-    @foreach (var slot in _fixedSlots)
+    @foreach (var slot in ActiveFixedSlots)
     {
-        <button class="quickslot" title="@slot.Command" @onclick="() => Fire(slot.Command)">
+        var slotLocal = slot;
+        <button class="quickslot" title="@slot.Command" @onclick="() => Fire(slotLocal.Command)">
             <span class="qs-icon">@slot.Icon</span>
             <span class="qs-label">@slot.Label</span>
         </button>
@@ -58,14 +65,38 @@
         "saradomin_godsword", "armadyl_godsword", "scythe_of_vitur", "corrupted_whip",
     };
 
-    private static readonly QuickSlotDefinition[] _fixedSlots =
+    private static readonly Dictionary<string, int> _specCosts = new()
+    {
+        ["dragon_dagger"]      = 25,
+        ["abyssal_whip"]       = 25,
+        ["corrupted_whip"]     = 25,
+        ["dragon_claws"]       = 50,
+        ["bandos_godsword"]    = 50,
+        ["zamorak_godsword"]   = 50,
+        ["saradomin_godsword"] = 50,
+        ["armadyl_godsword"]   = 50,
+        ["scythe_of_vitur"]    = 100,
+    };
+
+    private static readonly QuickSlotDefinition[] _combatSlots =
     [
-        new("⚡", "Special",  "spec"),
-        new("🏪", "Shop",     "shop"),
-        new("📜", "Stats",    "stats"),
-        new("👁", "Inspect",  "inspect npc"),
-        new("⚔", "NPCs",     "npcs"),
+        new("⚡", "Special", "spec"),
     ];
+
+    private static readonly QuickSlotDefinition[] _utilitySlots =
+    [
+        new("🏪", "Shop",    "shop"),
+        new("📜", "Stats",   "stats"),
+        new("👁", "Inspect", "inspect npc"),
+        new("⚔", "NPCs",    "npcs"),
+    ];
+
+    private IEnumerable<QuickSlotDefinition> ActiveFixedSlots =>
+        State?.InDuel == true ? _combatSlots : _utilitySlots;
+
+    private bool SpecDepleted(string weaponId) =>
+        _specCosts.TryGetValue(weaponId, out int cost) &&
+        (State?.Player?.SpecialEnergy ?? 100) < cost;
 
     private IEnumerable<WeaponSlotDef> WeaponSlots()
     {

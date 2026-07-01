@@ -1,0 +1,46 @@
+@using Duels.Application.GameSession
+
+@if (State?.InDuel == true && State.Player is { } p && State.ActiveNpc is { } npc)
+{
+    <div class="combat-status-bar">
+        <div class="csb-player">
+            <div class="csb-name">@p.Name</div>
+            <div class="csb-bar-row">
+                <div class="hp-bar-wrap">
+                    <div class="hp-bar" style="width: @PlayerHpPct%"></div>
+                </div>
+                <span class="csb-val">@p.CurrentHp / @p.MaxHp</span>
+            </div>
+            <div class="csb-bar-row">
+                <div class="spec-bar-wrap">
+                    <div class="spec-bar" style="width: @p.SpecialEnergy%"></div>
+                </div>
+                <span class="csb-val">@p.SpecialEnergy%</span>
+            </div>
+        </div>
+
+        <div class="csb-vs">VS</div>
+
+        <div class="csb-npc">
+            <div class="csb-name csb-npc-name">@npc.Template.Name</div>
+            <div class="csb-bar-row">
+                <span class="csb-val">@npc.CurrentHp / @npc.MaxHp</span>
+                <div class="hp-bar-wrap">
+                    <div class="hp-bar npc-hp-bar" style="width: @NpcHpPct%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+
+    private int PlayerHpPct =>
+        State?.Player is { } p && p.MaxHp > 0
+            ? (int)(p.CurrentHp * 100.0 / p.MaxHp) : 0;
+
+    private int NpcHpPct =>
+        State?.ActiveNpc is { } n && n.MaxHp > 0
+            ? (int)(n.CurrentHp * 100.0 / n.MaxHp) : 0;
+}
