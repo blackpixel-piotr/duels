@@ -28,7 +28,6 @@ public sealed class Player
         Name = name;
         CurrentHp = MaxHp;
         SpecialEnergy = 100;
-        Gold = 10_000;
     }
 
     public bool IsAlive => CurrentHp > 0;
