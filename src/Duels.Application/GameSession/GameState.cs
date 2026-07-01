@@ -52,13 +52,13 @@ public sealed class GameState
         ActiveNpc = npc;
         CombatLog.Clear();
         Player.RestorePrayer();
-        InitDuelCooldowns(npc.Template.AttackSpeedTicks);
+        InitDuelCooldowns();
     }
 
-    public void InitDuelCooldowns(int npcSpeed)
+    public void InitDuelCooldowns()
     {
         PlayerCooldown = 0;
-        NpcCooldown = npcSpeed;
+        NpcCooldown = 0;
     }
 
     public void SetQueuedAction(string? action) => QueuedAction = action;
