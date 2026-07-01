@@ -23,6 +23,8 @@ public sealed class CommandParser
         ["scythe"] = "scythe_of_vitur",
     };
 
+    private static readonly HashSet<string> FoodIds = ["shark", "karambwan", "anglerfish"];
+
     public CommandParser(INpcRepository npcRepo, IItemRepository itemRepo)
     {
         _npcRepo = npcRepo;
@@ -66,6 +68,12 @@ public sealed class CommandParser
             "equip" or "wear" or "wield" => ParseEquip(playerId, args),
             "unequip" or "remove" => ParseUnequip(playerId, args),
 
+            "eat" or "food" => ParseEat(playerId, args),
+            "drink" or "potion" => new ParseResult(true, new DrinkPotionCommand(playerId), null),
+            "veng" or "vengeance" => new ParseResult(true, new VengeanceCommand(playerId), null),
+            "beg" => new ParseResult(true, new BegCommand(playerId), null),
+            "prestige" => new ParseResult(true, new PrestigeCommand(playerId), null),
+
             "inspect" or "examine" or "check" => ParseInspect(playerId, args),
             "stats" or "me" => new ParseResult(true, new InspectCommand(playerId, "me"), null),
             "npc" or "enemy" => new ParseResult(true, new InspectCommand(playerId, "npc"), null),
@@ -79,13 +87,18 @@ public sealed class CommandParser
         };
     }
 
-    private ParseResult ParseDuel(string playerId, string[] args)
+    private static ParseResult ParseDuel(string playerId, string[] args)
     {
         if (args.Length == 0)
-            return new ParseResult(false, null, "Usage: duel <enemy>  (e.g. duel swashbuckler)");
+            return new ParseResult(false, null, "Usage: duel <enemy> [wager]  (e.g. duel swashbuckler 500)");
 
-        var npcId = string.Join("_", args).ToLowerInvariant().Replace(" ", "_");
-        return new ParseResult(true, new StartDuelCommand(playerId, npcId), null);
+        // "duel endless" → endless mode
+        if (args[0].Equals("endless", StringComparison.OrdinalIgnoreCase))
+            return new ParseResult(true, new StartEndlessCommand(playerId), null);
+
+        var npcId = args[0].ToLowerInvariant().Replace(" ", "_");
+        int wager = args.Length > 1 && int.TryParse(args[1], out var w) && w > 0 ? w : 0;
+        return new ParseResult(true, new StartDuelCommand(playerId, npcId, wager), null);
     }
 
     private static ParseResult ParseAttack(string playerId, string[] args, AttackStyle defaultStyle)
@@ -129,6 +142,15 @@ public sealed class CommandParser
             return new ParseResult(false, null, $"Unknown slot: '{args[0]}'. Slots: {string.Join(", ", Enum.GetNames<EquipmentSlot>())}");
 
         return new ParseResult(true, new UnequipItemCommand(playerId, slot), null);
+    }
+
+    private static ParseResult ParseEat(string playerId, string[] args)
+    {
+        if (args.Length == 0)
+            return new ParseResult(false, null, "Usage: eat <food>  (e.g. eat shark)");
+
+        var itemId = string.Join("_", args).ToLowerInvariant();
+        return new ParseResult(true, new EatItemCommand(playerId, itemId), null);
     }
 
     private static ParseResult ParseInspect(string playerId, string[] args)

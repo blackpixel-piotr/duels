@@ -1,6 +1,7 @@
 using Duels.Application.Abstractions;
 using Duels.Application.Commands;
 using Duels.Application.GameSession;
+using Duels.Domain.Entities;
 using Duels.Domain.Events;
 using Duels.Domain.Interfaces;
 using Duels.Domain.ValueObjects;
@@ -59,12 +60,16 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
             if (roll.Hit)
             {
                 npc.TakeDamage(roll.Damage);
-                state.AppendLog($"You hit {npc.Template.Name} for {roll.Damage} damage. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.PlayerHit);
+                int maxPossible = _combat.MaxHit(playerSnapshot);
+                bool isMax = roll.Damage == maxPossible && maxPossible > 0;
+                var kind = isMax ? LogEntryKind.MaxHit : LogEntryKind.PlayerHit;
+                string prefix = isMax ? "MAX HIT! " : "";
+                state.AppendLog($"{player.PhatPrefix}{prefix}You hit {npc.Template.Name} for {roll.Damage} damage. [{npc.CurrentHp}/{npc.MaxHp} HP]", kind);
                 await _events.PublishAsync(new AttackLanded(player.Id, npc.Template.Id, roll.Damage), ct);
             }
             else
             {
-                state.AppendLog($"You miss {npc.Template.Name}.", LogEntryKind.PlayerMiss);
+                state.AppendLog($"{player.PhatPrefix}You miss {npc.Template.Name}.", LogEntryKind.PlayerMiss);
                 await _events.PublishAsync(new AttackMissed(player.Id, npc.Template.Id), ct);
             }
 
@@ -72,6 +77,7 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
         }
 
         player.RechargeSpecial(10);
+        player.TickCombatBoost();
 
         if (!npc.IsAlive)
         {
@@ -87,15 +93,40 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
         }
 
         // NPC retaliates
+        await NpcRetaliate(state, player, npc, ct);
+
+        if (!player.IsAlive)
+        {
+            await HandleDefeat(state, player, npc, ct);
+        }
+
+        await _stateRepo.SaveAsync(state, ct);
+        return CommandResult.Ok();
+    }
+
+    private async Task NpcRetaliate(GameState state, Domain.Entities.Player player, Domain.Entities.NpcInstance npc, CancellationToken ct)
+    {
         var npcAttackSnapshot = BuildNpcAttackSnapshot(npc);
         var playerDefSnapshot = BuildPlayerDefSnapshot(player);
         var npcRoll = _combat.Roll(npcAttackSnapshot, playerDefSnapshot);
+
+        // Tick veng cooldown each round
+        state.TickVeng();
 
         if (npcRoll.Hit)
         {
             player.TakeDamage(npcRoll.Damage);
             state.AppendLog($"{npc.Template.Name} hits you for {npcRoll.Damage} damage. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
             await _events.PublishAsync(new AttackLanded(npc.Template.Id, player.Id, npcRoll.Damage), ct);
+
+            // Vengeance proc
+            if (state.VengActive && npcRoll.Damage > 0)
+            {
+                int vengDmg = (int)(npcRoll.Damage * 0.75);
+                npc.TakeDamage(vengDmg);
+                state.ConsumeVeng();
+                state.AppendLog($"VENGEANCE! {vengDmg} damage reflected!", LogEntryKind.Vengeance);
+            }
         }
         else
         {
@@ -103,17 +134,33 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
             await _events.PublishAsync(new AttackMissed(npc.Template.Id, player.Id), ct);
         }
 
-        if (!player.IsAlive)
+        // Check if veng killed NPC
+        if (!npc.IsAlive && player.IsAlive)
         {
-            state.AppendLog($"You have been defeated by {npc.Template.Name}! You respawn at full health.", LogEntryKind.System);
-            state.AppendLog("═══ DUEL LOST ═══", LogEntryKind.System);
-            player.RestoreHp();
-            state.EndDuel();
-            await _events.PublishAsync(new DuelLost(player.Id, npc.Template.Id, npc.Template.Name), ct);
+            await HandleVictory(state, ct);
+        }
+    }
+
+    private async Task HandleDefeat(GameState state, Domain.Entities.Player player, Domain.Entities.NpcInstance npc, CancellationToken ct)
+    {
+        state.AppendLog($"You have been defeated by {npc.Template.Name}! You respawn at full health.", LogEntryKind.System);
+        state.AppendLog("═══ DUEL LOST ═══", LogEntryKind.System);
+
+        state.ResetWinStreak();
+
+        if (state.InEndlessMode)
+        {
+            state.AppendLog($"Endless run over! You reached wave {state.EndlessWave}. Best: {state.BestEndlessWave}.", LogEntryKind.System);
+            state.EndEndless();
         }
 
-        await _stateRepo.SaveAsync(state, ct);
-        return CommandResult.Ok();
+        player.RestoreHp();
+        state.EndDuel();
+
+        if (player.Gold == 0)
+            state.AppendLog("You've been cleaned. Type 'beg' for emergency coin, or 'duel goblin' to rebuild.", LogEntryKind.System);
+
+        await _events.PublishAsync(new DuelLost(player.Id, npc.Template.Id, npc.Template.Name), ct);
     }
 
     private bool PerformSpecialAttack(GameState state, Domain.Entities.Player player, Domain.Entities.NpcInstance npc)
@@ -157,11 +204,11 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
                     player.Heal(healAmount);
                     healMsg = $" [healed {healAmount}]";
                 }
-                state.AppendLog($"Special! You hit {npc.Template.Name} for {damage}{healMsg}{suffix}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.PlayerHit);
+                state.AppendLog($"{player.PhatPrefix}⚡ SPEC! You hit {npc.Template.Name} for {damage}{healMsg}{suffix}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.SpecHit);
             }
             else
             {
-                state.AppendLog($"Special! You miss {npc.Template.Name}{suffix}.", LogEntryKind.PlayerMiss);
+                state.AppendLog($"{player.PhatPrefix}⚡ SPEC! You miss {npc.Template.Name}{suffix}.", LogEntryKind.PlayerMiss);
             }
 
             if (!npc.IsAlive) break;
@@ -178,10 +225,58 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
         state.AppendLog($"You have defeated {npc.Template.Name}!", LogEntryKind.System);
         state.AppendLog("═══ DUEL WON ═══", LogEntryKind.System);
 
-        player.AddGold(npc.Template.GoldReward);
-        if (npc.Template.GoldReward > 0)
-            state.AppendLog($"You receive {npc.Template.GoldReward} gold. (Total: {player.Gold}g)", LogEntryKind.Loot);
+        // Payout
+        int payout;
+        if (state.CurrentWager > 0)
+        {
+            payout = (int)(state.CurrentWager * 2 * state.WinStreakMultiplier);
+            state.SetWager(0);
+        }
+        else
+        {
+            double prestigeBonus = player.PrestigeLevel >= 1 ? 1.05 : 1.0;
+            payout = (int)(npc.Template.GoldReward * prestigeBonus);
+        }
 
+        if (payout > 0)
+        {
+            player.AddGold(payout);
+            state.AppendLog($"You receive {payout:N0} gold. (Total: {player.Gold:N0}g)", LogEntryKind.Loot);
+        }
+
+        state.IncrementWinStreak();
+        if (state.WinStreak > 1)
+            state.AppendLog($"Win streak: {state.WinStreak}! (×{state.WinStreakMultiplier:F1} multiplier)", LogEntryKind.System);
+
+        // Rare drop
+        if (npc.Template.Id == "rare_gladiator")
+        {
+            player.AddToInventory("corrupted_whip");
+            state.AppendLog("The Corrupted Gladiator drops a Corrupted Whip!", LogEntryKind.Loot);
+        }
+
+        // Prestige unlock
+        if (npc.Template.Id == "champion")
+        {
+            state.SetCanPrestige();
+            state.AppendLog("You have conquered the Duel Arena! Type 'prestige' to reset and earn a Partyhat.", LogEntryKind.System);
+        }
+
+        // Endless mode: spawn next wave instead of ending
+        if (state.InEndlessMode)
+        {
+            int wave = state.NextEndlessWave();
+            state.AppendLog($"Wave {wave - 1} cleared! Preparing wave {wave}...", LogEntryKind.System);
+            var waveNpc = BuildEndlessNpc(wave);
+            state.StartDuel(waveNpc);
+            state.AppendLog($"═══ WAVE {wave} ═══", LogEntryKind.System);
+            state.AppendLog($"A wave {wave} fighter appears ({waveNpc.MaxHp} HP)!", LogEntryKind.System);
+            state.AppendLog("Type !attack to fight.", LogEntryKind.System);
+            await _events.PublishAsync(new DuelWon(player.Id, npc.Template.Id, npc.Template.Name, payout), ct);
+            return;
+        }
+
+        // Normal NPC ladder unlock
         int idx = Array.IndexOf(Ladder, npc.Template.Id);
         if (idx >= 0 && idx + 1 < Ladder.Length)
         {
@@ -194,7 +289,23 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
 
         player.RestoreSpecialEnergy();
         state.EndDuel();
-        await _events.PublishAsync(new DuelWon(player.Id, npc.Template.Id, npc.Template.Name, npc.Template.GoldReward), ct);
+        await _events.PublishAsync(new DuelWon(player.Id, npc.Template.Id, npc.Template.Name, payout), ct);
+    }
+
+    private static NpcInstance BuildEndlessNpc(int wave)
+    {
+        int hp = 50 + wave * 6;
+        int mod = 20 + wave * 4;
+        var template = new NpcTemplate(
+            $"endless_w{wave}",
+            $"Wave {wave} Fighter",
+            $"A relentless wave {wave} challenger.",
+            new CombatStats(99, 99, 99, hp),
+            new ItemModifiers(SlashAttack: mod, StrengthBonus: mod),
+            AttackType.Slash,
+            [],
+            goldReward: wave * 50);
+        return new NpcInstance(template);
     }
 
     private CombatantSnapshot BuildPlayerSnapshot(Domain.Entities.Player player, AttackStyle style)
@@ -205,7 +316,10 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
             ? (_itemRepo.GetWeapon(weaponId)?.AttackType ?? AttackType.Slash)
             : AttackType.Slash;
 
-        return new CombatantSnapshot(player.AttackLevel, player.StrengthLevel, player.DefenceLevel, mods, attackType, style);
+        int atk = player.CombatBoostRoundsLeft > 0 ? (int)(player.AttackLevel * 1.15) + 5 : player.AttackLevel;
+        int str = player.CombatBoostRoundsLeft > 0 ? (int)(player.StrengthLevel * 1.15) + 5 : player.StrengthLevel;
+
+        return new CombatantSnapshot(atk, str, player.DefenceLevel, mods, attackType, style);
     }
 
     private CombatantSnapshot BuildPlayerDefSnapshot(Domain.Entities.Player player)

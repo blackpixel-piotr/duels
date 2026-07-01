@@ -11,8 +11,17 @@
 @code {
     [Parameter] public IReadOnlyList<CombatLogEntry> LogEntries { get; set; } = [];
 
+    private int _lastCount;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (LogEntries.Count > _lastCount)
+        {
+            var last = LogEntries.LastOrDefault();
+            if (last?.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit or LogEntryKind.Vengeance)
+                await JS.InvokeVoidAsync("triggerShake", "terminal-log", 180);
+        }
+        _lastCount = LogEntries.Count;
         await JS.InvokeVoidAsync("scrollToBottom", "terminal-log");
     }
 }

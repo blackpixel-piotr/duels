@@ -18,6 +18,18 @@
             <p class="error-msg">@_error</p>
         }
 
+        @if (_saveName is not null)
+        {
+            <div class="save-section">
+                <p class="save-label">Saved character: <strong class="save-name">@_saveName</strong></p>
+                <button class="continue-btn" @onclick="ContinueGame" disabled="@_starting">
+                    @(_starting ? "Loading..." : "▶ Continue")
+                </button>
+                <button class="delete-save-btn" @onclick="DeleteSave">Delete save</button>
+            </div>
+            <div class="divider">— or start fresh —</div>
+        }
+
         <div class="name-form">
             <label for="charname">Enter your character name:</label>
             <input id="charname"
@@ -34,8 +46,8 @@
         </div>
 
         <div class="hint-text">
-            <p>Fight NPCs · Unlock gear · Level up</p>
-            <p>Commands: <code>!duel goblin</code> · <code>!attack</code> · <code>!whip</code> · <code>!dds</code></p>
+            <p>Fight NPCs · Buy weapons · Climb the ladder</p>
+            <p>Commands: <code>!duel goblin</code> · <code>!attack</code> · <code>!whip</code> · <code>!ags</code></p>
         </div>
     </div>
 </div>
@@ -44,11 +56,16 @@
     private string _playerName = "";
     private string _error = "";
     private bool _starting;
+    private string? _saveName;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         if (Game.IsStarted)
+        {
             Nav.NavigateTo("game");
+            return;
+        }
+        _saveName = await Game.GetSaveNameAsync();
     }
 
     private async Task OnKeyDown(KeyboardEventArgs e)
@@ -72,6 +89,7 @@
         }
 
         _starting = true;
+        await Game.ClearSaveAsync();
         var result = await Game.StartNewGameAsync(name);
         _starting = false;
 
@@ -79,5 +97,23 @@
             Nav.NavigateTo("game");
         else
             _error = string.Join(" ", result.Messages);
+    }
+
+    private async Task ContinueGame()
+    {
+        _starting = true;
+        var ok = await Game.RestoreSaveAsync();
+        _starting = false;
+
+        if (ok)
+            Nav.NavigateTo("game");
+        else
+            _error = "Failed to load save. Start a new game.";
+    }
+
+    private async Task DeleteSave()
+    {
+        await Game.ClearSaveAsync();
+        _saveName = null;
     }
 }

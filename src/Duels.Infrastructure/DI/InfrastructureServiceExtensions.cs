@@ -34,6 +34,7 @@ public static class InfrastructureServiceExtensions
         // Command handlers
         services.AddSingleton<ICommandHandler<StartGameCommand>, StartGameHandler>();
         services.AddSingleton<ICommandHandler<StartDuelCommand>, StartDuelHandler>();
+        services.AddSingleton<ICommandHandler<StartEndlessCommand>, StartEndlessHandler>();
         services.AddSingleton<ICommandHandler<AttackCommand>, AttackHandler>();
         services.AddSingleton<ICommandHandler<EquipItemCommand>, EquipItemHandler>();
         services.AddSingleton<ICommandHandler<UnequipItemCommand>, UnequipItemHandler>();
@@ -43,6 +44,11 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ICommandHandler<ShopCommand>, ShopHandler>();
         services.AddSingleton<ICommandHandler<BuyItemCommand>, BuyItemHandler>();
         services.AddSingleton<ICommandHandler<WeaponShortcutCommand>, WeaponShortcutHandler>();
+        services.AddSingleton<ICommandHandler<EatItemCommand>, EatItemHandler>();
+        services.AddSingleton<ICommandHandler<DrinkPotionCommand>, DrinkPotionHandler>();
+        services.AddSingleton<ICommandHandler<VengeanceCommand>, VengeanceHandler>();
+        services.AddSingleton<ICommandHandler<BegCommand>, BegHandler>();
+        services.AddSingleton<ICommandHandler<PrestigeCommand>, PrestigeHandler>();
 
         return services;
     }

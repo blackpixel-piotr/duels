@@ -10,11 +10,21 @@ public sealed class Player
     public int AttackLevel => 99;
     public int StrengthLevel => 99;
     public int DefenceLevel => 99;
-    public int MaxHp => 99;
+    public int MaxHp => PrestigeLevel >= 2 ? 109 : 99;
 
     public int CurrentHp { get; private set; }
     public int Gold { get; private set; }
     public int SpecialEnergy { get; private set; }
+    public int PrestigeLevel { get; private set; }
+    public int CombatBoostRoundsLeft { get; private set; }
+
+    public string PhatPrefix => PrestigeLevel switch
+    {
+        >= 3 => "[White Phat] ",
+        2    => "[Blue Phat] ",
+        1    => "[Red Phat] ",
+        _    => ""
+    };
 
     private readonly Dictionary<EquipmentSlot, string> _equipped = new();
     private readonly List<string> _inventory = new();
@@ -35,6 +45,11 @@ public sealed class Player
 
     public void TakeDamage(int amount) => CurrentHp = Math.Max(0, CurrentHp - amount);
     public void Heal(int amount) => CurrentHp = Math.Min(MaxHp, CurrentHp + amount);
+    public void HealFood(int amount, bool canOverheal = false)
+    {
+        int cap = canOverheal ? MaxHp + 10 : MaxHp;
+        CurrentHp = Math.Min(cap, CurrentHp + amount);
+    }
     public void RestoreHp() => CurrentHp = MaxHp;
     public void RestoreSpecialEnergy() => SpecialEnergy = 100;
     public void RechargeSpecial(int amount) => SpecialEnergy = Math.Min(100, SpecialEnergy + amount);
@@ -45,6 +60,9 @@ public sealed class Player
         SpecialEnergy -= amount;
         return true;
     }
+
+    public void DrinkSuperCombat() => CombatBoostRoundsLeft = 4;
+    public void TickCombatBoost() { if (CombatBoostRoundsLeft > 0) CombatBoostRoundsLeft--; }
 
     public void Equip(string itemId, EquipmentSlot slot)
     {
@@ -62,6 +80,13 @@ public sealed class Player
     }
 
     public void AddToInventory(string itemId) => _inventory.Add(itemId);
+    public bool RemoveFromInventory(string itemId)
+    {
+        int idx = _inventory.LastIndexOf(itemId);
+        if (idx < 0) return false;
+        _inventory.RemoveAt(idx);
+        return true;
+    }
     public bool HasItem(string itemId) => _inventory.Contains(itemId) || _equipped.ContainsValue(itemId);
     public string? GetEquippedWeaponId() => _equipped.GetValueOrDefault(EquipmentSlot.Weapon);
 
@@ -71,5 +96,31 @@ public sealed class Player
         if (Gold < amount) return false;
         Gold -= amount;
         return true;
+    }
+
+    public void Prestige()
+    {
+        PrestigeLevel++;
+        Gold = 0;
+        _equipped.Clear();
+        _inventory.Clear();
+        if (PrestigeLevel >= 3) _inventory.Add("rune_scimitar");
+        CurrentHp = MaxHp;
+        SpecialEnergy = 100;
+        CombatBoostRoundsLeft = 0;
+    }
+
+    public void RestoreFromSave(int gold, int currentHp, int specialEnergy, int prestigeLevel,
+        IEnumerable<string> inventory, IEnumerable<KeyValuePair<EquipmentSlot, string>> equipped)
+    {
+        Gold = gold;
+        PrestigeLevel = prestigeLevel;
+        _inventory.Clear();
+        _inventory.AddRange(inventory);
+        _equipped.Clear();
+        foreach (var kv in equipped)
+            _equipped[kv.Key] = kv.Value;
+        CurrentHp = Math.Min(currentHp, MaxHp);
+        SpecialEnergy = Math.Min(specialEnergy, 100);
     }
 }

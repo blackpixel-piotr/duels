@@ -10,6 +10,17 @@ public sealed class InMemoryItemRepository : IItemRepository
     private readonly Dictionary<string, Weapon> _weapons;
     private readonly Dictionary<string, int> _shopPrices;
 
+    private static readonly Dictionary<string, string> ConsumableNames = new()
+    {
+        ["shark"]               = "Shark",
+        ["karambwan"]           = "Karambwan",
+        ["anglerfish"]          = "Anglerfish",
+        ["super_combat_potion"] = "Super Combat Potion",
+        ["red_partyhat"]        = "Red Partyhat",
+        ["blue_partyhat"]       = "Blue Partyhat",
+        ["white_partyhat"]      = "White Partyhat",
+    };
+
     public InMemoryItemRepository()
     {
         _weapons = BuildWeapons().ToDictionary(w => w.Id);
@@ -20,7 +31,9 @@ public sealed class InMemoryItemRepository : IItemRepository
     public GearPiece? GetGear(string itemId) => _gear.GetValueOrDefault(itemId);
     public Weapon? GetWeapon(string itemId) => _weapons.GetValueOrDefault(itemId);
     public string? GetItemName(string itemId) =>
-        (_gear.GetValueOrDefault(itemId)?.Name) ?? (_weapons.GetValueOrDefault(itemId)?.Name);
+        ConsumableNames.GetValueOrDefault(itemId)
+        ?? (_gear.GetValueOrDefault(itemId)?.Name)
+        ?? (_weapons.GetValueOrDefault(itemId)?.Name);
     public bool IsWeapon(string itemId) => _weapons.ContainsKey(itemId);
 
     public IReadOnlyList<(string Id, string Name, int Price)> GetShopItems()
@@ -36,9 +49,13 @@ public sealed class InMemoryItemRepository : IItemRepository
 
     private static Dictionary<string, int> BuildShopPrices() => new()
     {
+        ["karambwan"]          = 200,
         ["rune_scimitar"]      = 200,
+        ["shark"]              = 500,
         ["dragon_scimitar"]    = 600,
+        ["anglerfish"]         = 700,
         ["dragon_dagger"]      = 800,
+        ["super_combat_potion"]= 1_000,
         ["abyssal_whip"]       = 2_500,
         ["armadyl_sword"]      = 5_000,
         ["dragon_claws"]       = 15_000,
@@ -110,6 +127,12 @@ public sealed class InMemoryItemRepository : IItemRepository
             attackSpeed: 5, examineText: "Three hits per special. Costs 100% energy.",
             special: new SpecialAttack("!spec", 100, 1.0, "Three sweeping hits. Uses 100% energy.",
                 Hits: 3, AccuracyMultiplier: 1.0)),
+
+        new("corrupted_whip", "Corrupted Whip", AttackType.Slash,
+            new ItemModifiers(StabAttack: 90, SlashAttack: 90, StrengthBonus: 90),
+            attackSpeed: 4, examineText: "A whip twisted by dark energy. Untradeable.",
+            special: new SpecialAttack("!spec", 25, 1.0, "Dark lash — boosted strength. Uses 25% energy.",
+                Hits: 1, AccuracyMultiplier: 1.10)),
     ];
 
     private static IEnumerable<GearPiece> BuildGear(Dictionary<string, Weapon> weapons)
