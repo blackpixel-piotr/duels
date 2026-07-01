@@ -1,4 +1,6 @@
 @using Duels.Application.GameSession
+@using Duels.Application.Commands
+@inject Duels.Web.Services.GameService GameSvc
 
 <div class="inventory-panel">
     <div class="panel-title">Inventory</div>
@@ -29,12 +31,14 @@
 
 @code {
     [Parameter] public GameState? State { get; set; }
-    [Parameter] public EventCallback<string> OnEquip { get; set; }
 
     private IReadOnlyList<string> Items => State?.Player?.Inventory ?? [];
 
-    private async Task Equip(string itemId) =>
-        await OnEquip.InvokeAsync($"!equip {itemId}");
+    private async Task Equip(string itemId)
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new EquipItemCommand(GameSvc.PlayerId!, itemId));
+    }
 
     private static string ShortName(string id) =>
         string.Join(" ", id.Split('_').Select(w => char.ToUpper(w[0]) + w[1..]));

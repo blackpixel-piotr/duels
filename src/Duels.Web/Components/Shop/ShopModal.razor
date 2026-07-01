@@ -1,4 +1,6 @@
 @using Duels.Application.GameSession
+@using Duels.Application.Commands
+@inject Duels.Web.Services.GameService GameSvc
 
 <div class="shop-overlay" @onclick="OnClose">
     <div class="shop-panel" @onclick:stopPropagation>
@@ -53,7 +55,8 @@
 @code {
     [Parameter] public GameState? State { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
-    [Parameter] public EventCallback<string> OnBuy { get; set; }
+
+    private bool _busy;
 
     private string _tab = "weapons";
     private int _qty = 1;
@@ -106,7 +109,11 @@
 
     private async Task ExecuteBuy(ShopItem item)
     {
+        if (_busy || GameSvc.PlayerId is null) return;
         _confirmItemId = null;
-        await OnBuy.InvokeAsync($"buy {item.Id} {_qty}");
+        _busy = true;
+        StateHasChanged();
+        try { await GameSvc.DispatchAsync(new BuyItemCommand(GameSvc.PlayerId!, item.Id, _qty)); }
+        finally { _busy = false; }
     }
 }

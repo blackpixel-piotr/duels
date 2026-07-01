@@ -1,4 +1,6 @@
 @using Duels.Application.GameSession
+@using Duels.Application.Commands
+@inject Duels.Web.Services.GameService GameSvc
 
 <div class="ladder-overlay" @onclick="OnClose">
     <div class="ladder-panel" @onclick:stopPropagation>
@@ -54,7 +56,7 @@
 @code {
     [Parameter] public GameState? State { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
-    [Parameter] public EventCallback<string> OnDuel { get; set; }
+    [Parameter] public EventCallback OnDuelStarted { get; set; }
 
     private int    _wager        = 0;
     private string _wagerStr     = "0";
@@ -106,7 +108,8 @@
 
     private async Task Fight(LadderNpc npc)
     {
-        var cmd = _wager > 0 ? $"duel {npc.Id} {_wager}" : $"duel {npc.Id}";
-        await OnDuel.InvokeAsync(cmd);
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, npc.Id, _wager > 0 ? _wager : 0));
+        await OnDuelStarted.InvokeAsync();
     }
 }
