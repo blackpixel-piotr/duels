@@ -5,31 +5,34 @@
     @{
         var weaponSlots = WeaponSlots().ToList();
     }
-    @if (weaponSlots.Count == 0)
+    @if (State?.InDuel == true)
     {
-        <button class="quickslot" title="attack" disabled="@Disabled" @onclick='() => Fire("attack")'>
-            <span class="qs-icon">⚔</span>
-            <span class="qs-label">ATTACK</span>
-        </button>
-    }
-    else
-    {
-        @foreach (var slot in weaponSlots)
+        @if (weaponSlots.Count == 0)
         {
-            var isEquipped  = State?.Player?.GetEquippedWeaponId() == slot.WeaponId;
-            var depleted    = SpecDepleted(slot.WeaponId);
-            var slotLocal   = slot;
-            <button class="quickslot @(isEquipped ? "qs-equipped" : "") @(depleted ? "qs-spec-depleted" : "")"
-                    title="@slot.Command"
-                    disabled="@Disabled"
-                    @onclick="() => Fire(slotLocal.Command)">
-                @if (_specCosts.TryGetValue(slot.WeaponId, out int cost))
-                {
-                    <span class="qs-spec-badge">@cost%</span>
-                }
+            <button class="quickslot" title="attack" disabled="@Disabled" @onclick='() => Fire("attack")'>
                 <span class="qs-icon">⚔</span>
-                <span class="qs-label">@slot.Label</span>
+                <span class="qs-label">ATTACK</span>
             </button>
+        }
+        else
+        {
+            @foreach (var slot in weaponSlots)
+            {
+                var isEquipped  = State?.Player?.GetEquippedWeaponId() == slot.WeaponId;
+                var depleted    = SpecDepleted(slot.WeaponId);
+                var slotLocal   = slot;
+                <button class="quickslot @(isEquipped ? "qs-equipped" : "") @(depleted ? "qs-spec-depleted" : "")"
+                        title="@slot.Command"
+                        disabled="@Disabled"
+                        @onclick="() => Fire(slotLocal.Command)">
+                    @if (_specCosts.TryGetValue(slot.WeaponId, out int cost))
+                    {
+                        <span class="qs-spec-badge">@cost%</span>
+                    }
+                    <span class="qs-icon">⚔</span>
+                    <span class="qs-label">@slot.Label</span>
+                </button>
+            }
         }
     }
     @foreach (var slot in ActiveFixedSlots)
@@ -60,12 +63,14 @@
         ["corrupted_whip"]     = "cwhip",
     };
 
-    private static readonly HashSet<string> _knownWeaponIds = new()
-    {
+    private static readonly string[] _weaponOrder =
+    [
         "rune_scimitar", "dragon_scimitar", "dragon_dagger", "abyssal_whip",
         "armadyl_sword", "dragon_claws", "bandos_godsword", "zamorak_godsword",
         "saradomin_godsword", "armadyl_godsword", "scythe_of_vitur", "corrupted_whip",
-    };
+    ];
+
+    private static readonly HashSet<string> _knownWeaponIds = new(_weaponOrder);
 
     private static readonly Dictionary<string, int> _specCosts = new()
     {
@@ -100,20 +105,16 @@
     {
         if (State?.Player is not { } player) yield break;
 
-        var seen = new HashSet<string>();
-
         var equippedId = player.GetEquippedWeaponId();
-        if (equippedId is not null && _knownWeaponIds.Contains(equippedId))
-        {
-            seen.Add(equippedId);
-            yield return MakeWeaponSlot(equippedId);
-        }
 
-        foreach (var id in player.Inventory)
+        if (equippedId is not null && _knownWeaponIds.Contains(equippedId))
+            yield return MakeWeaponSlot(equippedId);
+
+        foreach (var id in _weaponOrder)
         {
-            if (seen.Contains(id) || !_knownWeaponIds.Contains(id)) continue;
-            seen.Add(id);
-            yield return MakeWeaponSlot(id);
+            if (id == equippedId) continue;
+            if (player.Inventory.Contains(id))
+                yield return MakeWeaponSlot(id);
         }
     }
 
