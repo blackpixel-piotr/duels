@@ -23,6 +23,7 @@ public sealed class GameState
     public int PlayerCooldown { get; private set; }
     public int NpcCooldown { get; private set; }
     public string? QueuedAction { get; private set; }
+    public string? RevertWeaponId { get; private set; }
     public ProtectionPrayer TickStartProtection { get; set; }
 
     public bool HasBegged { get; private set; }
@@ -61,6 +62,8 @@ public sealed class GameState
     }
 
     public void SetQueuedAction(string? action) => QueuedAction = action;
+
+    public void SetRevertWeapon(string? weaponId) => RevertWeaponId = weaponId;
 
     public void ResetPlayerCooldown(int ticks) => PlayerCooldown = ticks;
 

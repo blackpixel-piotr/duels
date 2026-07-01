@@ -29,8 +29,11 @@ public sealed class WeaponShortcutHandler : ICommandHandler<WeaponShortcutComman
             return CommandResult.Fail($"You don't have {name}.");
         }
 
+        var previousWeapon = player.GetEquippedWeaponId();
+        bool switching = previousWeapon != command.WeaponId;
+
         // Equip immediately if not already equipped
-        if (player.GetEquippedWeaponId() != command.WeaponId)
+        if (switching)
         {
             player.Equip(command.WeaponId, EquipmentSlot.Weapon);
             var name = _itemRepo.GetItemName(command.WeaponId) ?? command.WeaponId;
@@ -41,6 +44,8 @@ public sealed class WeaponShortcutHandler : ICommandHandler<WeaponShortcutComman
         {
             var weapon = _itemRepo.GetWeapon(command.WeaponId);
             state.SetQueuedAction(weapon?.Special is not null ? "spec" : "attack");
+            // If mid-duel weapon swap, schedule a revert to the previous weapon after this tick
+            state.SetRevertWeapon(switching ? previousWeapon : null);
         }
 
         await _stateRepo.SaveAsync(state, ct);
