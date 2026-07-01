@@ -94,7 +94,11 @@ public sealed class GameTickService : IDisposable
             if (state.RevertWeaponId is { } revertId)
             {
                 if (player.HasItem(revertId))
+                {
                     player.Equip(revertId, EquipmentSlot.Weapon);
+                    var revertName = _items.GetItemName(revertId) ?? revertId;
+                    state.AppendLog($"You switch back to your {revertName}.", LogEntryKind.Info);
+                }
                 state.SetRevertWeapon(null);
             }
         }
