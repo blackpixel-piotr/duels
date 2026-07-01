@@ -60,6 +60,14 @@ public sealed class GameService
         return result;
     }
 
+    public async Task<CommandResult> DispatchAsync<TCommand>(TCommand command) where TCommand : IGameCommand
+    {
+        var result = await _dispatcher.DispatchAsync(command);
+        NotifyStateChanged();
+        await PersistAsync();
+        return result;
+    }
+
     public async Task<GameState?> GetStateAsync() =>
         PlayerId is null ? null : await _stateRepo.GetAsync(PlayerId);
 

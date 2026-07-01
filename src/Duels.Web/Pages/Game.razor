@@ -6,6 +6,7 @@
 @implements IDisposable
 
 @using Duels.Application.GameSession
+@using Duels.Application.Commands
 @using Duels.Web.Components.Combat
 @using Duels.Web.Components.Stats
 @using Duels.Web.Components.Terminal
@@ -30,15 +31,14 @@ else
         @if (_shopOpen)
         {
             <ShopModal State="@_state"
-                       OnClose="@(() => { _shopOpen = false; StateHasChanged(); })"
-                       OnBuy="HandleBuy" />
+                       OnClose="@(() => { _shopOpen = false; StateHasChanged(); })" />
         }
 
         @if (_ladderOpen)
         {
             <NpcLadderModal State="@_state"
                             OnClose="@(() => { _ladderOpen = false; StateHasChanged(); })"
-                            OnDuel="HandleDuel" />
+                            OnDuelStarted="HandleDuelStarted" />
         }
 
         <div class="game-layout tab-@_tab">
@@ -53,17 +53,19 @@ else
                 @if (_state is { InDuel: false, LastOpponentId: { } lastNpc })
                 {
                     <div class="retry-bar">
-                        <button class="retry-btn" disabled="@_processing" @onclick='() => HandleCommand(RetryCmd)'>@RetryLabel</button>
+                        <button class="retry-btn" disabled="@_processing" @onclick="RetryDuel">@RetryLabel</button>
                     </div>
                 }
                 <div class="bottom-bar">
-                    <QuickSlotBar State="@_state" OnCommand="HandleCommand" Disabled="@_processing" />
+                    <QuickSlotBar State="@_state"
+                                  OnOpenShop="@(() => { _shopOpen = true; StateHasChanged(); })"
+                                  OnOpenLadder="@(() => { _ladderOpen = true; StateHasChanged(); })" />
                     <TerminalInput OnSubmit="HandleCommand" Disabled="@_processing" />
                 </div>
             </div>
 
             <div class="game-right">
-                <InventoryGrid State="@_state" OnEquip="HandleCommand" />
+                <InventoryGrid State="@_state" />
             </div>
         </div>
     </div>
@@ -111,8 +113,8 @@ else
     {
         if (string.IsNullOrWhiteSpace(command) || _processing) return;
         var verb = command.Trim().TrimStart('!').Split(' ', 2)[0].ToLowerInvariant();
-        if (verb is "shop" or "store")               { _shopOpen   = true; StateHasChanged(); return; }
-        if (verb is "npcs" or "enemies" or "list")   { _ladderOpen = true; StateHasChanged(); return; }
+        if (verb is "shop" or "store")             { _shopOpen   = true; StateHasChanged(); return; }
+        if (verb is "npcs" or "enemies" or "list") { _ladderOpen = true; StateHasChanged(); return; }
         _processing = true;
         StateHasChanged();
         bool wasDueling = _state?.InDuel ?? false;
@@ -125,6 +127,33 @@ else
             _processing = false;
             _tab = "combat";
             await SyncTickService(wasDueling);
+        }
+    }
+
+    private async Task HandleDuelStarted()
+    {
+        _ladderOpen = false;
+        _tab = "combat";
+        await SyncTickService(_wasDueling);
+        StateHasChanged();
+    }
+
+    private async Task RetryDuel()
+    {
+        if (_processing || GameSvc.PlayerId is null || _state?.LastOpponentId is null) return;
+        _processing = true;
+        StateHasChanged();
+        bool wasDueling = _state?.InDuel ?? false;
+        try
+        {
+            await GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, _state!.LastOpponentId!, RetryWager));
+            _tab = "combat";
+            await SyncTickService(wasDueling);
+        }
+        finally
+        {
+            _processing = false;
+            StateHasChanged();
         }
     }
 
@@ -143,24 +172,6 @@ else
             TickService.Stop();
             await JS.InvokeVoidAsync("stopMetronome");
         }
-    }
-
-    private async Task HandleBuy(string buyCmd)
-    {
-        await GameSvc.ExecuteCommandAsync(buyCmd);
-        _state = await GameSvc.GetStateAsync();
-        StateHasChanged();
-    }
-
-    private async Task HandleDuel(string duelCmd)
-    {
-        _ladderOpen = false;
-        bool wasDueling = _state?.InDuel ?? false;
-        await GameSvc.ExecuteCommandAsync(duelCmd);
-        _tab = "combat";
-        _state = await GameSvc.GetStateAsync();
-        await SyncTickService(wasDueling);
-        StateHasChanged();
     }
 
     private int RetryWager =>

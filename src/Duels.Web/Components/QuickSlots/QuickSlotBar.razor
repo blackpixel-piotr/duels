@@ -1,19 +1,21 @@
 @using Duels.Application.GameSession
+@using Duels.Application.Commands
 @using Duels.Domain.ValueObjects
 @using Duels.Domain.Entities
+@inject Duels.Web.Services.GameService GameSvc
 
 <div class="quickslot-bar">
     @{
-        var weaponSlots     = WeaponSlots().ToList();
-        var protectActive   = State?.Player?.ActiveProtection == ProtectionPrayer.Melee;
-        var pietyActive     = State?.Player?.PietyActive == true;
-        var noPrayer        = (State?.Player?.PrayerPoints ?? 0) <= 0;
+        var weaponSlots   = WeaponSlots().ToList();
+        var protectActive = State?.Player?.ActiveProtection == ProtectionPrayer.Melee;
+        var pietyActive   = State?.Player?.PietyActive == true;
+        var noPrayer      = (State?.Player?.PrayerPoints ?? 0) <= 0;
     }
     @if (State?.InDuel == true)
     {
         @if (weaponSlots.Count == 0)
         {
-            <button class="quickslot" title="attack" disabled="@Disabled" @onclick='() => Fire("attack")'>
+            <button class="quickslot" title="Attack" disabled="@_busy" @onclick="Attack">
                 <span class="qs-icon">⚔</span>
                 <span class="qs-label">ATTACK</span>
             </button>
@@ -22,13 +24,13 @@
         {
             @foreach (var slot in weaponSlots)
             {
-                var isEquipped  = State?.Player?.GetEquippedWeaponId() == slot.WeaponId;
-                var depleted    = SpecDepleted(slot.WeaponId);
-                var slotLocal   = slot;
+                var isEquipped = State?.Player?.GetEquippedWeaponId() == slot.WeaponId;
+                var depleted   = SpecDepleted(slot.WeaponId);
+                var slotLocal  = slot;
                 <button class="quickslot @(isEquipped ? "qs-equipped" : "") @(depleted ? "qs-spec-depleted" : "")"
-                        title="@slot.Command"
-                        disabled="@Disabled"
-                        @onclick="() => Fire(slotLocal.Command)">
+                        title="@slot.Label"
+                        disabled="@_busy"
+                        @onclick="() => WeaponShortcut(slotLocal.WeaponId)">
                     @if (_specCosts.TryGetValue(slot.WeaponId, out int cost))
                     {
                         <span class="qs-spec-badge">@cost%</span>
@@ -40,46 +42,59 @@
         }
 
         <button class="quickslot @(protectActive ? "qs-equipped" : "") @(noPrayer ? "qs-spec-depleted" : "")"
-                title="protect_melee"
-                disabled="@Disabled"
-                @onclick='() => Fire("protect_melee")'>
+                title="Protect Melee"
+                disabled="@_busy"
+                @onclick="ProtectMelee">
             <span class="qs-icon">⛉</span>
             <span class="qs-label">PROTECT</span>
         </button>
         <button class="quickslot @(pietyActive ? "qs-equipped" : "") @(noPrayer ? "qs-spec-depleted" : "")"
-                title="piety"
-                disabled="@Disabled"
-                @onclick='() => Fire("piety")'>
+                title="Piety"
+                disabled="@_busy"
+                @onclick="Piety">
             <span class="qs-icon">⚡</span>
             <span class="qs-label">PIETY</span>
         </button>
     }
-    @foreach (var slot in ActiveFixedSlots)
+    else
     {
-        var slotLocal = slot;
-        <button class="quickslot" title="@slot.Command" disabled="@Disabled" @onclick="() => Fire(slotLocal.Command)">
-            <span class="qs-icon">@slot.Icon</span>
-            <span class="qs-label">@slot.Label</span>
+        <button class="quickslot" title="Shop" @onclick="() => OnOpenShop.InvokeAsync()">
+            <span class="qs-icon">🏪</span>
+            <span class="qs-label">SHOP</span>
+        </button>
+        <button class="quickslot" title="Stats" disabled="@_busy" @onclick="Stats">
+            <span class="qs-icon">📜</span>
+            <span class="qs-label">STATS</span>
+        </button>
+        <button class="quickslot" title="Inspect enemy" disabled="@_busy" @onclick="InspectNpc">
+            <span class="qs-icon">👁</span>
+            <span class="qs-label">INSPECT</span>
+        </button>
+        <button class="quickslot" title="Duel Arena" @onclick="() => OnOpenLadder.InvokeAsync()">
+            <span class="qs-icon">⚔</span>
+            <span class="qs-label">ARENA</span>
         </button>
     }
 </div>
 
 @code {
     [Parameter] public GameState? State { get; set; }
-    [Parameter] public EventCallback<string> OnCommand { get; set; }
-    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback OnOpenShop { get; set; }
+    [Parameter] public EventCallback OnOpenLadder { get; set; }
+
+    private bool _busy;
 
     private static readonly Dictionary<string, string> _shorthands = new()
     {
-        ["armadyl_godsword"]   = "ags",
-        ["bandos_godsword"]    = "bgs",
-        ["zamorak_godsword"]   = "zgs",
-        ["saradomin_godsword"] = "sgs",
-        ["dragon_dagger"]      = "dds",
-        ["dragon_claws"]       = "claws",
-        ["abyssal_whip"]       = "whip",
-        ["scythe_of_vitur"]    = "scythe",
-        ["corrupted_whip"]     = "cwhip",
+        ["armadyl_godsword"]   = "AGS",
+        ["bandos_godsword"]    = "BGS",
+        ["zamorak_godsword"]   = "ZGS",
+        ["saradomin_godsword"] = "SGS",
+        ["dragon_dagger"]      = "DDS",
+        ["dragon_claws"]       = "CLAWS",
+        ["abyssal_whip"]       = "WHIP",
+        ["scythe_of_vitur"]    = "SCYTHE",
+        ["corrupted_whip"]     = "C WHIP",
     };
 
     private static readonly string[] _weaponOrder =
@@ -103,19 +118,6 @@
         ["scythe_of_vitur"]    = 100,
     };
 
-    private static readonly QuickSlotDefinition[] _combatSlots = [];
-
-    private static readonly QuickSlotDefinition[] _utilitySlots =
-    [
-        new("🏪", "Shop",    "shop"),
-        new("📜", "Stats",   "stats"),
-        new("👁", "Inspect", "inspect npc"),
-        new("⚔", "NPCs",    "npcs"),
-    ];
-
-    private IEnumerable<QuickSlotDefinition> ActiveFixedSlots =>
-        State?.InDuel == true ? _combatSlots : _utilitySlots;
-
     private bool SpecDepleted(string weaponId) =>
         _specCosts.TryGetValue(weaponId, out int cost) &&
         (State?.Player?.SpecialEnergy ?? 100) < cost;
@@ -123,12 +125,9 @@
     private IEnumerable<WeaponSlotDef> WeaponSlots()
     {
         if (State?.Player is not { } player) yield break;
-
         var equippedId = player.GetEquippedWeaponId();
-
         if (equippedId is not null && _knownWeaponIds.Contains(equippedId))
             yield return MakeWeaponSlot(equippedId);
-
         foreach (var id in _weaponOrder)
         {
             if (id == equippedId) continue;
@@ -139,14 +138,27 @@
 
     private static WeaponSlotDef MakeWeaponSlot(string weaponId)
     {
-        var shorthand = _shorthands.TryGetValue(weaponId, out var sh) ? sh : null;
-        var cmd = shorthand ?? weaponId;
-        var label = (shorthand ?? weaponId.Replace("_", " ")).ToUpperInvariant();
-        return new WeaponSlotDef(weaponId, label, cmd);
+        var label = _shorthands.TryGetValue(weaponId, out var sh)
+            ? sh
+            : weaponId.Replace("_", " ").ToUpperInvariant();
+        return new WeaponSlotDef(weaponId, label);
     }
 
-    private async Task Fire(string command) => await OnCommand.InvokeAsync(command);
+    private async Task Run(Func<Task> action)
+    {
+        if (_busy || GameSvc.PlayerId is null) return;
+        _busy = true;
+        StateHasChanged();
+        try { await action(); }
+        finally { _busy = false; }
+    }
 
-    private sealed record QuickSlotDefinition(string Icon, string Label, string Command);
-    private sealed record WeaponSlotDef(string WeaponId, string Label, string Command);
+    private Task Attack()         => Run(() => GameSvc.DispatchAsync(new AttackCommand(GameSvc.PlayerId!, AttackStyle.Accurate)));
+    private Task WeaponShortcut(string id) => Run(() => GameSvc.DispatchAsync(new WeaponShortcutCommand(GameSvc.PlayerId!, id)));
+    private Task ProtectMelee()   => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, "protect_melee")));
+    private Task Piety()          => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, "piety")));
+    private Task Stats()          => Run(() => GameSvc.DispatchAsync(new InspectCommand(GameSvc.PlayerId!, "me")));
+    private Task InspectNpc()     => Run(() => GameSvc.DispatchAsync(new InspectCommand(GameSvc.PlayerId!, "npc")));
+
+    private sealed record WeaponSlotDef(string WeaponId, string Label);
 }
