@@ -100,7 +100,10 @@ html, body {
     color: var(--green);
     font-family: var(--font);
     font-size: 13px;
-    padding: 8px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    padding: 12px;
+    min-height: 48px;
     cursor: pointer;
     border-radius: 0;
     transition: background 0.15s;
@@ -887,6 +890,24 @@ html, body {
 .ladder-bet-btn:hover { border-color: var(--amber); color: var(--amber); }
 .ladder-bet-max       { border-color: var(--yellow); color: var(--yellow); }
 .ladder-bet-max:hover { background: rgba(255,215,0,0.08); }
+
+/* Endless card */
+.ladder-endless {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 8px 0;
+    padding: 8px 12px;
+    background: linear-gradient(160deg, #2e2518, #1e160d);
+    border: 2px solid var(--purple);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.ladder-endless:hover { background: rgba(181, 127, 212, 0.12); }
+.ladder-endless-icon { font-size: 20px; }
+.ladder-endless-body { display: flex; flex-direction: column; gap: 1px; }
+.ladder-endless-title { font-size: 12px; font-weight: bold; color: var(--purple); letter-spacing: 0.5px; }
+.ladder-endless-sub   { font-size: 9px; color: var(--text-dim); }
 
 /* Grid */
 .ladder-grid {

@@ -28,6 +28,14 @@
             <button class="ladder-bet-btn ladder-bet-max" @onclick="() => SetWager(MaxGold)">Max</button>
         </div>
 
+        <div class="ladder-endless" @onclick="FightEndless">
+            <span class="ladder-endless-icon">♾</span>
+            <div class="ladder-endless-body">
+                <span class="ladder-endless-title">ENDLESS MODE</span>
+                <span class="ladder-endless-sub">@(BestWave > 0 ? $"Best: Wave {BestWave}" : "Fight until you fall")</span>
+            </div>
+        </div>
+
         <div class="ladder-grid">
             @foreach (var stageId in _order)
             {
@@ -80,6 +88,7 @@
     private bool   _wagerTooHigh = false;
 
     private int MaxGold => State?.Player?.Gold ?? 0;
+    private int BestWave => State?.BestEndlessWave ?? 0;
 
     private static readonly string[] _order =
     [
@@ -121,6 +130,13 @@
     {
         if (GameSvc.PlayerId is null) return;
         await GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, npc.Id, _wager > 0 ? _wager : 0));
+        await OnDuelStarted.InvokeAsync();
+    }
+
+    private async Task FightEndless()
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new StartEndlessCommand(GameSvc.PlayerId!));
         await OnDuelStarted.InvokeAsync();
     }
 }
