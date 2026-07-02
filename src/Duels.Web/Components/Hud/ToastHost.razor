@@ -1,0 +1,32 @@
+@using Duels.Application.GameSession
+
+<div class="toast-stack">
+    @foreach (var t in _toasts)
+    {
+        <div class="toast toast-@t.Entry.Kind.ToString().ToLower()">@t.Entry.Message</div>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<CombatLogEntry> LogEntries { get; set; } = [];
+
+    private static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(3);
+
+    private int _lastCount;
+    private readonly List<(CombatLogEntry Entry, DateTimeOffset ShownAt)> _toasts = [];
+
+    protected override void OnParametersSet()
+    {
+        if (LogEntries.Count > _lastCount)
+        {
+            var newEntries = LogEntries.Skip(_lastCount)
+                .Where(e => e.Kind is LogEntryKind.LevelUp or LogEntryKind.Loot);
+            foreach (var entry in newEntries)
+                _toasts.Add((entry, DateTimeOffset.UtcNow));
+        }
+        _lastCount = LogEntries.Count;
+
+        var now = DateTimeOffset.UtcNow;
+        _toasts.RemoveAll(t => now - t.ShownAt > Lifetime);
+    }
+}

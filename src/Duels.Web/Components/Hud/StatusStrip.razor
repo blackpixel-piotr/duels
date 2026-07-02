@@ -1,0 +1,57 @@
+@using Duels.Application.GameSession
+
+<div class="status-strip">
+    @if (State?.Player is { } p)
+    {
+        <div class="strip-row strip-top">
+            <span class="strip-name glow-amber">@p.Name</span>
+            <span class="strip-levels">A@(p.AttackLevel) S@(p.StrengthLevel) D@(p.DefenceLevel)</span>
+            <span class="strip-gold glow-yellow">@p.Gold.ToString("N0")g</span>
+        </div>
+        <div class="strip-row strip-hp">
+            <div class="hp-bar-wrap"><div class="hp-bar" style="width: @(HpPct(p))%"></div></div>
+            <span class="strip-val">@p.CurrentHp/@p.MaxHp</span>
+        </div>
+        <div class="strip-row strip-bars">
+            <div class="spec-bar-wrap"><div class="prayer-bar" style="width: @(PrayerPct(p))%"></div></div>
+            <div class="spec-bar-wrap"><div class="spec-bar" style="width: @p.SpecialEnergy%"></div></div>
+        </div>
+        @if (ActiveChips.Count > 0)
+        {
+            <div class="strip-row strip-chips">
+                @foreach (var chip in ActiveChips)
+                {
+                    <span class="status-chip @chip.CssClass">@chip.Text</span>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+
+    private static int HpPct(Duels.Domain.Entities.Player p) =>
+        p.MaxHp == 0 ? 0 : (int)(p.CurrentHp * 100.0 / p.MaxHp);
+
+    // PrayerPoints caps at 99, not 100 — normalize for the bar fill.
+    private static int PrayerPct(Duels.Domain.Entities.Player p) =>
+        (int)(p.PrayerPoints * 100.0 / 99);
+
+    private sealed record Chip(string Text, string CssClass);
+
+    private List<Chip> ActiveChips
+    {
+        get
+        {
+            var chips = new List<Chip>();
+            if (State is not { } s) return chips;
+            if (s.BleedTicksLeft > 0) chips.Add(new($"BLEED {s.BleedTicksLeft}", "status-chip-bleed"));
+            if (s.PlayerPoisoned) chips.Add(new("POISON", "status-chip-poison"));
+            if (s.VengActive) chips.Add(new("VENG READY", "status-chip-veng"));
+            if (s.WinStreak > 1) chips.Add(new($"STREAK {s.WinStreak}×{s.WinStreakMultiplier:F1}", "status-chip-streak"));
+            if (s.InEndlessMode) chips.Add(new($"WAVE {s.EndlessWave}", "status-chip-streak"));
+            return chips;
+        }
+    }
+}

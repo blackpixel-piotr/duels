@@ -8,7 +8,6 @@
 @using Duels.Application.GameSession
 @using Duels.Application.Commands
 @using Duels.Web.Components.Combat
-@using Duels.Web.Components.Stats
 @using Duels.Web.Components.Terminal
 @using Duels.Web.Components.Hud
 @using Duels.Web.Components.Hub
@@ -51,12 +50,13 @@ else
                             OnClose="@(() => { _charOpen = false; StateHasChanged(); })" />
         }
 
-        <StatsPanel State="@_state" />
+        <ToastHost LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
+        <StatusStrip State="@_state" />
 
         @if (_state?.InDuel == true)
         {
-            <CombatStatusBar State="@_state" />
-            <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
+            <CombatStage State="@_state" />
+            <EventLog LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
         }
         else
         {
@@ -69,7 +69,7 @@ else
                      OnRetry="RetryDuel"
                      OnPrestige="Prestige"
                      OnBeg="Beg" />
-            <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
+            <EventLog LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
         }
 
         <ActionHud State="@_state"
