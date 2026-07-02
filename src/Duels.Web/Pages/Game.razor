@@ -12,6 +12,7 @@
 @using Duels.Web.Components.Terminal
 @using Duels.Web.Components.QuickSlots
 @using Duels.Web.Components.Inventory
+@using Duels.Web.Components.Equipment
 @using Duels.Web.Components.Shop
 @using Duels.Web.Components.Ladder
 
@@ -65,6 +66,7 @@ else
             </div>
 
             <div class="game-right">
+                <EquipmentPanel State="@_state" />
                 <InventoryGrid State="@_state" />
             </div>
         </div>

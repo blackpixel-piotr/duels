@@ -223,6 +223,14 @@ public sealed class GameTickService : IDisposable
 
                 npc.TakeDamage(damage);
                 AwardOffensiveXp(state, player, damage);
+
+                // Venomous Fang: 20% chance to poison the NPC on a landed hit
+                if (player.GetEquippedWeaponId() == "venomous_fang" && !npc.Poisoned && _random.NextDouble() < 0.20)
+                {
+                    npc.ApplyPoison();
+                    state.AppendLog($"The Venomous Fang poisons {npc.Template.Name}!", LogEntryKind.System);
+                }
+
                 await _events.PublishAsync(new AttackLanded(player.Id, npc.Template.Id, damage));
             }
             else
@@ -501,33 +509,31 @@ public sealed class GameTickService : IDisposable
         state.AppendLog($"You have defeated {npc.Template.Name}!", LogEntryKind.System);
         state.AppendLog("═══ DUEL WON ═══", LogEntryKind.System);
 
-        int payout;
-        if (state.CurrentWager > 0)
+        // Bounty gold pays on every win (income floor); a wager's profit stacks on top.
+        double prestigeBonus = player.PrestigeLevel >= 1 ? 1.05 : 1.0;
+        double doubloonBonus = player.HasItem("lucky_doubloon") ? 1.05 : 1.0;
+        int bounty = (int)(npc.Template.GoldReward * prestigeBonus * doubloonBonus);
+        if (bounty > 0)
         {
-            payout = (int)(state.CurrentWager * 2 * state.WinStreakMultiplier);
-            state.SetWager(0);
-        }
-        else
-        {
-            double prestigeBonus = player.PrestigeLevel >= 1 ? 1.05 : 1.0;
-            payout = (int)(npc.Template.GoldReward * prestigeBonus);
+            player.AddGold(bounty);
+            state.AppendLog($"You receive a {bounty:N0}g bounty. (Total: {player.Gold:N0}g)", LogEntryKind.Loot);
         }
 
-        if (payout > 0)
+        int payout = bounty;
+        if (state.CurrentWager > 0)
         {
-            player.AddGold(payout);
-            state.AppendLog($"You receive {payout:N0} gold. (Total: {player.Gold:N0}g)", LogEntryKind.Loot);
+            int wagerPayout = (int)(state.CurrentWager * 2 * state.WinStreakMultiplier);
+            player.AddGold(wagerPayout);
+            state.AppendLog($"Wager payout: {wagerPayout:N0}g. (Total: {player.Gold:N0}g)", LogEntryKind.Loot);
+            state.SetWager(0);
+            payout += wagerPayout;
         }
 
         state.IncrementWinStreak();
         if (state.WinStreak > 1)
             state.AppendLog($"Win streak: {state.WinStreak}! (×{state.WinStreakMultiplier:F1} multiplier)", LogEntryKind.System);
 
-        if (npc.Template.Id == "rare_gladiator")
-        {
-            player.AddToInventory("corrupted_whip");
-            state.AppendLog("The Corrupted Gladiator drops a Corrupted Whip!", LogEntryKind.Loot);
-        }
+        RollLoot(state, player, npc.Template);
 
         if (npc.Template.Id == "champion")
         {
@@ -560,6 +566,51 @@ public sealed class GameTickService : IDisposable
         player.RestoreSpecialEnergy();
         state.EndDuel();
         await _events.PublishAsync(new DuelWon(player.Id, npc.Template.Id, npc.Template.Name, payout));
+    }
+
+    private void RollLoot(GameState state, Player player, NpcTemplate template)
+    {
+        foreach (var entry in template.LootTable)
+        {
+            if (entry.OnceOnly && player.HasItem(entry.ItemId)) continue;
+            if (_random.NextDouble() >= entry.DropChance) continue;
+
+            int qty = entry.MaxQty > entry.MinQty ? _random.Next(entry.MinQty, entry.MaxQty + 1) : entry.MinQty;
+            bool isRareDrop = entry.DropChance <= 1.0 / 15.0;
+
+            if (entry.ItemId == "gold")
+            {
+                player.AddGold(qty);
+                state.AppendLog($"You find {qty:N0} gold on the body.", LogEntryKind.Loot);
+                continue;
+            }
+
+            var itemName = _items.GetItemName(entry.ItemId) ?? entry.ItemId;
+
+            for (int i = 0; i < qty; i++)
+            {
+                if (player.Inventory.Count >= 28)
+                {
+                    int fenceValue = _items.GetFenceValue(entry.ItemId);
+                    player.AddGold(fenceValue);
+                    state.AppendLog($"Your pack is full — you fence the {itemName} for {fenceValue:N0}g.", LogEntryKind.Loot);
+                }
+                else
+                {
+                    player.AddToInventory(entry.ItemId);
+                }
+            }
+
+            if (isRareDrop)
+            {
+                state.AppendLog("═══ RARE DROP ═══", LogEntryKind.Loot);
+                state.AppendLog($"{template.Name} drops a {itemName}{(qty > 1 ? $" ×{qty}" : "")} — it's yours!", LogEntryKind.Loot);
+            }
+            else
+            {
+                state.AppendLog($"You loot {(qty > 1 ? $"{qty}× " : "")}{itemName}.", LogEntryKind.Loot);
+            }
+        }
     }
 
     private async Task HandleDefeat(GameState state, Player player, NpcInstance npc)

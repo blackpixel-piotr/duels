@@ -36,8 +36,12 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 30, StrengthBonus: 30,
                 StabDefence: 20, SlashDefence: 45, CrushDefence: 0),
             AttackType.Slash,
-            [],
-            goldReward: 0,
+            [
+                new("gold", 0.5, MinQty: 50, MaxQty: 150),
+                new("shark", 0.33),
+                new("lucky_doubloon", 0.05, OnceOnly: true),
+            ],
+            goldReward: 150,
             maxWager: 1_000,
             telegraphedMove: new NpcSpecialMove(
                 "Swashbuckler Pete winds up for a brutal overhead slash!",
@@ -50,8 +54,12 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(CrushAttack: 50, StrengthBonus: 50,
                 StabDefence: 10, SlashDefence: 35, CrushDefence: 55),
             AttackType.Crush,
-            [],
-            goldReward: 0,
+            [
+                new("gold", 0.5, MinQty: 100, MaxQty: 300),
+                new("super_combat_potion", 0.2),
+                new("amulet_of_strength", 0.04, OnceOnly: true),
+            ],
+            goldReward: 300,
             maxWager: 5_000,
             telegraphedMove: new NpcSpecialMove(
                 "The Iron Barbarian bellows a war cry and raises his hammer!",
@@ -64,8 +72,12 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(RangedAttack: 40, StrengthBonus: 40,
                 StabDefence: 40, SlashDefence: 40, CrushDefence: 5),
             AttackType.Ranged,
-            [],
-            goldReward: 0,
+            [
+                new("gold", 0.5, MinQty: 150, MaxQty: 400),
+                new("anglerfish", 0.25),
+                new("venomous_fang", 0.04, OnceOnly: true),
+            ],
+            goldReward: 600,
             maxWager: 20_000,
             telegraphedMove: new NpcSpecialMove(
                 "The Desert Bandit fans a spread of poisoned knives!",
@@ -78,8 +90,12 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 82, RangedAttack: 82, StrengthBonus: 82,
                 StabDefence: 20, SlashDefence: 60, CrushDefence: 35),
             AttackType.Slash,
-            [],
-            goldReward: 0,
+            [
+                new("gold", 0.5, MinQty: 300, MaxQty: 800),
+                new("super_combat_potion", 0.25),
+                new("arena_defender", 0.04, OnceOnly: true),
+            ],
+            goldReward: 1_200,
             maxWager: 75_000,
             telegraphedMove: new NpcSpecialMove(
                 "The Arena Gladiator coils their whip for a crushing lash!",
@@ -94,8 +110,12 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(RangedAttack: 56, StrengthBonus: 56,
                 StabDefence: 50, SlashDefence: 50, CrushDefence: 25),
             AttackType.Ranged,
-            [],
-            goldReward: 0,
+            [
+                new("gold", 0.5, MinQty: 500, MaxQty: 1_200),
+                new("karambwan", 0.5, MinQty: 3, MaxQty: 5),
+                new("pirates_hook", 0.04, OnceOnly: true),
+            ],
+            goldReward: 2_500,
             maxWager: 250_000,
             telegraphedMove: new NpcSpecialMove(
                 "The Pirate Corsair loads a barbed bolt — a piercing shot incoming!",
@@ -108,8 +128,12 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(CrushAttack: 100, StrengthBonus: 100,
                 StabDefence: 25, SlashDefence: 50, CrushDefence: 70),
             AttackType.Crush,
-            [],
-            goldReward: 0,
+            [
+                new("gold", 0.5, MinQty: 800, MaxQty: 2_000),
+                new("shark", 0.33, MinQty: 2, MaxQty: 4),
+                new("berserker_ring", 0.033, OnceOnly: true),
+            ],
+            goldReward: 5_000,
             maxWager: 750_000,
             telegraphedMove: new NpcSpecialMove(
                 "The Frenzied Berserker enters a blood frenzy — SPEC INCOMING!",
@@ -122,8 +146,12 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(MagicAttack: 115, StrengthBonus: 115,
                 StabDefence: 80, SlashDefence: 70, CrushDefence: 35),
             AttackType.Magic,
-            [],
-            goldReward: 0,
+            [
+                new("gold", 0.5, MinQty: 1_500, MaxQty: 3_500),
+                new("super_combat_potion", 0.33, MinQty: 2, MaxQty: 2),
+                new("warlords_bulwark", 0.033, OnceOnly: true),
+            ],
+            goldReward: 9_000,
             maxWager: 2_500_000,
             telegraphedMove: new NpcSpecialMove(
                 "The Battle Warlord channels dark energy — a massive strike is coming!",
@@ -136,8 +164,12 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 132, RangedAttack: 132, MagicAttack: 132, StrengthBonus: 132,
                 StabDefence: 45, SlashDefence: 70, CrushDefence: 70),
             AttackType.Slash,
-            [],
-            goldReward: 0,
+            [
+                new("gold", 1.0, MinQty: 5_000, MaxQty: 10_000),
+                new("anglerfish", 0.5, MinQty: 3, MaxQty: 5),
+                new("champions_cape", 0.05, OnceOnly: true),
+            ],
+            goldReward: 20_000,
             maxWager: 10_000_000,
             telegraphedMove: new NpcSpecialMove(
                 "The Champion charges their legendary technique!",
@@ -152,7 +184,9 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(RangedAttack: 20, StrengthBonus: 20,
                 StabDefence: 20, SlashDefence: 20, CrushDefence: 20),
             AttackType.Ranged,
-            [],
+            [
+                new("anglerfish", 1.0, MinQty: 2, MaxQty: 4),
+            ],
             goldReward: 8_000,
             attackSpeedTicks: 4),
 
@@ -162,7 +196,9 @@ public sealed class InMemoryNpcRepository : INpcRepository
             new ItemModifiers(SlashAttack: 90, RangedAttack: 90, StrengthBonus: 90,
                 StabDefence: 30, SlashDefence: 60, CrushDefence: 40),
             AttackType.Slash,
-            [],
+            [
+                new("corrupted_whip", 1.0, OnceOnly: true),
+            ],
             goldReward: 0,
             telegraphedMove: new NpcSpecialMove(
                 "The Corrupted Gladiator channels dark energy for a devastating strike!",

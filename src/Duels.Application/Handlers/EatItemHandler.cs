@@ -6,11 +6,13 @@ namespace Duels.Application.Handlers;
 
 public sealed class EatItemHandler : ICommandHandler<EatItemCommand>
 {
-    private static readonly Dictionary<string, (int Heal, bool CanOverheal)> FoodData = new()
+    // Tick delay applied when eating mid-duel: karambwan is "combo food" — no delay,
+    // priced/healed lower to compensate. Shark/anglerfish cost 2 ticks of attack tempo.
+    private static readonly Dictionary<string, (int Heal, bool CanOverheal, int TickDelay)> FoodData = new()
     {
-        ["shark"]       = (20, false),
-        ["karambwan"]   = (18, false),
-        ["anglerfish"]  = (22, true),
+        ["shark"]       = (20, false, 2),
+        ["karambwan"]   = (18, false, 0),
+        ["anglerfish"]  = (22, true, 2),
     };
 
     private readonly IGameStateRepository _stateRepo;
@@ -42,7 +44,14 @@ public sealed class EatItemHandler : ICommandHandler<EatItemCommand>
         int before = player.CurrentHp;
         player.HealFood(food.Heal, food.CanOverheal);
         int healed = player.CurrentHp - before;
-        state.AppendLog($"You eat the {command.ItemId}. HP: {before} → {player.CurrentHp}/{player.MaxHp} (+{healed})", LogEntryKind.Info);
+
+        string delayMsg = "";
+        if (state.InDuel && food.TickDelay > 0)
+        {
+            state.DelayPlayerAttack(food.TickDelay);
+            delayMsg = $" (+{food.TickDelay} tick delay)";
+        }
+        state.AppendLog($"You eat the {command.ItemId}. HP: {before} → {player.CurrentHp}/{player.MaxHp} (+{healed}){delayMsg}", LogEntryKind.Info);
 
         await _stateRepo.SaveAsync(state, ct);
         return CommandResult.Ok();

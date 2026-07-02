@@ -61,7 +61,7 @@ public sealed class NpcTemplate
     }
 }
 
-public sealed record LootEntry(string ItemId, double DropChance);
+public sealed record LootEntry(string ItemId, double DropChance, int MinQty = 1, int MaxQty = 1, bool OnceOnly = false);
 
 public sealed class NpcInstance
 {

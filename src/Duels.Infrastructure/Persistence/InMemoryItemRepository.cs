@@ -9,6 +9,7 @@ public sealed class InMemoryItemRepository : IItemRepository
     private readonly Dictionary<string, GearPiece> _gear;
     private readonly Dictionary<string, Weapon> _weapons;
     private readonly Dictionary<string, int> _shopPrices;
+    private readonly Dictionary<string, int> _fenceValues;
 
     private static readonly Dictionary<string, string> ConsumableNames = new()
     {
@@ -24,9 +25,10 @@ public sealed class InMemoryItemRepository : IItemRepository
 
     public InMemoryItemRepository()
     {
-        _weapons = BuildWeapons().ToDictionary(w => w.Id);
-        _gear = BuildGear(_weapons).ToDictionary(g => g.Id);
+        _weapons = BuildWeapons().Concat(BuildDropOnlyWeapons()).ToDictionary(w => w.Id);
+        _gear = BuildGear(_weapons).Concat(BuildArmor()).Concat(BuildDropOnlyGear()).ToDictionary(g => g.Id);
         _shopPrices = BuildShopPrices();
+        _fenceValues = BuildFenceValues();
     }
 
     public GearPiece? GetGear(string itemId) => _gear.GetValueOrDefault(itemId);
@@ -47,6 +49,25 @@ public sealed class InMemoryItemRepository : IItemRepository
         }
         return result;
     }
+
+    public int GetFenceValue(string itemId)
+    {
+        if (_shopPrices.TryGetValue(itemId, out var price)) return price / 2;
+        return _fenceValues.GetValueOrDefault(itemId, 100);
+    }
+
+    private static Dictionary<string, int> BuildFenceValues() => new()
+    {
+        ["lucky_doubloon"]      = 500,
+        ["amulet_of_strength"]  = 2_000,
+        ["venomous_fang"]       = 3_000,
+        ["arena_defender"]      = 5_000,
+        ["pirates_hook"]        = 10_000,
+        ["berserker_ring"]      = 15_000,
+        ["warlords_bulwark"]    = 40_000,
+        ["champions_cape"]      = 100_000,
+        ["corrupted_whip"]      = 30_000,
+    };
 
     private static Dictionary<string, int> BuildShopPrices() => new()
     {
@@ -71,6 +92,23 @@ public sealed class InMemoryItemRepository : IItemRepository
         ["armadyl_godsword"]   = 65_000,
         ["elder_maul"]         = 90_000,
         ["scythe_of_vitur"]    = 150_000,
+
+        // ─── Armor ───
+        ["rune_full_helm"]      = 500,
+        ["rune_kiteshield"]     = 800,
+        ["rune_platelegs"]      = 1_200,
+        ["rune_platebody"]      = 2_000,
+        ["dragon_boots"]        = 4_000,
+        ["dragon_med_helm"]     = 3_000,
+        ["dragon_sq_shield"]    = 4_000,
+        ["dragon_platelegs"]    = 6_000,
+        ["barrows_gloves"]      = 6_000,
+        ["dragon_platebody"]    = 9_000,
+        ["amulet_of_fury"]      = 15_000,
+        ["justiciar_faceguard"] = 30_000,
+        ["dragonfire_shield"]   = 35_000,
+        ["bandos_tassets"]      = 45_000,
+        ["bandos_chestplate"]   = 60_000,
     };
 
     private static IEnumerable<Weapon> BuildWeapons() =>
@@ -175,4 +213,77 @@ public sealed class InMemoryItemRepository : IItemRepository
         foreach (var w in weapons.Values)
             yield return w.AsGearPiece();
     }
+
+    // "Melee" defence = same value across stab/slash/crush.
+    private static ItemModifiers MeleeDef(int melee, int ranged, int magic, int str = 0, int pray = 0) =>
+        new(StabDefence: melee, SlashDefence: melee, CrushDefence: melee,
+            RangedDefence: ranged, MagicDefence: magic, StrengthBonus: str, PrayerBonus: pray);
+
+    private static IEnumerable<GearPiece> BuildArmor() =>
+    [
+        // ─── Rune tier (Def 60) ───
+        new("rune_full_helm", "Rune Full Helm", EquipmentSlot.Helmet,
+            MeleeDef(30, 30, -5), "Sturdy rune headgear.", defenceLevelRequired: 60),
+        new("rune_kiteshield", "Rune Kiteshield", EquipmentSlot.Shield,
+            MeleeDef(40, 40, -5), "A broad rune shield.", defenceLevelRequired: 60),
+        new("rune_platelegs", "Rune Platelegs", EquipmentSlot.Legs,
+            MeleeDef(50, 45, -10), "Heavy rune leg plates.", defenceLevelRequired: 60),
+        new("rune_platebody", "Rune Platebody", EquipmentSlot.Body,
+            MeleeDef(80, 75, -20), "A full rune chestplate.", defenceLevelRequired: 60),
+
+        // ─── Dragon tier (Def 70) ───
+        new("dragon_med_helm", "Dragon Med Helm", EquipmentSlot.Helmet,
+            MeleeDef(45, 45, 0), "A fearsome dragon-forged helm.", defenceLevelRequired: 70),
+        new("dragon_sq_shield", "Dragon Sq Shield", EquipmentSlot.Shield,
+            MeleeDef(55, 55, 0), "A dragon-forged square shield.", defenceLevelRequired: 70),
+        new("dragon_platelegs", "Dragon Platelegs", EquipmentSlot.Legs,
+            MeleeDef(70, 65, -10), "Dragon-forged leg plates.", defenceLevelRequired: 70),
+        new("dragon_platebody", "Dragon Platebody", EquipmentSlot.Body,
+            MeleeDef(110, 100, -15), "A dragon-forged chestplate.", defenceLevelRequired: 70),
+
+        // ─── Bandos / Justiciar tier (Def 82) ───
+        new("justiciar_faceguard", "Justiciar Faceguard", EquipmentSlot.Helmet,
+            MeleeDef(70, 65, 10, pray: 2), "Blessed plate that shrugs off magic.", defenceLevelRequired: 82),
+        new("dragonfire_shield", "Dragonfire Shield", EquipmentSlot.Shield,
+            MeleeDef(90, 85, 25), "Forged in dragonfire. Excellent all-round defence.", defenceLevelRequired: 82),
+        new("bandos_tassets", "Bandos Tassets", EquipmentSlot.Legs,
+            MeleeDef(100, 95, 10, str: 2), "War-god plate leg armor.", defenceLevelRequired: 82),
+        new("bandos_chestplate", "Bandos Chestplate", EquipmentSlot.Body,
+            MeleeDef(140, 130, 15, str: 4), "The chestplate of the Big High War God.", defenceLevelRequired: 82),
+
+        // ─── Accessories ───
+        new("dragon_boots", "Dragon Boots", EquipmentSlot.Boots,
+            MeleeDef(12, 12, 0, str: 4), "Dragon-hide boots.", defenceLevelRequired: 65),
+        new("barrows_gloves", "Barrows Gloves", EquipmentSlot.Gloves,
+            MeleeDef(12, 12, 12, str: 8), "Gloves worn by the Barrows brothers.", defenceLevelRequired: 70),
+        new("amulet_of_fury", "Amulet of Fury", EquipmentSlot.Amulet,
+            MeleeDef(10, 10, 10, str: 8), "A cursed amulet radiating dark power.", defenceLevelRequired: 70),
+    ];
+
+    // ─── Drop-only gear (never sold; farmed from NPC loot tables) ───
+    private static IEnumerable<GearPiece> BuildDropOnlyGear() =>
+    [
+        new("lucky_doubloon", "Lucky Doubloon", EquipmentSlot.Ring,
+            ItemModifiers.Zero, "A pirate's lucky coin. Boosts bounty gold by 5%.", defenceLevelRequired: 1),
+        new("amulet_of_strength", "Amulet of Strength", EquipmentSlot.Amulet,
+            new ItemModifiers(StrengthBonus: 10), "A barbarian talisman.", defenceLevelRequired: 1),
+        new("arena_defender", "Arena Defender", EquipmentSlot.Shield,
+            MeleeDef(25, 20, 0, str: 6), "A gladiator's offensive buckler.", defenceLevelRequired: 60),
+        new("pirates_hook", "Pirate's Hook", EquipmentSlot.Gloves,
+            MeleeDef(10, 10, 10, str: 10), "A corsair's cruel prosthetic.", defenceLevelRequired: 65),
+        new("berserker_ring", "Berserker Ring", EquipmentSlot.Ring,
+            new ItemModifiers(StrengthBonus: 8), "Worn by the frenzied.", defenceLevelRequired: 75),
+        new("warlords_bulwark", "Warlord's Bulwark", EquipmentSlot.Shield,
+            MeleeDef(110, 100, 40, pray: 3), "A veteran's battle-scarred shield. Best in slot.", defenceLevelRequired: 85),
+        new("champions_cape", "Champion's Cape", EquipmentSlot.Cape,
+            MeleeDef(40, 40, 40, str: 8, pray: 4), "Worn only by the undefeated.", defenceLevelRequired: 90),
+    ];
+
+    private static IEnumerable<Weapon> BuildDropOnlyWeapons() =>
+    [
+        new("venomous_fang", "Venomous Fang", AttackType.Stab,
+            new ItemModifiers(StabAttack: 88, StrengthBonus: 70),
+            attackSpeed: 4, examineText: "A poison-tipped dagger looted from the Desert Bandit. 20% chance to poison on hit.",
+            attackLevelRequired: 70),
+    ];
 }

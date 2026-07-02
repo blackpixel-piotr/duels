@@ -94,6 +94,9 @@ public sealed class GameState
 
     public void ResetPlayerCooldown(int ticks) => PlayerCooldown = ticks;
 
+    /// <summary>Eating/drinking mid-duel pushes back the next attack — trades DPS for sustain.</summary>
+    public void DelayPlayerAttack(int ticks) { if (ticks > 0) PlayerCooldown += ticks; }
+
     public void ResetNpcCooldown(int ticks) => NpcCooldown = ticks;
 
     public void DecrementCooldowns()

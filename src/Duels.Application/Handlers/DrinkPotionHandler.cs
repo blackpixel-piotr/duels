@@ -28,6 +28,8 @@ public sealed class DrinkPotionHandler : ICommandHandler<DrinkPotionCommand>
 
         if (!result.Success) return result;
 
+        if (state.InDuel) state.DelayPlayerAttack(1);
+
         await _stateRepo.SaveAsync(state, ct);
         return result;
     }
@@ -38,7 +40,7 @@ public sealed class DrinkPotionHandler : ICommandHandler<DrinkPotionCommand>
             return CommandResult.Fail("You don't have a Super Combat Potion. Buy one from the shop.");
 
         player.DrinkSuperCombat();
-        state.AppendLog($"You drink the Super Combat Potion! Atk/Str boosted for {player.CombatBoostRoundsLeft} rounds.", LogEntryKind.Info);
+        state.AppendLog($"You drink the Super Combat Potion! Atk/Str boosted for {player.CombatBoostRoundsLeft} rounds. (+1 tick delay)", LogEntryKind.Info);
         return CommandResult.Ok();
     }
 
@@ -49,12 +51,12 @@ public sealed class DrinkPotionHandler : ICommandHandler<DrinkPotionCommand>
 
         if (!state.PlayerPoisoned)
         {
-            state.AppendLog("You drink the Antidote, but you weren't poisoned.", LogEntryKind.Info);
+            state.AppendLog("You drink the Antidote, but you weren't poisoned. (+1 tick delay)", LogEntryKind.Info);
             return CommandResult.Ok();
         }
 
         state.CurePoison();
-        state.AppendLog("You drink the Antidote — the poison fades from your veins.", LogEntryKind.Info);
+        state.AppendLog("You drink the Antidote — the poison fades from your veins. (+1 tick delay)", LogEntryKind.Info);
         return CommandResult.Ok();
     }
 }
