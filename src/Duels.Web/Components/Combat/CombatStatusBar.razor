@@ -5,7 +5,17 @@
 {
     <div class="combat-status-bar">
         <div class="csb-player">
-            <div class="csb-name">@p.Name</div>
+            <div class="csb-name">
+                @p.Name
+                @if (State.BleedTicksLeft > 0)
+                {
+                    <span class="status-chip status-chip-bleed">BLEED</span>
+                }
+                @if (State.PlayerPoisoned)
+                {
+                    <span class="status-chip status-chip-poison">POISON</span>
+                }
+            </div>
             <div class="hitsplat-zone" id="zone-player"></div>
             <div class="csb-bar-row">
                 <div class="hp-bar-wrap">

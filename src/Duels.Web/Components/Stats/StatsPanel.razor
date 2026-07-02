@@ -76,6 +76,14 @@
         {
             <div class="stat-row"><span class="stat-label">Wave</span><span class="stat-val stat-streak">@State.EndlessWave</span></div>
         }
+        @if (State.BleedTicksLeft > 0)
+        {
+            <div class="stat-row"><span class="stat-label">Bleed</span><span class="stat-val status-chip status-chip-bleed">@State.BleedTicksLeft ticks</span></div>
+        }
+        @if (State.PlayerPoisoned)
+        {
+            <div class="stat-row"><span class="stat-label">Poison</span><span class="stat-val status-chip status-chip-poison">ACTIVE</span></div>
+        }
     }
     else
     {

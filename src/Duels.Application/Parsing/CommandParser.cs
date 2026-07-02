@@ -70,7 +70,7 @@ public sealed class CommandParser
             "unequip" or "remove" => ParseUnequip(playerId, args),
 
             "eat" or "food" => ParseEat(playerId, args),
-            "drink" or "potion" => new ParseResult(true, new DrinkPotionCommand(playerId), null),
+            "drink" or "potion" => ParseDrink(playerId, args),
             "veng" or "vengeance" => new ParseResult(true, new VengeanceCommand(playerId), null),
 
             "protect_melee" or "pm" or "protect" => new ParseResult(true, new PrayerCommand(playerId, "protect_melee"), null),
@@ -112,6 +112,16 @@ public sealed class CommandParser
     {
         var style = args.Length > 0 ? ParseStyle(args[0]) ?? defaultStyle : defaultStyle;
         return new ParseResult(true, new AttackCommand(playerId, style), null);
+    }
+
+    private static ParseResult ParseDrink(string playerId, string[] args)
+    {
+        var itemId = args.Length > 0
+            ? string.Join("_", args).ToLowerInvariant()
+            : "super_combat_potion";
+        if (itemId is "antidote" or "super_combat_potion")
+            return new ParseResult(true, new DrinkPotionCommand(playerId, itemId), null);
+        return new ParseResult(false, null, "Usage: drink <super_combat_potion|antidote>");
     }
 
     private static ParseResult ParseStyleCommand(string playerId, string[] args)

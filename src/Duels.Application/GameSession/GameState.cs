@@ -40,6 +40,12 @@ public sealed class GameState
     public int EndlessWave { get; private set; }
     public int BestEndlessWave { get; private set; }
 
+    // Damage-over-time (duel-scoped, cleared on Start/EndDuel)
+    public int BleedTicksLeft { get; private set; }
+    public int BleedPerTick { get; private set; }
+    public bool PlayerPoisoned { get; private set; }
+    public int PoisonTickCounter { get; private set; }
+
     public GameState(string playerId, Player player)
     {
         PlayerId = playerId;
@@ -53,6 +59,27 @@ public sealed class GameState
         CombatLog.Clear();
         Player.RestorePrayer();
         InitDuelCooldowns();
+        ClearDots();
+    }
+
+    public void ApplyBleed(int ticks, int perTick) { BleedTicksLeft = ticks; BleedPerTick = perTick; }
+    public void TickBleed() { if (BleedTicksLeft > 0) BleedTicksLeft--; }
+    public void ApplyPoison() { PlayerPoisoned = true; PoisonTickCounter = 0; }
+    public void CurePoison() { PlayerPoisoned = false; PoisonTickCounter = 0; }
+    public bool TickPoison()
+    {
+        if (!PlayerPoisoned) return false;
+        PoisonTickCounter++;
+        if (PoisonTickCounter < 4) return false;
+        PoisonTickCounter = 0;
+        return true;
+    }
+    private void ClearDots()
+    {
+        BleedTicksLeft = 0;
+        BleedPerTick = 0;
+        PlayerPoisoned = false;
+        PoisonTickCounter = 0;
     }
 
     public void InitDuelCooldowns()
@@ -78,6 +105,7 @@ public sealed class GameState
     public void EndDuel()
     {
         ActiveNpc = null;
+        ClearDots();
     }
 
     public void UnlockOpponent(string id)

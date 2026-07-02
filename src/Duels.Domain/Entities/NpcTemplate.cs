@@ -85,6 +85,20 @@ public sealed class NpcInstance
     public int AttacksInStyle { get; private set; }
     public int? AttacksPerStyleOverride { get; set; }
 
+    // Poison (mirrors GameState's player poison; used by poison-on-hit weapons)
+    public bool Poisoned { get; private set; }
+    public int PoisonCounter { get; private set; }
+
+    public void ApplyPoison() { Poisoned = true; PoisonCounter = 0; }
+    public bool TickPoison()
+    {
+        if (!Poisoned) return false;
+        PoisonCounter++;
+        if (PoisonCounter < 4) return false;
+        PoisonCounter = 0;
+        return true;
+    }
+
     public NpcInstance(NpcTemplate template)
     {
         Template = template;

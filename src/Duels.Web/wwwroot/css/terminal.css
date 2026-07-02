@@ -177,6 +177,7 @@ html, body {
 .hitsplat-heavy  { color: #ffd700; font-size: 16px; text-shadow: 1px 1px 0 #000, 0 0 8px rgba(255,215,0,0.8); animation: hitsplat-rise-heavy 1.6s ease-out forwards; }
 .hitsplat-spec   { color: #ff8c00; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(255,140,0,0.6); }
 .hitsplat-boss   { color: #cc44ff; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(180,60,255,0.5); }
+.hitsplat-poison { color: #5ada5a; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(90,218,90,0.6); font-size: 11px; }
 
 @keyframes hitsplat-rise {
     0%   { transform: translateY(0);      opacity: 1; }
@@ -501,6 +502,24 @@ html, body {
 }
 .xp-bar { height: 100%; background: linear-gradient(90deg, #4a2a6a, var(--purple)); transition: width 0.3s; }
 .stat-style { color: var(--amber); font-weight: bold; }
+
+/* ─── DoT status chips ─── */
+.status-chip {
+    display: inline-block;
+    font-size: 8px;
+    font-weight: bold;
+    padding: 1px 4px;
+    margin-left: 5px;
+    border-radius: 0;
+    vertical-align: middle;
+    letter-spacing: 0.5px;
+}
+.status-chip-bleed  { background: #3a0d0d; color: #ff6b6b; border: 1px solid #ff6b6b; }
+.status-chip-poison { background: #0d3a15; color: #5ada5a; border: 1px solid #5ada5a; animation: status-chip-pulse 1.2s ease-in-out infinite; }
+@keyframes status-chip-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.5; }
+}
 
 /* ─── NPC card ─── */
 .npc-card {

@@ -135,12 +135,47 @@ public sealed class GameTickService : IDisposable
                 state.AppendLog("Your prayer has run out!", LogEntryKind.System);
         }
 
+        // Damage-over-time — not prayer-reducible
+        ApplyDots(state, player, npc);
+
+        if (!npc.IsAlive)
+        {
+            await HandleVictory(state);
+            await _states.SaveAsync(state);
+            return;
+        }
+
         if (!player.IsAlive)
         {
             await HandleDefeat(state, player, npc);
         }
 
         await _states.SaveAsync(state);
+    }
+
+    private static void ApplyDots(GameState state, Player player, NpcInstance npc)
+    {
+        if (state.BleedTicksLeft > 0 && player.IsAlive)
+        {
+            player.TakeDamage(state.BleedPerTick);
+            state.AppendLog($"{state.BleedPerTick}:poison", LogEntryKind.HitsplatNpc);
+            state.AppendLog($"You bleed for {state.BleedPerTick} damage. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+            state.TickBleed();
+        }
+
+        if (player.IsAlive && state.TickPoison())
+        {
+            player.TakeDamage(3);
+            state.AppendLog("3:poison", LogEntryKind.HitsplatNpc);
+            state.AppendLog($"The poison courses through you. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+        }
+
+        if (npc.IsAlive && npc.TickPoison())
+        {
+            npc.TakeDamage(2);
+            state.AppendLog("2:poison", LogEntryKind.HitsplatPlayer);
+            state.AppendLog($"The venom burns {npc.Template.Name}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.PlayerHit);
+        }
     }
 
     private async Task ExecutePlayerAction(GameState state, Player player, NpcInstance npc, string action)
@@ -306,6 +341,21 @@ public sealed class GameTickService : IDisposable
                 state.AppendLog($"{damage}:normal", LogEntryKind.HitsplatNpc);
                 await _events.PublishAsync(new AttackLanded(npc.Template.Id, player.Id, damage));
 
+                // Desert Bandit: 25% chance to poison on a landed hit
+                if (npc.Template.Id == "desert_bandit" && !state.PlayerPoisoned && _random.NextDouble() < 0.25)
+                {
+                    state.ApplyPoison();
+                    state.AppendLog("The bandit's blade was tipped with poison!", LogEntryKind.System);
+                }
+
+                // Pirate Corsair: drains player special energy on a landed hit
+                if (npc.Template.Id == "corsair" && player.SpecialEnergy > 0)
+                {
+                    int drained = Math.Min(10, player.SpecialEnergy);
+                    player.DrainSpecialEnergy(drained);
+                    state.AppendLog($"The Corsair's strike saps your special energy! (-{drained}%)", LogEntryKind.System);
+                }
+
                 if (state.VengActive && damage > 0)
                 {
                     int vengDmg = (int)(damage * 0.75);
@@ -345,8 +395,9 @@ public sealed class GameTickService : IDisposable
                 player.ClearCombatBoost();
                 var phaseMove = new NpcSpecialMove("★ THE CHAMPION ENTERS PHASE 2! Your combat boost fades!", 2.0, 8);
                 npc.SetPendingSpecial(phaseMove);
+                npc.AttacksPerStyleOverride = 2;
                 state.AppendLog("★ THE CHAMPION ENTERS PHASE 2!", LogEntryKind.BossSpecial);
-                state.AppendLog("Your combat potion boost fades. Brace for the ultimate strike!", LogEntryKind.BossSpecial);
+                state.AppendLog("Your combat potion boost fades. The Champion's style rotation quickens!", LogEntryKind.BossSpecial);
             }
         }
 
@@ -378,6 +429,12 @@ public sealed class GameTickService : IDisposable
         state.AppendLog($"★ {npc.Template.Name} unleashes their special attack for {damage} damage! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.BossSpecial);
         state.AppendLog($"{damage}:boss", LogEntryKind.HitsplatNpc);
         await _events.PublishAsync(new AttackLanded(npc.Template.Id, player.Id, damage));
+
+        if (npc.Template.Id == "barbarian" && damage > 0)
+        {
+            state.ApplyBleed(4, 2);
+            state.AppendLog("You are bleeding from the barbarian's blow!", LogEntryKind.System);
+        }
 
         if (state.VengActive && damage > 0)
         {
