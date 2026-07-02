@@ -135,12 +135,49 @@ public sealed class GameTickService : IDisposable
                 state.AppendLog("Your prayer has run out!", LogEntryKind.System);
         }
 
+        // Damage-over-time — not prayer-reducible
+        ApplyDots(state, player, npc);
+
+        if (!npc.IsAlive)
+        {
+            await HandleVictory(state);
+            await _states.SaveAsync(state);
+            return;
+        }
+
         if (!player.IsAlive)
         {
             await HandleDefeat(state, player, npc);
         }
 
         await _states.SaveAsync(state);
+    }
+
+    private static void ApplyDots(GameState state, Player player, NpcInstance npc)
+    {
+        if (state.BleedTicksLeft > 0 && player.IsAlive)
+        {
+            player.TakeDamage(state.BleedPerTick);
+            state.RecordDamageTaken(state.BleedPerTick);
+            state.AppendLog($"{state.BleedPerTick}:poison", LogEntryKind.HitsplatNpc);
+            state.AppendLog($"You bleed for {state.BleedPerTick} damage. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+            state.TickBleed();
+        }
+
+        if (player.IsAlive && state.TickPoison())
+        {
+            player.TakeDamage(3);
+            state.RecordDamageTaken(3);
+            state.AppendLog("3:poison", LogEntryKind.HitsplatNpc);
+            state.AppendLog($"The poison courses through you. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+        }
+
+        if (npc.IsAlive && npc.TickPoison())
+        {
+            npc.TakeDamage(2);
+            state.AppendLog("2:poison", LogEntryKind.HitsplatPlayer);
+            state.AppendLog($"The venom burns {npc.Template.Name}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.PlayerHit);
+        }
     }
 
     private async Task ExecutePlayerAction(GameState state, Player player, NpcInstance npc, string action)
@@ -151,7 +188,7 @@ public sealed class GameTickService : IDisposable
         }
         else
         {
-            var playerSnapshot = BuildPlayerSnapshot(state, AttackStyle.Accurate);
+            var playerSnapshot = BuildPlayerSnapshot(state, player.ChosenStyle);
             var npcSnapshot = BuildNpcSnapshot(npc);
             var roll = _combat.Roll(playerSnapshot, npcSnapshot);
 
@@ -187,6 +224,15 @@ public sealed class GameTickService : IDisposable
                 }
 
                 npc.TakeDamage(damage);
+                AwardOffensiveXp(state, player, damage);
+
+                // Venomous Fang: 20% chance to poison the NPC on a landed hit
+                if (player.GetEquippedWeaponId() == "venomous_fang" && !npc.Poisoned && _random.NextDouble() < 0.20)
+                {
+                    npc.ApplyPoison();
+                    state.AppendLog($"The Venomous Fang poisons {npc.Template.Name}!", LogEntryKind.System);
+                }
+
                 await _events.PublishAsync(new AttackLanded(player.Id, npc.Template.Id, damage));
             }
             else
@@ -218,7 +264,7 @@ public sealed class GameTickService : IDisposable
             return;
         }
 
-        var baseSnapshot    = BuildPlayerSnapshot(state, AttackStyle.Accurate);
+        var baseSnapshot    = BuildPlayerSnapshot(state, player.ChosenStyle);
         var boostedSnapshot = baseSnapshot with { AttackLevel = (int)(baseSnapshot.AttackLevel * spec.AccuracyMultiplier) };
         var npcSnapshot     = BuildNpcSnapshot(npc);
 
@@ -248,6 +294,7 @@ public sealed class GameTickService : IDisposable
                 string blockMsg = warlordBlocking ? " (⛉ blocked)" : "";
                 state.AppendLog($"{player.PhatPrefix}⚡ SPEC! You hit {npc.Template.Name} for {damage}{healMsg}{blockMsg}{suffix}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.SpecHit);
                 state.AppendLog($"{damage}:spec", LogEntryKind.HitsplatPlayer);
+                AwardOffensiveXp(state, player, damage);
             }
             else
             {
@@ -295,13 +342,30 @@ public sealed class GameTickService : IDisposable
                 }
 
                 // Protection prayer uses tick-start snapshot (enables flicking)
-                double reduction = GetPrayerReduction(state, npc.Template.AttackType);
+                double reduction = GetPrayerReduction(state, npc.CurrentAttackType);
                 if (reduction > 0)
                     damage = (int)(damage * (1.0 - reduction));
 
                 player.TakeDamage(damage);
+                state.RecordDamageTaken(damage);
+                AwardDefensiveXp(state, player, damage);
                 state.AppendLog($"{damage}:normal", LogEntryKind.HitsplatNpc);
                 await _events.PublishAsync(new AttackLanded(npc.Template.Id, player.Id, damage));
+
+                // Desert Bandit: 25% chance to poison on a landed hit
+                if (npc.Template.Id == "desert_bandit" && !state.PlayerPoisoned && _random.NextDouble() < 0.25)
+                {
+                    state.ApplyPoison();
+                    state.AppendLog("The bandit's blade was tipped with poison!", LogEntryKind.System);
+                }
+
+                // Pirate Corsair: drains player special energy on a landed hit
+                if (npc.Template.Id == "corsair" && player.SpecialEnergy > 0)
+                {
+                    int drained = Math.Min(10, player.SpecialEnergy);
+                    player.DrainSpecialEnergy(drained);
+                    state.AppendLog($"The Corsair's strike saps your special energy! (-{drained}%)", LogEntryKind.System);
+                }
 
                 if (state.VengActive && damage > 0)
                 {
@@ -317,6 +381,10 @@ public sealed class GameTickService : IDisposable
                 await _events.PublishAsync(new AttackMissed(npc.Template.Id, player.Id));
             }
         }
+
+        // Style rotation — telegraph the NEXT style so the player can pre-switch prayers
+        if (npc.IsAlive && npc.AdvanceStyle())
+            state.AppendLog(StyleWarning(npc), LogEntryKind.BossSpecial);
 
         // Warlord prayer flick every 3 rounds
         if (npc.Template.Id == "warlord")
@@ -338,8 +406,9 @@ public sealed class GameTickService : IDisposable
                 player.ClearCombatBoost();
                 var phaseMove = new NpcSpecialMove("★ THE CHAMPION ENTERS PHASE 2! Your combat boost fades!", 2.0, 8);
                 npc.SetPendingSpecial(phaseMove);
+                npc.AttacksPerStyleOverride = 2;
                 state.AppendLog("★ THE CHAMPION ENTERS PHASE 2!", LogEntryKind.BossSpecial);
-                state.AppendLog("Your combat potion boost fades. Brace for the ultimate strike!", LogEntryKind.BossSpecial);
+                state.AppendLog("Your combat potion boost fades. The Champion's style rotation quickens!", LogEntryKind.BossSpecial);
             }
         }
 
@@ -363,13 +432,21 @@ public sealed class GameTickService : IDisposable
         int maxHit = _combat.MaxHit(npcAtk);
         int rawDamage = (int)(maxHit * spec.DamageMultiplier);
 
-        double reduction = GetPrayerReduction(state, npc.Template.AttackType);
+        double reduction = GetPrayerReduction(state, npc.CurrentAttackType);
         int damage = reduction > 0 ? (int)(rawDamage * (1.0 - reduction)) : rawDamage;
 
         player.TakeDamage(damage);
+        state.RecordDamageTaken(damage);
+        AwardDefensiveXp(state, player, damage);
         state.AppendLog($"★ {npc.Template.Name} unleashes their special attack for {damage} damage! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.BossSpecial);
         state.AppendLog($"{damage}:boss", LogEntryKind.HitsplatNpc);
         await _events.PublishAsync(new AttackLanded(npc.Template.Id, player.Id, damage));
+
+        if (npc.Template.Id == "barbarian" && damage > 0)
+        {
+            state.ApplyBleed(4, 2);
+            state.AppendLog("You are bleeding from the barbarian's blow!", LogEntryKind.System);
+        }
 
         if (state.VengActive && damage > 0)
         {
@@ -380,14 +457,50 @@ public sealed class GameTickService : IDisposable
         }
     }
 
+    private static string StyleWarning(NpcInstance npc) => npc.CurrentAttackType switch
+    {
+        AttackType.Ranged => $"⚠ {npc.Template.Name} nocks an arrow — RANGED attacks incoming!",
+        AttackType.Magic  => $"⚠ {npc.Template.Name} begins channeling — MAGIC attacks incoming!",
+        _                 => $"⚠ {npc.Template.Name} closes in — MELEE attacks incoming!",
+    };
+
+    // Offensive xp: 4×damage to the chosen style's skill, HP xp = damage×4/3
+    private static void AwardOffensiveXp(GameState state, Player player, int damage)
+    {
+        if (damage <= 0) return;
+        int xp = damage * 4;
+        int hpXp = damage * 4 / 3;
+        var ups = player.ChosenStyle switch
+        {
+            AttackStyle.Aggressive => player.GainXp(0, xp, 0, hpXp),
+            AttackStyle.Defensive  => player.GainXp(0, 0, xp, hpXp),
+            _                      => player.GainXp(xp, 0, 0, hpXp),
+        };
+        LogLevelUps(state, ups);
+    }
+
+    // Defensive xp: taking hits trains Defence — losses still pay
+    private static void AwardDefensiveXp(GameState state, Player player, int damage)
+    {
+        if (damage <= 0) return;
+        int xp = damage * 3 * (player.ChosenStyle == AttackStyle.Defensive ? 2 : 1);
+        LogLevelUps(state, player.GainXp(0, 0, xp, 0));
+    }
+
+    private static void LogLevelUps(GameState state, IReadOnlyList<(string Skill, int NewLevel)> ups)
+    {
+        foreach (var (skill, level) in ups)
+            state.AppendLog($"✨ Congratulations! Your {skill} level is now {level}!", LogEntryKind.LevelUp);
+    }
+
     private static double GetPrayerReduction(GameState state, AttackType npcAttackType)
     {
         if (state.Player.PrayerPoints <= 0) return 0.0;
         return state.TickStartProtection switch
         {
             ProtectionPrayer.Melee => npcAttackType is AttackType.Stab or AttackType.Slash or AttackType.Crush ? 0.75 : 0.0,
-            ProtectionPrayer.Range => 0.0,
-            ProtectionPrayer.Magic => 0.0,
+            ProtectionPrayer.Range => npcAttackType == AttackType.Ranged ? 0.75 : 0.0,
+            ProtectionPrayer.Magic => npcAttackType == AttackType.Magic ? 0.75 : 0.0,
             _ => 0.0,
         };
     }
@@ -400,33 +513,36 @@ public sealed class GameTickService : IDisposable
         state.AppendLog($"You have defeated {npc.Template.Name}!", LogEntryKind.System);
         state.AppendLog("═══ DUEL WON ═══", LogEntryKind.System);
 
-        int payout;
-        if (state.CurrentWager > 0)
+        if (state.DamageTakenThisDuel == 0 && !npc.Template.Id.StartsWith("endless_"))
+            state.AppendLog("⭐ FLAWLESS VICTORY — you took zero damage!", LogEntryKind.Loot);
+
+        state.RecordDefeat(npc.Template.Id);
+
+        // Bounty gold pays on every win (income floor); a wager's profit stacks on top.
+        double prestigeBonus = player.PrestigeLevel >= 1 ? 1.05 : 1.0;
+        double doubloonBonus = player.HasItem("lucky_doubloon") ? 1.05 : 1.0;
+        int bounty = (int)(npc.Template.GoldReward * prestigeBonus * doubloonBonus);
+        if (bounty > 0)
         {
-            payout = (int)(state.CurrentWager * 2 * state.WinStreakMultiplier);
-            state.SetWager(0);
-        }
-        else
-        {
-            double prestigeBonus = player.PrestigeLevel >= 1 ? 1.05 : 1.0;
-            payout = (int)(npc.Template.GoldReward * prestigeBonus);
+            player.AddGold(bounty);
+            state.AppendLog($"You receive a {bounty:N0}g bounty. (Total: {player.Gold:N0}g)", LogEntryKind.Loot);
         }
 
-        if (payout > 0)
+        int payout = bounty;
+        if (state.CurrentWager > 0)
         {
-            player.AddGold(payout);
-            state.AppendLog($"You receive {payout:N0} gold. (Total: {player.Gold:N0}g)", LogEntryKind.Loot);
+            int wagerPayout = (int)(state.CurrentWager * 2 * state.WinStreakMultiplier);
+            player.AddGold(wagerPayout);
+            state.AppendLog($"Wager payout: {wagerPayout:N0}g. (Total: {player.Gold:N0}g)", LogEntryKind.Loot);
+            state.SetWager(0);
+            payout += wagerPayout;
         }
 
         state.IncrementWinStreak();
         if (state.WinStreak > 1)
             state.AppendLog($"Win streak: {state.WinStreak}! (×{state.WinStreakMultiplier:F1} multiplier)", LogEntryKind.System);
 
-        if (npc.Template.Id == "rare_gladiator")
-        {
-            player.AddToInventory("corrupted_whip");
-            state.AppendLog("The Corrupted Gladiator drops a Corrupted Whip!", LogEntryKind.Loot);
-        }
+        RollLoot(state, player, npc.Template);
 
         if (npc.Template.Id == "champion")
         {
@@ -436,6 +552,15 @@ public sealed class GameTickService : IDisposable
 
         if (state.InEndlessMode)
         {
+            int clearedWave = state.EndlessWave;
+            if (clearedWave > 0 && clearedWave % 5 == 0)
+            {
+                int bonus = clearedWave * 20;
+                player.AddGold(bonus);
+                player.AddToInventory("shark");
+                state.AppendLog($"Wave {clearedWave} milestone! Bonus: {bonus:N0}g + a Shark.", LogEntryKind.Loot);
+            }
+
             int wave = state.NextEndlessWave();
             state.AppendLog($"Wave {wave - 1} cleared! Preparing wave {wave}...", LogEntryKind.System);
             var waveNpc = BuildEndlessNpc(wave);
@@ -459,6 +584,52 @@ public sealed class GameTickService : IDisposable
         player.RestoreSpecialEnergy();
         state.EndDuel();
         await _events.PublishAsync(new DuelWon(player.Id, npc.Template.Id, npc.Template.Name, payout));
+    }
+
+    private void RollLoot(GameState state, Player player, NpcTemplate template)
+    {
+        foreach (var entry in template.LootTable)
+        {
+            if (entry.OnceOnly && player.HasItem(entry.ItemId)) continue;
+            if (_random.NextDouble() >= entry.DropChance) continue;
+
+            int qty = entry.MaxQty > entry.MinQty ? _random.Next(entry.MinQty, entry.MaxQty + 1) : entry.MinQty;
+            bool isRareDrop = entry.DropChance <= 1.0 / 15.0;
+
+            if (entry.ItemId == "gold")
+            {
+                player.AddGold(qty);
+                state.AppendLog($"You find {qty:N0} gold on the body.", LogEntryKind.Loot);
+                continue;
+            }
+
+            var itemName = _items.GetItemName(entry.ItemId) ?? entry.ItemId;
+            state.RecordLoot(entry.ItemId);
+
+            for (int i = 0; i < qty; i++)
+            {
+                if (player.Inventory.Count >= 28)
+                {
+                    int fenceValue = _items.GetFenceValue(entry.ItemId);
+                    player.AddGold(fenceValue);
+                    state.AppendLog($"Your pack is full — you fence the {itemName} for {fenceValue:N0}g.", LogEntryKind.Loot);
+                }
+                else
+                {
+                    player.AddToInventory(entry.ItemId);
+                }
+            }
+
+            if (isRareDrop)
+            {
+                state.AppendLog("═══ RARE DROP ═══", LogEntryKind.Loot);
+                state.AppendLog($"{template.Name} drops a {itemName}{(qty > 1 ? $" ×{qty}" : "")} — it's yours!", LogEntryKind.Loot);
+            }
+            else
+            {
+                state.AppendLog($"You loot {(qty > 1 ? $"{qty}× " : "")}{itemName}.", LogEntryKind.Loot);
+            }
+        }
     }
 
     private async Task HandleDefeat(GameState state, Player player, NpcInstance npc)
@@ -515,7 +686,7 @@ public sealed class GameTickService : IDisposable
     private CombatantSnapshot BuildPlayerDefSnapshot(Player player)
     {
         var mods = AggregatePlayerMods(player);
-        return new CombatantSnapshot(player.AttackLevel, player.StrengthLevel, player.DefenceLevel, mods, AttackType.Slash, AttackStyle.Defensive);
+        return new CombatantSnapshot(player.AttackLevel, player.StrengthLevel, player.DefenceLevel, mods, AttackType.Slash, player.ChosenStyle);
     }
 
     private ItemModifiers AggregatePlayerMods(Player player)
@@ -532,26 +703,36 @@ public sealed class GameTickService : IDisposable
     private static CombatantSnapshot BuildNpcSnapshot(NpcInstance npc)
     {
         var s = npc.Template.Stats;
-        return new CombatantSnapshot(s.Attack, s.Strength, s.Defence, npc.Template.Modifiers, npc.Template.AttackType, AttackStyle.Accurate);
+        return new CombatantSnapshot(s.Attack, s.Strength, s.Defence, npc.Template.Modifiers, npc.CurrentAttackType, AttackStyle.Accurate);
     }
 
     private static CombatantSnapshot BuildNpcAttackSnapshot(NpcInstance npc)
     {
         var s = npc.Template.Stats;
-        return new CombatantSnapshot(s.Attack, s.Strength, s.Defence, npc.Template.Modifiers, npc.Template.AttackType, AttackStyle.Aggressive);
+        return new CombatantSnapshot(s.Attack, s.Strength, s.Defence, npc.Template.Modifiers, npc.CurrentAttackType, AttackStyle.Aggressive);
     }
 
-    private static NpcInstance BuildEndlessNpc(int wave)
+    private NpcInstance BuildEndlessNpc(int wave)
     {
         int hp  = 50 + wave * 6;
         int mod = 20 + wave * 4;
+        int lvl = Math.Min(99, 60 + wave);
+        var style = (AttackType)_random.Next(0, 5);
+        var mods = style switch
+        {
+            AttackType.Ranged => new ItemModifiers(RangedAttack: mod, StrengthBonus: mod),
+            AttackType.Magic  => new ItemModifiers(MagicAttack: mod, StrengthBonus: mod),
+            AttackType.Stab   => new ItemModifiers(StabAttack: mod, StrengthBonus: mod),
+            AttackType.Crush  => new ItemModifiers(CrushAttack: mod, StrengthBonus: mod),
+            _                 => new ItemModifiers(SlashAttack: mod, StrengthBonus: mod),
+        };
         var template = new NpcTemplate(
             $"endless_w{wave}",
             $"Wave {wave} Fighter",
             $"A relentless wave {wave} challenger.",
-            new CombatStats(99, 99, 99, hp),
-            new ItemModifiers(SlashAttack: mod, StrengthBonus: mod),
-            AttackType.Slash,
+            new CombatStats(lvl, lvl, lvl, hp),
+            mods,
+            style,
             [],
             goldReward: wave * 50,
             attackSpeedTicks: 4);

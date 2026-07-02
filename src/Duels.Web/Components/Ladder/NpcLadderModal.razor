@@ -1,6 +1,10 @@
 @using Duels.Application.GameSession
 @using Duels.Application.Commands
+@using Duels.Application.Abstractions
+@using Duels.Domain.Entities
 @inject Duels.Web.Services.GameService GameSvc
+@inject IItemRepository ItemRepo
+@inject INpcRepository NpcRepo
 
 <div class="ladder-overlay" @onclick="OnClose">
     <div class="ladder-panel" @onclick:stopPropagation>
@@ -25,20 +29,33 @@
         </div>
 
         <div class="ladder-grid">
-            @foreach (var npc in _ladder)
+            @foreach (var stageId in _order)
             {
-                var npcLocal = npc;
-                bool unlocked = State?.UnlockedOpponents.Contains(npc.Id) ?? false;
+                var template = NpcRepo.GetTemplate(stageId);
+                if (template is null) continue;
+                var npcLocal = template;
+                bool unlocked = State?.UnlockedOpponents.Contains(stageId) ?? false;
+                bool obtained = State?.Player?.HasItem(SignatureDropId(template) ?? "") ?? false;
                 <div class="ladder-card @(unlocked ? "ladder-unlocked" : "ladder-locked")">
-                    <div class="ladder-stage">@(npc.Stage == 0 ? "Starter" : $"Stage {npc.Stage}")</div>
+                    <div class="ladder-stage">@StageLabel(stageId)</div>
                     @if (unlocked)
                     {
-                        <div class="ladder-npc-name">@npc.Name</div>
+                        <div class="ladder-npc-name">@template.Name</div>
                         <div class="ladder-stats">
-                            <span>Lvl @npc.CombatLevel</span>
-                            <span>HP @npc.Hp</span>
+                            <span>Lvl @template.CombatLevel</span>
+                            <span>HP @template.Stats.Hitpoints</span>
                         </div>
-                        <div class="ladder-reward">Max: @npc.MaxWager.ToString("N0")g</div>
+                        @if (template.GoldReward > 0)
+                        {
+                            <div class="ladder-bounty">💰 @template.GoldReward.ToString("N0")g bounty</div>
+                        }
+                        @if (SignatureDropId(template) is { } dropId)
+                        {
+                            <div class="ladder-drop @(obtained ? "ladder-drop-obtained" : "")">
+                                @(obtained ? "✓ " : "🎲 ")@(ItemRepo.GetItemName(dropId) ?? dropId)
+                            </div>
+                        }
+                        <div class="ladder-reward">Max: @template.MaxWager.ToString("N0")g</div>
                         <button class="ladder-fight-btn" @onclick="() => Fight(npcLocal)">⚔ Fight</button>
                     }
                     else
@@ -64,22 +81,16 @@
 
     private int MaxGold => State?.Player?.Gold ?? 0;
 
-    private sealed record LadderNpc(
-        string Id, string Name, int Stage,
-        int CombatLevel, int Hp, int MaxWager);
-
-    private static readonly LadderNpc[] _ladder =
+    private static readonly string[] _order =
     [
-        new("goblin",            "Arena Goblin",        0,   3,   10,           100),
-        new("swashbuckler",      "Swashbuckler Pete",   1, 101,   50,         1_000),
-        new("barbarian",         "Iron Barbarian",      2, 105,   65,         5_000),
-        new("desert_bandit",     "Desert Bandit",       3, 106,   70,        20_000),
-        new("gladiator",         "Arena Gladiator",     4, 109,   80,        75_000),
-        new("corsair",           "Pirate Corsair",      5, 110,   85,       250_000),
-        new("berserker",         "Frenzied Berserker",  6, 111,   90,       750_000),
-        new("warlord",           "Battle Warlord",      7, 112,   95,     2_500_000),
-        new("champion",          "Duel Champion",       8, 113,   99,    10_000_000),
+        "goblin", "swashbuckler", "barbarian", "desert_bandit", "gladiator",
+        "corsair", "berserker", "warlord", "champion",
     ];
+
+    private static string StageLabel(string id) => id == "goblin" ? "Starter" : $"Stage {Array.IndexOf(_order, id)}";
+
+    private static string? SignatureDropId(NpcTemplate template) =>
+        template.LootTable.FirstOrDefault(e => e.OnceOnly && e.ItemId != "corrupted_whip")?.ItemId;
 
     private void SetWager(int value)
     {
@@ -106,7 +117,7 @@
         }
     }
 
-    private async Task Fight(LadderNpc npc)
+    private async Task Fight(NpcTemplate npc)
     {
         if (GameSvc.PlayerId is null) return;
         await GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, npc.Id, _wager > 0 ? _wager : 0));

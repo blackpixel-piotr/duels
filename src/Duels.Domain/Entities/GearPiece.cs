@@ -9,13 +9,16 @@ public sealed class GearPiece
     public EquipmentSlot Slot { get; }
     public ItemModifiers Modifiers { get; }
     public string ExamineText { get; }
+    public int DefenceLevelRequired { get; }
 
-    public GearPiece(string id, string name, EquipmentSlot slot, ItemModifiers modifiers, string examineText = "")
+    public GearPiece(string id, string name, EquipmentSlot slot, ItemModifiers modifiers, string examineText = "",
+        int defenceLevelRequired = 60)
     {
         Id = id;
         Name = name;
         Slot = slot;
         Modifiers = modifiers;
         ExamineText = examineText;
+        DefenceLevelRequired = defenceLevelRequired;
     }
 }

@@ -16,17 +16,6 @@
             <div class="inv-slot inv-empty"></div>
         }
     </div>
-    @if (State?.Player?.Equipped.Count > 0)
-    {
-        <div class="panel-title" style="margin-top:8px">Equipped</div>
-        @foreach (var (slot, id) in State.Player.Equipped)
-        {
-            <div class="equipped-row">
-                <span class="eq-slot">@slot</span>
-                <span class="eq-item">@ShortName(id)</span>
-            </div>
-        }
-    }
 </div>
 
 @code {

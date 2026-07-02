@@ -46,11 +46,12 @@ public sealed class StartEndlessHandler : ICommandHandler<StartEndlessCommand>
     {
         int hp = 50 + wave * 6;
         int mod = 20 + wave * 4;
+        int lvl = Math.Min(99, 60 + wave);
         var template = new NpcTemplate(
             $"endless_w{wave}",
             $"Wave {wave} Fighter",
             $"A relentless wave {wave} challenger.",
-            new CombatStats(99, 99, 99, hp),
+            new CombatStats(lvl, lvl, lvl, hp),
             new ItemModifiers(SlashAttack: mod, StrengthBonus: mod),
             AttackType.Slash,
             [],

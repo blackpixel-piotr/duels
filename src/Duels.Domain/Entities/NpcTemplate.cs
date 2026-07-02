@@ -17,6 +17,10 @@ public sealed class NpcTemplate
     public int MaxWager { get; }
     public NpcSpecialMove? TelegraphedMove { get; }
     public int AttackSpeedTicks { get; }
+    /// <summary>Attack styles the NPC cycles through; defaults to just AttackType.</summary>
+    public IReadOnlyList<AttackType> StyleRotation { get; }
+    /// <summary>Attacks performed in each style before rotating.</summary>
+    public int AttacksPerStyle { get; }
     public int CombatLevel => CalculateCombatLevel(Stats);
 
     public NpcTemplate(
@@ -30,7 +34,9 @@ public sealed class NpcTemplate
         int goldReward = 0,
         int maxWager = 0,
         NpcSpecialMove? telegraphedMove = null,
-        int attackSpeedTicks = 4)
+        int attackSpeedTicks = 4,
+        IReadOnlyList<AttackType>? styleRotation = null,
+        int attacksPerStyle = 4)
     {
         Id = id;
         Name = name;
@@ -43,6 +49,8 @@ public sealed class NpcTemplate
         MaxWager = maxWager;
         TelegraphedMove = telegraphedMove;
         AttackSpeedTicks = attackSpeedTicks;
+        StyleRotation = styleRotation ?? [attackType];
+        AttacksPerStyle = attacksPerStyle;
     }
 
     private static int CalculateCombatLevel(CombatStats s)
@@ -53,7 +61,7 @@ public sealed class NpcTemplate
     }
 }
 
-public sealed record LootEntry(string ItemId, double DropChance);
+public sealed record LootEntry(string ItemId, double DropChance, int MinQty = 1, int MaxQty = 1, bool OnceOnly = false);
 
 public sealed class NpcInstance
 {
@@ -72,12 +80,48 @@ public sealed class NpcInstance
     public bool WarlordPrayerActive { get; private set; }
     public int WarlordPrayerCountdown { get; private set; }
 
+    // Style rotation state
+    public AttackType CurrentAttackType { get; private set; }
+    public int AttacksInStyle { get; private set; }
+    public int? AttacksPerStyleOverride { get; set; }
+
+    // Poison (mirrors GameState's player poison; used by poison-on-hit weapons)
+    public bool Poisoned { get; private set; }
+    public int PoisonCounter { get; private set; }
+
+    public void ApplyPoison() { Poisoned = true; PoisonCounter = 0; }
+    public bool TickPoison()
+    {
+        if (!Poisoned) return false;
+        PoisonCounter++;
+        if (PoisonCounter < 4) return false;
+        PoisonCounter = 0;
+        return true;
+    }
+
     public NpcInstance(NpcTemplate template)
     {
         Template = template;
         CurrentHp = template.Stats.Hitpoints;
         SpecialCooldown = template.TelegraphedMove?.CooldownTurns ?? 0;
         WarlordPrayerCountdown = 3;
+        CurrentAttackType = template.StyleRotation.Count > 0 ? template.StyleRotation[0] : template.AttackType;
+    }
+
+    /// <summary>Call after each NPC attack; returns true when the style just rotated.</summary>
+    public bool AdvanceStyle()
+    {
+        if (Template.StyleRotation.Count <= 1) return false;
+        AttacksInStyle++;
+        int perStyle = AttacksPerStyleOverride ?? Template.AttacksPerStyle;
+        if (AttacksInStyle < perStyle) return false;
+
+        AttacksInStyle = 0;
+        int idx = 0;
+        for (int i = 0; i < Template.StyleRotation.Count; i++)
+            if (Template.StyleRotation[i] == CurrentAttackType) { idx = i; break; }
+        CurrentAttackType = Template.StyleRotation[(idx + 1) % Template.StyleRotation.Count];
+        return true;
     }
 
     public void TakeDamage(int amount) => CurrentHp = Math.Max(0, CurrentHp - amount);

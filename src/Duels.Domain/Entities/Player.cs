@@ -1,3 +1,4 @@
+using Duels.Domain.Services;
 using Duels.Domain.ValueObjects;
 
 namespace Duels.Domain.Entities;
@@ -7,10 +8,18 @@ public sealed class Player
     public string Id { get; }
     public string Name { get; }
 
-    public int AttackLevel => 99;
-    public int StrengthLevel => 99;
-    public int DefenceLevel => 99;
-    public int MaxHp => PrestigeLevel >= 2 ? 109 : 99;
+    public int AttackXp { get; private set; }
+    public int StrengthXp { get; private set; }
+    public int DefenceXp { get; private set; }
+    public int HitpointsXp { get; private set; }
+
+    public int AttackLevel => ExperienceTable.LevelForXp(AttackXp);
+    public int StrengthLevel => ExperienceTable.LevelForXp(StrengthXp);
+    public int DefenceLevel => ExperienceTable.LevelForXp(DefenceXp);
+    public int HitpointsLevel => ExperienceTable.LevelForXp(HitpointsXp);
+    public int MaxHp => HitpointsLevel + (PrestigeLevel >= 2 ? 10 : 0);
+
+    public AttackStyle ChosenStyle { get; private set; } = AttackStyle.Accurate;
 
     public int CurrentHp { get; private set; }
     public int Gold { get; private set; }
@@ -46,6 +55,32 @@ public sealed class Player
     }
 
     public bool IsAlive => CurrentHp > 0;
+
+    public void SetStyle(AttackStyle style) => ChosenStyle = style;
+
+    /// <summary>Awards xp and returns any level-ups as (skill name, new level) for logging.</summary>
+    public IReadOnlyList<(string Skill, int NewLevel)> GainXp(int atkXp, int strXp, int defXp, int hpXp)
+    {
+        var ups = new List<(string, int)>();
+
+        int before = AttackLevel;
+        AttackXp += Math.Max(0, atkXp);
+        if (AttackLevel > before) ups.Add(("Attack", AttackLevel));
+
+        before = StrengthLevel;
+        StrengthXp += Math.Max(0, strXp);
+        if (StrengthLevel > before) ups.Add(("Strength", StrengthLevel));
+
+        before = DefenceLevel;
+        DefenceXp += Math.Max(0, defXp);
+        if (DefenceLevel > before) ups.Add(("Defence", DefenceLevel));
+
+        before = HitpointsLevel;
+        HitpointsXp += Math.Max(0, hpXp);
+        if (HitpointsLevel > before) ups.Add(("Hitpoints", HitpointsLevel));
+
+        return ups;
+    }
 
     public void TakeDamage(int amount) => CurrentHp = Math.Max(0, CurrentHp - amount);
     public void Heal(int amount) => CurrentHp = Math.Min(MaxHp, CurrentHp + amount);
@@ -133,10 +168,17 @@ public sealed class Player
     }
 
     public void RestoreFromSave(int gold, int currentHp, int specialEnergy, int prestigeLevel,
-        IEnumerable<string> inventory, IEnumerable<KeyValuePair<EquipmentSlot, string>> equipped)
+        IEnumerable<string> inventory, IEnumerable<KeyValuePair<EquipmentSlot, string>> equipped,
+        int attackXp = 0, int strengthXp = 0, int defenceXp = 0, int hitpointsXp = 0,
+        AttackStyle chosenStyle = AttackStyle.Accurate)
     {
         Gold = gold;
         PrestigeLevel = prestigeLevel;
+        AttackXp = Math.Max(0, attackXp);
+        StrengthXp = Math.Max(0, strengthXp);
+        DefenceXp = Math.Max(0, defenceXp);
+        HitpointsXp = Math.Max(0, hitpointsXp);
+        ChosenStyle = chosenStyle;
         _inventory.Clear();
         _inventory.AddRange(inventory);
         _equipped.Clear();

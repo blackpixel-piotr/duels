@@ -37,6 +37,8 @@ public sealed record ItemModifiers(
         AttackType.Stab => StabAttack,
         AttackType.Slash => SlashAttack,
         AttackType.Crush => CrushAttack,
+        AttackType.Ranged => RangedAttack,
+        AttackType.Magic => MagicAttack,
         _ => 0
     };
 
@@ -45,6 +47,8 @@ public sealed record ItemModifiers(
         AttackType.Stab => StabDefence,
         AttackType.Slash => SlashDefence,
         AttackType.Crush => CrushDefence,
+        AttackType.Ranged => RangedDefence,
+        AttackType.Magic => MagicDefence,
         _ => 0
     };
 }

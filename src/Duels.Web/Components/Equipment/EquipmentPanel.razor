@@ -1,0 +1,59 @@
+@using Duels.Application.GameSession
+@using Duels.Application.Commands
+@using Duels.Domain.ValueObjects
+@inject Duels.Web.Services.GameService GameSvc
+
+<div class="equipment-panel">
+    <div class="panel-title">Equipment</div>
+    <div class="eq-grid">
+        @foreach (var slot in _slots)
+        {
+            var itemId = State?.Player?.Equipped.GetValueOrDefault(slot);
+            <button class="eq-slot-cell @(itemId is null ? "eq-slot-empty" : "")"
+                    title="@(itemId is null ? slot.ToString() : $"{ShortName(itemId)} — click to unequip")"
+                    disabled="@(itemId is null)"
+                    @onclick="() => Unequip(slot)">
+                <span class="eq-slot-label">@SlotLabel(slot)</span>
+                @if (itemId is not null)
+                {
+                    <span class="eq-slot-item">@ShortName(itemId)</span>
+                }
+            </button>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+
+    private static readonly EquipmentSlot[] _slots =
+    [
+        EquipmentSlot.Weapon, EquipmentSlot.Shield, EquipmentSlot.Helmet, EquipmentSlot.Body,
+        EquipmentSlot.Legs, EquipmentSlot.Boots, EquipmentSlot.Gloves, EquipmentSlot.Cape,
+        EquipmentSlot.Amulet, EquipmentSlot.Ring,
+    ];
+
+    private static string SlotLabel(EquipmentSlot slot) => slot switch
+    {
+        EquipmentSlot.Weapon => "WPN",
+        EquipmentSlot.Shield => "SHLD",
+        EquipmentSlot.Helmet => "HEAD",
+        EquipmentSlot.Body   => "BODY",
+        EquipmentSlot.Legs   => "LEGS",
+        EquipmentSlot.Boots  => "FEET",
+        EquipmentSlot.Gloves => "HAND",
+        EquipmentSlot.Cape   => "CAPE",
+        EquipmentSlot.Amulet => "NECK",
+        EquipmentSlot.Ring   => "RING",
+        _ => slot.ToString(),
+    };
+
+    private static string ShortName(string id) =>
+        string.Join(" ", id.Split('_').Select(w => char.ToUpper(w[0]) + w[1..]));
+
+    private async Task Unequip(EquipmentSlot slot)
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new UnequipItemCommand(GameSvc.PlayerId!, slot));
+    }
+}

@@ -177,6 +177,7 @@ html, body {
 .hitsplat-heavy  { color: #ffd700; font-size: 16px; text-shadow: 1px 1px 0 #000, 0 0 8px rgba(255,215,0,0.8); animation: hitsplat-rise-heavy 1.6s ease-out forwards; }
 .hitsplat-spec   { color: #ff8c00; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(255,140,0,0.6); }
 .hitsplat-boss   { color: #cc44ff; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(180,60,255,0.5); }
+.hitsplat-poison { color: #5ada5a; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(90,218,90,0.6); font-size: 11px; }
 
 @keyframes hitsplat-rise {
     0%   { transform: translateY(0);      opacity: 1; }
@@ -214,7 +215,7 @@ html, body {
 .log-npcmiss   { color: var(--text-dim); font-style: italic; }
 .log-system    { color: var(--amber); }
 .log-loot      { color: var(--yellow); font-weight: bold; }
-.log-levelup   { color: var(--purple); font-weight: bold; }
+.log-levelup   { color: var(--yellow); font-weight: bold; text-shadow: 0 0 6px rgba(255,215,0,0.45); animation: pulse-grow 0.25s ease-in-out 2; }
 .log-maxhit {
     color: #ffd700;
     font-weight: bold;
@@ -401,7 +402,7 @@ html, body {
 .retry-btn:hover { background: rgba(201,135,14,0.15); }
 
 /* ─── Stats panel ─── */
-.stats-panel, .inventory-panel {
+.stats-panel, .inventory-panel, .equipment-panel {
     background: var(--bg-panel);
     border: var(--border-w) double var(--border);
     box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
@@ -476,6 +477,50 @@ html, body {
 .spec-bar    { height: 100%; background: linear-gradient(90deg, #8a5a00, var(--amber)); transition: width 0.2s; }
 .prayer-bar  { height: 100%; background: linear-gradient(90deg, #1565c0, #6ec6ff); transition: width 0.2s; }
 
+/* ─── NPC attack-style badge (combat status bar) ─── */
+.style-badge {
+    display: inline-block;
+    font-size: 12px;
+    margin-right: 4px;
+    animation: style-badge-pulse 1s ease-out;
+}
+.style-badge-melee  { color: #ff5555; }
+.style-badge-ranged { color: #7ddc7d; }
+.style-badge-magic  { color: #6ec6ff; }
+@keyframes style-badge-pulse {
+    0%   { transform: scale(1.8); text-shadow: 0 0 10px currentColor; }
+    100% { transform: scale(1);   text-shadow: none; }
+}
+
+/* ─── XP progress bars (stats panel) ─── */
+.xp-bar-wrap {
+    flex: 1;
+    height: 5px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+.xp-bar { height: 100%; background: linear-gradient(90deg, #4a2a6a, var(--purple)); transition: width 0.3s; }
+.stat-style { color: var(--amber); font-weight: bold; }
+
+/* ─── DoT status chips ─── */
+.status-chip {
+    display: inline-block;
+    font-size: 8px;
+    font-weight: bold;
+    padding: 1px 4px;
+    margin-left: 5px;
+    border-radius: 0;
+    vertical-align: middle;
+    letter-spacing: 0.5px;
+}
+.status-chip-bleed  { background: #3a0d0d; color: #ff6b6b; border: 1px solid #ff6b6b; }
+.status-chip-poison { background: #0d3a15; color: #5ada5a; border: 1px solid #5ada5a; animation: status-chip-pulse 1.2s ease-in-out infinite; }
+@keyframes status-chip-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.5; }
+}
+
 /* ─── NPC card ─── */
 .npc-card {
     background: var(--bg-panel);
@@ -518,9 +563,32 @@ html, body {
 .inv-slot:hover { border-color: var(--amber); }
 .inv-empty { cursor: default; }
 .inv-item-name { font-size: 8px; }
-.equipped-row { display: flex; gap: 6px; font-size: 11px; padding: 2px 0; }
-.eq-slot  { color: var(--text-dim); width: 50px; }
-.eq-item  { color: var(--amber); }
+/* ─── Equipment panel (paper-doll) ─── */
+.eq-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 3px;
+}
+.eq-slot-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font);
+    padding: 6px 2px;
+    cursor: pointer;
+    border-radius: 0;
+    min-height: 40px;
+    text-align: center;
+}
+.eq-slot-cell:hover:not(:disabled) { border-color: var(--amber); }
+.eq-slot-cell:disabled { cursor: default; opacity: 0.5; }
+.eq-slot-empty { background: var(--bg-input); }
+.eq-slot-label { font-size: 8px; color: var(--text-dim); letter-spacing: 0.5px; }
+.eq-slot-item  { font-size: 9px; color: var(--amber); margin-top: 2px; line-height: 1.2; word-break: break-word; }
 
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar        { width: 6px; }
@@ -714,6 +782,9 @@ html, body {
 .shop-cell-icon  { font-size: 20px; line-height: 1; margin-bottom: 3px; }
 .shop-cell-name  { font-size: 9px; text-align: center; color: var(--text-dim); line-height: 1.2; }
 .shop-cell-price { font-size: 9px; color: var(--yellow); margin-top: 2px; }
+.shop-cell-req   { font-size: 8px; color: var(--text-dim); margin-top: 1px; }
+.shop-req-unmet  { color: var(--red); }
+.shop-cell-locked { opacity: 0.45; filter: grayscale(0.6); }
 .shop-confirm-cell {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     aspect-ratio: 1; background: #1a1208;
@@ -818,6 +889,9 @@ html, body {
 .ladder-npc-name { color: var(--amber); font-size: 10px; text-align: center; font-weight: bold; line-height: 1.3; }
 .ladder-stats    { display: flex; gap: 8px; font-size: 9px; color: var(--text-dim); }
 .ladder-reward   { font-size: 9px; color: var(--yellow); }
+.ladder-bounty   { font-size: 8px; color: var(--green); }
+.ladder-drop     { font-size: 8px; color: var(--text-dim); font-style: italic; }
+.ladder-drop-obtained { color: var(--amber); font-style: normal; }
 .ladder-fight-btn {
     margin-top: auto; width: 100%;
     background: linear-gradient(160deg, #2e2518, #1e160d);
@@ -832,6 +906,50 @@ html, body {
 @media (max-width: 400px) {
     .ladder-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ─── Collection log modal ─── */
+.log-panel {
+    width: min(560px, 96vw);
+}
+.log-section {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+}
+.log-drops {
+    overflow-y: auto;
+    flex: 1;
+}
+.log-achievements {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px;
+}
+.log-achievement {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: var(--text-dim);
+    padding: 3px 4px;
+    border: 1px solid var(--border);
+}
+.log-achievement-done { color: var(--green); border-color: var(--green); }
+.log-ach-icon { flex-shrink: 0; }
+.log-npc-row {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+}
+.log-npc-row:last-child { border-bottom: none; }
+.log-npc-name { font-size: 11px; color: var(--amber); margin-bottom: 4px; }
+.log-drop-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.log-drop-chip {
+    font-size: 9px;
+    color: var(--text-dim);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 2px 6px;
+}
+.log-drop-obtained { color: var(--yellow); border-color: var(--yellow); }
 
 /* ─── Blazor error UI ─── */
 #blazor-error-ui {

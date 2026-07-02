@@ -20,13 +20,43 @@ public sealed class DrinkPotionHandler : ICommandHandler<DrinkPotionCommand>
 
         var player = state.Player;
 
+        var result = command.ItemId switch
+        {
+            "antidote" => DrinkAntidote(state, player),
+            _ => DrinkSuperCombat(state, player),
+        };
+
+        if (!result.Success) return result;
+
+        if (state.InDuel) state.DelayPlayerAttack(1);
+
+        await _stateRepo.SaveAsync(state, ct);
+        return result;
+    }
+
+    private static CommandResult DrinkSuperCombat(GameState state, Domain.Entities.Player player)
+    {
         if (!player.RemoveFromInventory("super_combat_potion"))
             return CommandResult.Fail("You don't have a Super Combat Potion. Buy one from the shop.");
 
         player.DrinkSuperCombat();
-        state.AppendLog($"You drink the Super Combat Potion! Atk/Str boosted for {player.CombatBoostRoundsLeft} rounds.", LogEntryKind.Info);
+        state.AppendLog($"You drink the Super Combat Potion! Atk/Str boosted for {player.CombatBoostRoundsLeft} rounds. (+1 tick delay)", LogEntryKind.Info);
+        return CommandResult.Ok();
+    }
 
-        await _stateRepo.SaveAsync(state, ct);
+    private static CommandResult DrinkAntidote(GameState state, Domain.Entities.Player player)
+    {
+        if (!player.RemoveFromInventory("antidote"))
+            return CommandResult.Fail("You don't have an Antidote. Buy one from the shop.");
+
+        if (!state.PlayerPoisoned)
+        {
+            state.AppendLog("You drink the Antidote, but you weren't poisoned. (+1 tick delay)", LogEntryKind.Info);
+            return CommandResult.Ok();
+        }
+
+        state.CurePoison();
+        state.AppendLog("You drink the Antidote — the poison fades from your veins. (+1 tick delay)", LogEntryKind.Info);
         return CommandResult.Ok();
     }
 }

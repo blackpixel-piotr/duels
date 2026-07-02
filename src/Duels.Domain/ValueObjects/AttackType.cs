@@ -4,5 +4,7 @@ public enum AttackType
 {
     Stab,
     Slash,
-    Crush
+    Crush,
+    Ranged,
+    Magic
 }

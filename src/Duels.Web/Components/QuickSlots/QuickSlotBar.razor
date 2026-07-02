@@ -7,7 +7,7 @@
 <div class="quickslot-bar">
     @{
         var weaponSlots   = WeaponSlots().ToList();
-        var protectActive = State?.Player?.ActiveProtection == ProtectionPrayer.Melee;
+        var activeProt    = State?.Player?.ActiveProtection ?? ProtectionPrayer.None;
         var pietyActive   = State?.Player?.PietyActive == true;
         var noPrayer      = (State?.Player?.PrayerPoints ?? 0) <= 0;
     }
@@ -40,12 +40,26 @@
             }
         }
 
-        <button class="quickslot @(protectActive ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
-                title="Protect Melee"
+        <button class="quickslot @(activeProt == ProtectionPrayer.Melee ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
+                title="Protect from Melee"
                 disabled="@_busy"
-                @onclick="ProtectMelee">
+                @onclick='() => Protect("protect_melee")'>
             <span class="qs-icon">⛉</span>
-            <span class="qs-label">PROTECT</span>
+            <span class="qs-label">P.MELEE</span>
+        </button>
+        <button class="quickslot @(activeProt == ProtectionPrayer.Range ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
+                title="Protect from Ranged"
+                disabled="@_busy"
+                @onclick='() => Protect("protect_range")'>
+            <span class="qs-icon">➶</span>
+            <span class="qs-label">P.RANGE</span>
+        </button>
+        <button class="quickslot @(activeProt == ProtectionPrayer.Magic ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
+                title="Protect from Magic"
+                disabled="@_busy"
+                @onclick='() => Protect("protect_magic")'>
+            <span class="qs-icon">✦</span>
+            <span class="qs-label">P.MAGIC</span>
         </button>
         <button class="quickslot @(pietyActive ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
                 title="Piety"
@@ -54,9 +68,17 @@
             <span class="qs-icon">⚡</span>
             <span class="qs-label">PIETY</span>
         </button>
+        <button class="quickslot" title="Cycle combat style" disabled="@_busy" @onclick="CycleStyle">
+            <span class="qs-icon">🎯</span>
+            <span class="qs-label">@CurrentStyleLabel</span>
+        </button>
     }
     else
     {
+        <button class="quickslot" title="Cycle combat style" disabled="@_busy" @onclick="CycleStyle">
+            <span class="qs-icon">🎯</span>
+            <span class="qs-label">@CurrentStyleLabel</span>
+        </button>
         <button class="quickslot" title="Shop" @onclick="() => OnOpenShop.InvokeAsync()">
             <span class="qs-icon">🏪</span>
             <span class="qs-label">SHOP</span>
@@ -73,6 +95,10 @@
             <span class="qs-icon">⚔</span>
             <span class="qs-label">ARENA</span>
         </button>
+        <button class="quickslot" title="Collection Log" @onclick="() => OnOpenLog.InvokeAsync()">
+            <span class="qs-icon">📖</span>
+            <span class="qs-label">LOG</span>
+        </button>
     }
 </div>
 
@@ -80,6 +106,7 @@
     [Parameter] public GameState? State { get; set; }
     [Parameter] public EventCallback OnOpenShop { get; set; }
     [Parameter] public EventCallback OnOpenLadder { get; set; }
+    [Parameter] public EventCallback OnOpenLog { get; set; }
 
     private bool _busy;
 
@@ -94,13 +121,21 @@
         ["abyssal_whip"]       = "WHIP",
         ["scythe_of_vitur"]    = "SCYTHE",
         ["corrupted_whip"]     = "C.WHIP",
+        ["granite_maul"]       = "G.MAUL",
+        ["abyssal_bludgeon"]   = "BLUDGN",
+        ["elder_maul"]         = "E.MAUL",
+        ["zamorakian_hasta"]   = "HASTA",
+        ["ghrazi_rapier"]      = "RAPIER",
+        ["venomous_fang"]      = "FANG",
     };
 
     private static readonly string[] _weaponOrder =
     [
-        "rune_scimitar", "dragon_scimitar", "dragon_dagger", "abyssal_whip",
-        "armadyl_sword", "dragon_claws", "bandos_godsword", "zamorak_godsword",
-        "saradomin_godsword", "armadyl_godsword", "scythe_of_vitur", "corrupted_whip",
+        "rune_scimitar", "dragon_scimitar", "dragon_dagger", "granite_maul",
+        "abyssal_whip", "zamorakian_hasta", "armadyl_sword", "dragon_claws",
+        "abyssal_bludgeon", "bandos_godsword", "zamorak_godsword", "ghrazi_rapier",
+        "saradomin_godsword", "armadyl_godsword", "elder_maul", "scythe_of_vitur",
+        "corrupted_whip", "venomous_fang",
     ];
 
     private static readonly HashSet<string> _knownWeaponIds = new(_weaponOrder);
@@ -114,6 +149,9 @@
         ["zamorak_godsword"]   = 50,
         ["saradomin_godsword"] = 50,
         ["armadyl_godsword"]   = 50,
+        ["granite_maul"]       = 50,
+        ["abyssal_bludgeon"]   = 50,
+        ["elder_maul"]         = 50,
         ["scythe_of_vitur"]    = 100,
     };
 
@@ -165,9 +203,27 @@
         finally { _busy = false; }
     }
 
+    private string CurrentStyleLabel => State?.Player?.ChosenStyle switch
+    {
+        AttackStyle.Aggressive => "AGG",
+        AttackStyle.Defensive  => "DEF",
+        _                      => "ACC",
+    };
+
+    private Task CycleStyle()
+    {
+        var next = State?.Player?.ChosenStyle switch
+        {
+            AttackStyle.Accurate   => AttackStyle.Aggressive,
+            AttackStyle.Aggressive => AttackStyle.Defensive,
+            _                      => AttackStyle.Accurate,
+        };
+        return Run(() => GameSvc.DispatchAsync(new SetStyleCommand(GameSvc.PlayerId!, next)));
+    }
+
     private Task Attack()                   => Run(() => GameSvc.DispatchAsync(new AttackCommand(GameSvc.PlayerId!, AttackStyle.Accurate)));
     private Task WeaponShortcut(string id)  => Run(() => GameSvc.DispatchAsync(new WeaponShortcutCommand(GameSvc.PlayerId!, id)));
-    private Task ProtectMelee()             => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, "protect_melee")));
+    private Task Protect(string prayer)     => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, prayer)));
     private Task Piety()                    => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, "piety")));
     private Task Stats()                    => Run(() => GameSvc.DispatchAsync(new InspectCommand(GameSvc.PlayerId!, "me")));
     private Task InspectNpc()              => Run(() => GameSvc.DispatchAsync(new InspectCommand(GameSvc.PlayerId!, "npc")));

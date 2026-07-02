@@ -12,8 +12,10 @@
 @using Duels.Web.Components.Terminal
 @using Duels.Web.Components.QuickSlots
 @using Duels.Web.Components.Inventory
+@using Duels.Web.Components.Equipment
 @using Duels.Web.Components.Shop
 @using Duels.Web.Components.Ladder
+@using Duels.Web.Components.Log
 
 @if (!GameSvc.IsStarted)
 {
@@ -41,6 +43,12 @@ else
                             OnDuelStarted="HandleDuelStarted" />
         }
 
+        @if (_logOpen)
+        {
+            <CollectionLogModal State="@_state"
+                                 OnClose="@(() => { _logOpen = false; StateHasChanged(); })" />
+        }
+
         <div class="game-layout tab-@_tab">
             <div class="game-left">
                 <StatsPanel State="@_state" />
@@ -59,12 +67,14 @@ else
                 <div class="bottom-bar">
                     <QuickSlotBar State="@_state"
                                   OnOpenShop="@(() => { _shopOpen = true; StateHasChanged(); })"
-                                  OnOpenLadder="@(() => { _ladderOpen = true; StateHasChanged(); })" />
+                                  OnOpenLadder="@(() => { _ladderOpen = true; StateHasChanged(); })"
+                                  OnOpenLog="@(() => { _logOpen = true; StateHasChanged(); })" />
                     <TerminalInput OnSubmit="HandleCommand" Disabled="@_processing" />
                 </div>
             </div>
 
             <div class="game-right">
+                <EquipmentPanel State="@_state" />
                 <InventoryGrid State="@_state" />
             </div>
         </div>
@@ -76,6 +86,7 @@ else
     private string _tab = "combat";
     private bool _shopOpen   = false;
     private bool _ladderOpen = false;
+    private bool _logOpen    = false;
     private bool _processing = false;
     private bool _wasDueling = false;
 

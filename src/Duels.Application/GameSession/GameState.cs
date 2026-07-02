@@ -40,6 +40,17 @@ public sealed class GameState
     public int EndlessWave { get; private set; }
     public int BestEndlessWave { get; private set; }
 
+    // Damage-over-time (duel-scoped, cleared on Start/EndDuel)
+    public int BleedTicksLeft { get; private set; }
+    public int BleedPerTick { get; private set; }
+    public bool PlayerPoisoned { get; private set; }
+    public int PoisonTickCounter { get; private set; }
+
+    // Collection log / achievements — persist across prestige (the account's permanent record)
+    public List<string> CollectionLog { get; } = new();
+    public List<string> DefeatedNpcs { get; } = new();
+    public int DamageTakenThisDuel { get; private set; }
+
     public GameState(string playerId, Player player)
     {
         PlayerId = playerId;
@@ -53,6 +64,33 @@ public sealed class GameState
         CombatLog.Clear();
         Player.RestorePrayer();
         InitDuelCooldowns();
+        ClearDots();
+        DamageTakenThisDuel = 0;
+    }
+
+    public void RecordDamageTaken(int amount) { if (amount > 0) DamageTakenThisDuel += amount; }
+
+    public void RecordLoot(string itemId) { if (!CollectionLog.Contains(itemId)) CollectionLog.Add(itemId); }
+    public void RecordDefeat(string npcId) { if (!DefeatedNpcs.Contains(npcId)) DefeatedNpcs.Add(npcId); }
+
+    public void ApplyBleed(int ticks, int perTick) { BleedTicksLeft = ticks; BleedPerTick = perTick; }
+    public void TickBleed() { if (BleedTicksLeft > 0) BleedTicksLeft--; }
+    public void ApplyPoison() { PlayerPoisoned = true; PoisonTickCounter = 0; }
+    public void CurePoison() { PlayerPoisoned = false; PoisonTickCounter = 0; }
+    public bool TickPoison()
+    {
+        if (!PlayerPoisoned) return false;
+        PoisonTickCounter++;
+        if (PoisonTickCounter < 4) return false;
+        PoisonTickCounter = 0;
+        return true;
+    }
+    private void ClearDots()
+    {
+        BleedTicksLeft = 0;
+        BleedPerTick = 0;
+        PlayerPoisoned = false;
+        PoisonTickCounter = 0;
     }
 
     public void InitDuelCooldowns()
@@ -67,6 +105,9 @@ public sealed class GameState
 
     public void ResetPlayerCooldown(int ticks) => PlayerCooldown = ticks;
 
+    /// <summary>Eating/drinking mid-duel pushes back the next attack — trades DPS for sustain.</summary>
+    public void DelayPlayerAttack(int ticks) { if (ticks > 0) PlayerCooldown += ticks; }
+
     public void ResetNpcCooldown(int ticks) => NpcCooldown = ticks;
 
     public void DecrementCooldowns()
@@ -78,6 +119,7 @@ public sealed class GameState
     public void EndDuel()
     {
         ActiveNpc = null;
+        ClearDots();
     }
 
     public void UnlockOpponent(string id)
@@ -137,7 +179,8 @@ public sealed class GameState
         EndlessWave = 0;
     }
 
-    public void RestoreFromSave(int winStreak, int bestEndlessWave, IEnumerable<string> unlockedOpponents)
+    public void RestoreFromSave(int winStreak, int bestEndlessWave, IEnumerable<string> unlockedOpponents,
+        IEnumerable<string>? collectionLog = null, IEnumerable<string>? defeatedNpcs = null)
     {
         WinStreak = winStreak;
         BestEndlessWave = bestEndlessWave;
@@ -145,6 +188,16 @@ public sealed class GameState
         foreach (var op in unlockedOpponents)
             if (!UnlockedOpponents.Contains(op))
                 UnlockedOpponents.Add(op);
+
+        CollectionLog.Clear();
+        foreach (var id in collectionLog ?? [])
+            if (!CollectionLog.Contains(id))
+                CollectionLog.Add(id);
+
+        DefeatedNpcs.Clear();
+        foreach (var id in defeatedNpcs ?? [])
+            if (!DefeatedNpcs.Contains(id))
+                DefeatedNpcs.Add(id);
     }
 }
 
@@ -166,4 +219,5 @@ public enum LogEntryKind
     BossSpecial,
     HitsplatPlayer,
     HitsplatNpc,
+    LevelUp,
 }

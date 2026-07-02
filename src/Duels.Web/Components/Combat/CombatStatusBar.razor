@@ -1,10 +1,21 @@
 @using Duels.Application.GameSession
+@using Duels.Domain.ValueObjects
 
 @if (State?.InDuel == true && State.Player is { } p && State.ActiveNpc is { } npc)
 {
     <div class="combat-status-bar">
         <div class="csb-player">
-            <div class="csb-name">@p.Name</div>
+            <div class="csb-name">
+                @p.Name
+                @if (State.BleedTicksLeft > 0)
+                {
+                    <span class="status-chip status-chip-bleed">BLEED</span>
+                }
+                @if (State.PlayerPoisoned)
+                {
+                    <span class="status-chip status-chip-poison">POISON</span>
+                }
+            </div>
             <div class="hitsplat-zone" id="zone-player"></div>
             <div class="csb-bar-row">
                 <div class="hp-bar-wrap">
@@ -23,7 +34,12 @@
         <div class="csb-vs">VS</div>
 
         <div class="csb-npc">
-            <div class="csb-name csb-npc-name">@npc.Template.Name</div>
+            <div class="csb-name csb-npc-name">
+                @{ var styleKey = npc.CurrentAttackType; }
+                <span @key="styleKey" class="style-badge style-badge-@StyleClass(styleKey)"
+                      title="Incoming: @StyleName(styleKey)">@StyleIcon(styleKey)</span>
+                @npc.Template.Name
+            </div>
             <div class="hitsplat-zone hitsplat-zone-right" id="zone-npc"></div>
             <div class="csb-bar-row">
                 <span class="csb-val">@npc.CurrentHp / @npc.MaxHp</span>
@@ -45,4 +61,25 @@
     private int NpcHpPct =>
         State?.ActiveNpc is { } n && n.MaxHp > 0
             ? (int)(n.CurrentHp * 100.0 / n.MaxHp) : 0;
+
+    private static string StyleClass(AttackType t) => t switch
+    {
+        AttackType.Ranged => "ranged",
+        AttackType.Magic  => "magic",
+        _                 => "melee",
+    };
+
+    private static string StyleIcon(AttackType t) => t switch
+    {
+        AttackType.Ranged => "➶",
+        AttackType.Magic  => "✦",
+        _                 => "⚔",
+    };
+
+    private static string StyleName(AttackType t) => t switch
+    {
+        AttackType.Ranged => "Ranged — pray ⛉R",
+        AttackType.Magic  => "Magic — pray ⛉MG",
+        _                 => "Melee — pray ⛉M",
+    };
 }

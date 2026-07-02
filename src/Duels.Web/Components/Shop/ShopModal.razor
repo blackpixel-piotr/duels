@@ -40,11 +40,16 @@
                 }
                 else
                 {
-                    <button class="shop-cell" @onclick="() => OnCellClick(itemLocal)"
-                            title="@item.Name — @item.Price.ToString("N0")g">
+                    var reqUnmet = item.AtkReq > 0 && (State?.Player?.AttackLevel ?? 0) < item.AtkReq;
+                    <button class="shop-cell @(reqUnmet ? "shop-cell-locked" : "")" @onclick="() => OnCellClick(itemLocal)"
+                            title="@item.Name — @item.Price.ToString("N0")g@(item.AtkReq > 0 ? $" (needs {item.AtkReq} Atk)" : "")">
                         <span class="shop-cell-icon">@item.Icon</span>
                         <span class="shop-cell-name">@item.Name</span>
                         <span class="shop-cell-price">@item.Price.ToString("N0")g</span>
+                        @if (item.AtkReq > 0)
+                        {
+                            <span class="shop-cell-req @(reqUnmet ? "shop-req-unmet" : "")">@item.AtkReq Atk</span>
+                        }
                     </button>
                 }
             }
@@ -63,21 +68,26 @@
     private string? _confirmItemId = null;
     private static readonly int[] _quantities = [1, 5, 10];
 
-    private sealed record ShopItem(string Id, string Name, int Price, string Icon, bool NeedsConfirm = false);
+    private sealed record ShopItem(string Id, string Name, int Price, string Icon, bool NeedsConfirm = false, int AtkReq = 0);
 
     private static readonly ShopItem[] _weapons =
     [
-        new("rune_scimitar",      "Rune Scim",    200,    "⚔"),
-        new("dragon_scimitar",    "D Scim",       600,    "⚔"),
-        new("dragon_dagger",      "D Dagger",     800,    "⚔"),
-        new("abyssal_whip",       "Whip",         2_500,  "⚔"),
-        new("armadyl_sword",      "A Sword",      5_000,  "⚔"),
-        new("dragon_claws",       "D Claws",      15_000, "⚔"),
-        new("bandos_godsword",    "BGS",          30_000, "⚔"),
-        new("zamorak_godsword",   "ZGS",          40_000, "⚔"),
-        new("saradomin_godsword", "SGS",          50_000, "⚔"),
-        new("armadyl_godsword",   "AGS",          65_000, "⚔", NeedsConfirm: true),
-        new("scythe_of_vitur",    "Scythe",      150_000, "⚔", NeedsConfirm: true),
+        new("rune_scimitar",      "Rune Scim",    200,    "⚔", AtkReq: 60),
+        new("dragon_scimitar",    "D Scim",       600,    "⚔", AtkReq: 65),
+        new("dragon_dagger",      "D Dagger",     800,    "⚔", AtkReq: 65),
+        new("granite_maul",       "G Maul",       1_800,  "🔨", AtkReq: 65),
+        new("abyssal_whip",       "Whip",         2_500,  "⚔", AtkReq: 70),
+        new("zamorakian_hasta",   "Z Hasta",      3_500,  "🗡", AtkReq: 70),
+        new("armadyl_sword",      "A Sword",      5_000,  "⚔", AtkReq: 72),
+        new("dragon_claws",       "D Claws",      15_000, "⚔", AtkReq: 75),
+        new("abyssal_bludgeon",   "Bludgeon",     28_000, "🔨", AtkReq: 78),
+        new("bandos_godsword",    "BGS",          30_000, "⚔", AtkReq: 80),
+        new("zamorak_godsword",   "ZGS",          40_000, "⚔", AtkReq: 80),
+        new("ghrazi_rapier",      "Rapier",       45_000, "🗡", AtkReq: 80),
+        new("saradomin_godsword", "SGS",          50_000, "⚔", AtkReq: 80),
+        new("armadyl_godsword",   "AGS",          65_000, "⚔", NeedsConfirm: true, AtkReq: 82),
+        new("elder_maul",         "E Maul",       90_000, "🔨", NeedsConfirm: true, AtkReq: 85),
+        new("scythe_of_vitur",    "Scythe",      150_000, "⚔", NeedsConfirm: true, AtkReq: 90),
     ];
 
     private static readonly ShopItem[] _food =
@@ -90,6 +100,7 @@
     private static readonly ShopItem[] _potions =
     [
         new("super_combat_potion", "Super Cbt", 1_000, "⚗"),
+        new("antidote",            "Antidote",    300, "🧪"),
     ];
 
     private ShopItem[] CurrentItems() => _tab switch

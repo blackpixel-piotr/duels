@@ -89,13 +89,13 @@ public sealed class CombatCalculatorTests
     }
 
     [Fact]
-    public void Player_BaseStats_AreFixed()
+    public void Player_BaseStats_StartAtLevel60()
     {
         var player = new Entities.Player("id", "Test");
-        Assert.Equal(99, player.AttackLevel);
-        Assert.Equal(99, player.StrengthLevel);
-        Assert.Equal(99, player.DefenceLevel);
-        Assert.Equal(99, player.MaxHp);
+        Assert.Equal(60, player.AttackLevel);
+        Assert.Equal(60, player.StrengthLevel);
+        Assert.Equal(60, player.DefenceLevel);
+        Assert.Equal(60, player.MaxHp);
     }
 
     [Fact]
