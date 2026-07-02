@@ -33,7 +33,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* Prevent double-tap zoom on tappable elements (iOS Safari ignores user-scalable=no) */
-button, input, .quickslot, .inv-slot, .mobile-tab { touch-action: manipulation; }
+button, input, .quickslot, .inv-slot, .belt-slot, .hub-card { touch-action: manipulation; }
 
 html, body {
     height: 100%;
@@ -421,9 +421,14 @@ html, body {
     text-align: center;
     padding: 4px 8px;
     text-shadow: 0 0 6px rgba(255, 107, 0, 0.5);
+    animation: crt-flicker 0.12s steps(2) 3;
+}
+@keyframes crt-flicker {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.35; }
 }
 .stage-hp-row { display: flex; align-items: center; gap: 6px; }
-.stage-hp-val { font-size: 10px; color: var(--text-dim); white-space: nowrap; min-width: 46px; text-align: right; }
+.stage-hp-val { color: var(--text-dim); font-size: 10px; white-space: nowrap; min-width: 46px; text-align: right; text-shadow: 0 0 4px rgba(122, 106, 82, 0.4); }
 
 .stage-player-row {
     position: relative;
@@ -442,7 +447,6 @@ html, body {
     overflow: hidden;
 }
 .mini-bar-wrap .hp-bar, .mini-bar-wrap .spec-bar { height: 100%; }
-.csb-npc .csb-val { text-align: right; }
 
 /* ─── Hub menu (out-of-duel home screen) ─── */
 .hub-menu {
@@ -538,7 +542,7 @@ html, body {
 .strip-levels { color: var(--text-dim); font-size: 10px; letter-spacing: 0.5px; }
 .strip-gold { font-weight: bold; }
 .strip-hp .hp-bar-wrap { flex: 1; }
-.strip-val { font-size: 10px; color: var(--text-dim); white-space: nowrap; min-width: 46px; text-align: right; }
+.strip-val { font-size: 10px; color: var(--text-dim); white-space: nowrap; min-width: 46px; text-align: right; text-shadow: 0 0 4px rgba(122, 106, 82, 0.4); }
 .strip-bars { gap: 4px; }
 .strip-bars .spec-bar-wrap { flex: 1; height: 5px; }
 .strip-chips { flex-wrap: wrap; gap: 4px; }
@@ -567,8 +571,8 @@ html, body {
     text-align: center;
     animation: toast-in 0.2s ease-out;
 }
-.toast-levelup { border-color: var(--yellow); color: var(--yellow); }
-.toast-loot    { border-color: var(--amber); color: var(--yellow); }
+.toast-levelup { border-color: var(--yellow); color: var(--yellow); text-shadow: 0 0 6px rgba(255, 215, 0, 0.55); }
+.toast-loot    { border-color: var(--amber); color: var(--yellow); text-shadow: 0 0 6px rgba(255, 215, 0, 0.4); }
 @keyframes toast-in {
     from { transform: translateY(-10px); opacity: 0; }
     to   { transform: translateY(0);     opacity: 1; }
@@ -1005,6 +1009,41 @@ html, body {
     padding: 2px 6px;
 }
 .log-drop-obtained { color: var(--yellow); border-color: var(--yellow); }
+
+/* ─── CRT scanline overlay ─── */
+.crt-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 999;
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.14) 0px,
+        rgba(0, 0, 0, 0.14) 1px,
+        transparent 1px,
+        transparent 3px
+    );
+    opacity: 0.5;
+    mix-blend-mode: multiply;
+}
+
+/* ─── Wide-screen vignette — the shell reads as a "handheld" on desktop ─── */
+@media (min-width: 640px) {
+    body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.6) 100%);
+    }
+    .game-shell, .new-game-screen {
+        position: relative;
+        z-index: 2;
+        border-left: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+    }
+}
 
 /* ─── Blazor error UI ─── */
 #blazor-error-ui {
