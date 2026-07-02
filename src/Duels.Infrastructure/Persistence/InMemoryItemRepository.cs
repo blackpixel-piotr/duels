@@ -56,13 +56,18 @@ public sealed class InMemoryItemRepository : IItemRepository
         ["anglerfish"]         = 700,
         ["dragon_dagger"]      = 800,
         ["super_combat_potion"]= 1_000,
+        ["granite_maul"]       = 1_800,
         ["abyssal_whip"]       = 2_500,
+        ["zamorakian_hasta"]   = 3_500,
         ["armadyl_sword"]      = 5_000,
         ["dragon_claws"]       = 15_000,
+        ["abyssal_bludgeon"]   = 28_000,
         ["bandos_godsword"]    = 30_000,
         ["zamorak_godsword"]   = 40_000,
+        ["ghrazi_rapier"]      = 45_000,
         ["saradomin_godsword"] = 50_000,
         ["armadyl_godsword"]   = 65_000,
+        ["elder_maul"]         = 90_000,
         ["scythe_of_vitur"]    = 150_000,
     };
 
@@ -131,6 +136,36 @@ public sealed class InMemoryItemRepository : IItemRepository
             attackSpeed: 4, examineText: "A whip twisted by dark energy. Untradeable.",
             special: new SpecialAttack("!spec", 25, 1.0, "Dark lash — boosted strength. Uses 25% energy.",
                 Hits: 1, AccuracyMultiplier: 1.10), attackLevelRequired: 75),
+
+        // ─── Crush line ───
+        new("granite_maul", "Granite Maul", AttackType.Crush,
+            new ItemModifiers(CrushAttack: 81, StrengthBonus: 79),
+            attackSpeed: 5, examineText: "Heavy granite on a stick. Smashes light armor.",
+            special: new SpecialAttack("!spec", 50, 0.9, "Two quick smashes at 90% damage. Uses 50% energy.",
+                Hits: 2, AccuracyMultiplier: 1.0), attackLevelRequired: 65),
+
+        new("abyssal_bludgeon", "Abyssal Bludgeon", AttackType.Crush,
+            new ItemModifiers(CrushAttack: 102, StrengthBonus: 85),
+            attackSpeed: 4, examineText: "A spiked club from the abyss.",
+            special: new SpecialAttack("!spec", 50, 1.2, "A crushing blow at 120% damage. Uses 50% energy.",
+                Hits: 1, AccuracyMultiplier: 1.0), attackLevelRequired: 78),
+
+        new("elder_maul", "Elder Maul", AttackType.Crush,
+            new ItemModifiers(CrushAttack: 135, StrengthBonus: 147),
+            attackSpeed: 6, examineText: "Colossal. Slow. Ruinous.",
+            special: new SpecialAttack("!spec", 50, 1.0, "An accurate overhead slam. Uses 50% energy.",
+                Hits: 1, AccuracyMultiplier: 1.25), attackLevelRequired: 85),
+
+        // ─── Stab line ───
+        new("zamorakian_hasta", "Zamorakian Hasta", AttackType.Stab,
+            new ItemModifiers(StabAttack: 85, SlashAttack: 30, StrengthBonus: 75),
+            attackSpeed: 4, examineText: "A blessed spear. Pierces heavy defences.",
+            attackLevelRequired: 70),
+
+        new("ghrazi_rapier", "Ghrazi Rapier", AttackType.Stab,
+            new ItemModifiers(StabAttack: 94, SlashAttack: 35, StrengthBonus: 89),
+            attackSpeed: 4, examineText: "A vampyric blade of surgical precision.",
+            attackLevelRequired: 80),
     ];
 
     private static IEnumerable<GearPiece> BuildGear(Dictionary<string, Weapon> weapons)

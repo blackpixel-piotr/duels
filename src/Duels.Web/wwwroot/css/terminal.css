@@ -476,6 +476,21 @@ html, body {
 .spec-bar    { height: 100%; background: linear-gradient(90deg, #8a5a00, var(--amber)); transition: width 0.2s; }
 .prayer-bar  { height: 100%; background: linear-gradient(90deg, #1565c0, #6ec6ff); transition: width 0.2s; }
 
+/* ─── NPC attack-style badge (combat status bar) ─── */
+.style-badge {
+    display: inline-block;
+    font-size: 12px;
+    margin-right: 4px;
+    animation: style-badge-pulse 1s ease-out;
+}
+.style-badge-melee  { color: #ff5555; }
+.style-badge-ranged { color: #7ddc7d; }
+.style-badge-magic  { color: #6ec6ff; }
+@keyframes style-badge-pulse {
+    0%   { transform: scale(1.8); text-shadow: 0 0 10px currentColor; }
+    100% { transform: scale(1);   text-shadow: none; }
+}
+
 /* ─── XP progress bars (stats panel) ─── */
 .xp-bar-wrap {
     flex: 1;
@@ -725,6 +740,9 @@ html, body {
 .shop-cell-icon  { font-size: 20px; line-height: 1; margin-bottom: 3px; }
 .shop-cell-name  { font-size: 9px; text-align: center; color: var(--text-dim); line-height: 1.2; }
 .shop-cell-price { font-size: 9px; color: var(--yellow); margin-top: 2px; }
+.shop-cell-req   { font-size: 8px; color: var(--text-dim); margin-top: 1px; }
+.shop-req-unmet  { color: var(--red); }
+.shop-cell-locked { opacity: 0.45; filter: grayscale(0.6); }
 .shop-confirm-cell {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     aspect-ratio: 1; background: #1a1208;

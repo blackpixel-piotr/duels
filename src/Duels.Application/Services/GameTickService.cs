@@ -297,7 +297,7 @@ public sealed class GameTickService : IDisposable
                 }
 
                 // Protection prayer uses tick-start snapshot (enables flicking)
-                double reduction = GetPrayerReduction(state, npc.Template.AttackType);
+                double reduction = GetPrayerReduction(state, npc.CurrentAttackType);
                 if (reduction > 0)
                     damage = (int)(damage * (1.0 - reduction));
 
@@ -320,6 +320,10 @@ public sealed class GameTickService : IDisposable
                 await _events.PublishAsync(new AttackMissed(npc.Template.Id, player.Id));
             }
         }
+
+        // Style rotation — telegraph the NEXT style so the player can pre-switch prayers
+        if (npc.IsAlive && npc.AdvanceStyle())
+            state.AppendLog(StyleWarning(npc), LogEntryKind.BossSpecial);
 
         // Warlord prayer flick every 3 rounds
         if (npc.Template.Id == "warlord")
@@ -366,7 +370,7 @@ public sealed class GameTickService : IDisposable
         int maxHit = _combat.MaxHit(npcAtk);
         int rawDamage = (int)(maxHit * spec.DamageMultiplier);
 
-        double reduction = GetPrayerReduction(state, npc.Template.AttackType);
+        double reduction = GetPrayerReduction(state, npc.CurrentAttackType);
         int damage = reduction > 0 ? (int)(rawDamage * (1.0 - reduction)) : rawDamage;
 
         player.TakeDamage(damage);
@@ -383,6 +387,13 @@ public sealed class GameTickService : IDisposable
             state.AppendLog($"VENGEANCE! {vengDmg} damage reflected!", LogEntryKind.Vengeance);
         }
     }
+
+    private static string StyleWarning(NpcInstance npc) => npc.CurrentAttackType switch
+    {
+        AttackType.Ranged => $"⚠ {npc.Template.Name} nocks an arrow — RANGED attacks incoming!",
+        AttackType.Magic  => $"⚠ {npc.Template.Name} begins channeling — MAGIC attacks incoming!",
+        _                 => $"⚠ {npc.Template.Name} closes in — MELEE attacks incoming!",
+    };
 
     // Offensive xp: 4×damage to the chosen style's skill, HP xp = damage×4/3
     private static void AwardOffensiveXp(GameState state, Player player, int damage)
@@ -419,8 +430,8 @@ public sealed class GameTickService : IDisposable
         return state.TickStartProtection switch
         {
             ProtectionPrayer.Melee => npcAttackType is AttackType.Stab or AttackType.Slash or AttackType.Crush ? 0.75 : 0.0,
-            ProtectionPrayer.Range => 0.0,
-            ProtectionPrayer.Magic => 0.0,
+            ProtectionPrayer.Range => npcAttackType == AttackType.Ranged ? 0.75 : 0.0,
+            ProtectionPrayer.Magic => npcAttackType == AttackType.Magic ? 0.75 : 0.0,
             _ => 0.0,
         };
     }
@@ -565,26 +576,35 @@ public sealed class GameTickService : IDisposable
     private static CombatantSnapshot BuildNpcSnapshot(NpcInstance npc)
     {
         var s = npc.Template.Stats;
-        return new CombatantSnapshot(s.Attack, s.Strength, s.Defence, npc.Template.Modifiers, npc.Template.AttackType, AttackStyle.Accurate);
+        return new CombatantSnapshot(s.Attack, s.Strength, s.Defence, npc.Template.Modifiers, npc.CurrentAttackType, AttackStyle.Accurate);
     }
 
     private static CombatantSnapshot BuildNpcAttackSnapshot(NpcInstance npc)
     {
         var s = npc.Template.Stats;
-        return new CombatantSnapshot(s.Attack, s.Strength, s.Defence, npc.Template.Modifiers, npc.Template.AttackType, AttackStyle.Aggressive);
+        return new CombatantSnapshot(s.Attack, s.Strength, s.Defence, npc.Template.Modifiers, npc.CurrentAttackType, AttackStyle.Aggressive);
     }
 
-    private static NpcInstance BuildEndlessNpc(int wave)
+    private NpcInstance BuildEndlessNpc(int wave)
     {
         int hp  = 50 + wave * 6;
         int mod = 20 + wave * 4;
+        var style = (AttackType)_random.Next(0, 5);
+        var mods = style switch
+        {
+            AttackType.Ranged => new ItemModifiers(RangedAttack: mod, StrengthBonus: mod),
+            AttackType.Magic  => new ItemModifiers(MagicAttack: mod, StrengthBonus: mod),
+            AttackType.Stab   => new ItemModifiers(StabAttack: mod, StrengthBonus: mod),
+            AttackType.Crush  => new ItemModifiers(CrushAttack: mod, StrengthBonus: mod),
+            _                 => new ItemModifiers(SlashAttack: mod, StrengthBonus: mod),
+        };
         var template = new NpcTemplate(
             $"endless_w{wave}",
             $"Wave {wave} Fighter",
             $"A relentless wave {wave} challenger.",
             new CombatStats(99, 99, 99, hp),
-            new ItemModifiers(SlashAttack: mod, StrengthBonus: mod),
-            AttackType.Slash,
+            mods,
+            style,
             [],
             goldReward: wave * 50,
             attackSpeedTicks: 4);
