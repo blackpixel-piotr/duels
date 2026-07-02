@@ -907,6 +907,50 @@ html, body {
     .ladder-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ─── Collection log modal ─── */
+.log-panel {
+    width: min(560px, 96vw);
+}
+.log-section {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+}
+.log-drops {
+    overflow-y: auto;
+    flex: 1;
+}
+.log-achievements {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px;
+}
+.log-achievement {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: var(--text-dim);
+    padding: 3px 4px;
+    border: 1px solid var(--border);
+}
+.log-achievement-done { color: var(--green); border-color: var(--green); }
+.log-ach-icon { flex-shrink: 0; }
+.log-npc-row {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+}
+.log-npc-row:last-child { border-bottom: none; }
+.log-npc-name { font-size: 11px; color: var(--amber); margin-bottom: 4px; }
+.log-drop-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.log-drop-chip {
+    font-size: 9px;
+    color: var(--text-dim);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 2px 6px;
+}
+.log-drop-obtained { color: var(--yellow); border-color: var(--yellow); }
+
 /* ─── Blazor error UI ─── */
 #blazor-error-ui {
     background: #1a0000;

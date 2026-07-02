@@ -122,7 +122,8 @@ public sealed class GameService
                 MigrateXp(data.DefenceXp), MigrateXp(data.HitpointsXp), style);
 
             var state = new GameState(data.PlayerId, player);
-            state.RestoreFromSave(data.WinStreak, data.BestEndlessWave, data.UnlockedOpponents);
+            state.RestoreFromSave(data.WinStreak, data.BestEndlessWave, data.UnlockedOpponents,
+                data.CollectionLog, data.DefeatedNpcs);
 
             await _playerRepo.SaveAsync(player);
             await _stateRepo.SaveAsync(state);
@@ -163,7 +164,9 @@ public sealed class GameService
                 StrengthXp: p.StrengthXp,
                 DefenceXp: p.DefenceXp,
                 HitpointsXp: p.HitpointsXp,
-                ChosenStyle: p.ChosenStyle.ToString()
+                ChosenStyle: p.ChosenStyle.ToString(),
+                CollectionLog: state.CollectionLog.ToList(),
+                DefeatedNpcs: state.DefeatedNpcs.ToList()
             );
 
             var json = JsonSerializer.Serialize(data);

@@ -17,5 +17,8 @@ public sealed record SaveData(
     int StrengthXp = -1,
     int DefenceXp = -1,
     int HitpointsXp = -1,
-    string ChosenStyle = "Accurate"
+    string ChosenStyle = "Accurate",
+    // v3: permanent account record — survives prestige, absent on older saves
+    List<string>? CollectionLog = null,
+    List<string>? DefeatedNpcs = null
 );

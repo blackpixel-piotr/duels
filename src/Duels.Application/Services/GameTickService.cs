@@ -158,6 +158,7 @@ public sealed class GameTickService : IDisposable
         if (state.BleedTicksLeft > 0 && player.IsAlive)
         {
             player.TakeDamage(state.BleedPerTick);
+            state.RecordDamageTaken(state.BleedPerTick);
             state.AppendLog($"{state.BleedPerTick}:poison", LogEntryKind.HitsplatNpc);
             state.AppendLog($"You bleed for {state.BleedPerTick} damage. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
             state.TickBleed();
@@ -166,6 +167,7 @@ public sealed class GameTickService : IDisposable
         if (player.IsAlive && state.TickPoison())
         {
             player.TakeDamage(3);
+            state.RecordDamageTaken(3);
             state.AppendLog("3:poison", LogEntryKind.HitsplatNpc);
             state.AppendLog($"The poison courses through you. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
         }
@@ -345,6 +347,7 @@ public sealed class GameTickService : IDisposable
                     damage = (int)(damage * (1.0 - reduction));
 
                 player.TakeDamage(damage);
+                state.RecordDamageTaken(damage);
                 AwardDefensiveXp(state, player, damage);
                 state.AppendLog($"{damage}:normal", LogEntryKind.HitsplatNpc);
                 await _events.PublishAsync(new AttackLanded(npc.Template.Id, player.Id, damage));
@@ -433,6 +436,7 @@ public sealed class GameTickService : IDisposable
         int damage = reduction > 0 ? (int)(rawDamage * (1.0 - reduction)) : rawDamage;
 
         player.TakeDamage(damage);
+        state.RecordDamageTaken(damage);
         AwardDefensiveXp(state, player, damage);
         state.AppendLog($"★ {npc.Template.Name} unleashes their special attack for {damage} damage! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.BossSpecial);
         state.AppendLog($"{damage}:boss", LogEntryKind.HitsplatNpc);
@@ -509,6 +513,11 @@ public sealed class GameTickService : IDisposable
         state.AppendLog($"You have defeated {npc.Template.Name}!", LogEntryKind.System);
         state.AppendLog("═══ DUEL WON ═══", LogEntryKind.System);
 
+        if (state.DamageTakenThisDuel == 0 && !npc.Template.Id.StartsWith("endless_"))
+            state.AppendLog("⭐ FLAWLESS VICTORY — you took zero damage!", LogEntryKind.Loot);
+
+        state.RecordDefeat(npc.Template.Id);
+
         // Bounty gold pays on every win (income floor); a wager's profit stacks on top.
         double prestigeBonus = player.PrestigeLevel >= 1 ? 1.05 : 1.0;
         double doubloonBonus = player.HasItem("lucky_doubloon") ? 1.05 : 1.0;
@@ -543,6 +552,15 @@ public sealed class GameTickService : IDisposable
 
         if (state.InEndlessMode)
         {
+            int clearedWave = state.EndlessWave;
+            if (clearedWave > 0 && clearedWave % 5 == 0)
+            {
+                int bonus = clearedWave * 20;
+                player.AddGold(bonus);
+                player.AddToInventory("shark");
+                state.AppendLog($"Wave {clearedWave} milestone! Bonus: {bonus:N0}g + a Shark.", LogEntryKind.Loot);
+            }
+
             int wave = state.NextEndlessWave();
             state.AppendLog($"Wave {wave - 1} cleared! Preparing wave {wave}...", LogEntryKind.System);
             var waveNpc = BuildEndlessNpc(wave);
@@ -586,6 +604,7 @@ public sealed class GameTickService : IDisposable
             }
 
             var itemName = _items.GetItemName(entry.ItemId) ?? entry.ItemId;
+            state.RecordLoot(entry.ItemId);
 
             for (int i = 0; i < qty; i++)
             {
@@ -697,6 +716,7 @@ public sealed class GameTickService : IDisposable
     {
         int hp  = 50 + wave * 6;
         int mod = 20 + wave * 4;
+        int lvl = Math.Min(99, 60 + wave);
         var style = (AttackType)_random.Next(0, 5);
         var mods = style switch
         {
@@ -710,7 +730,7 @@ public sealed class GameTickService : IDisposable
             $"endless_w{wave}",
             $"Wave {wave} Fighter",
             $"A relentless wave {wave} challenger.",
-            new CombatStats(99, 99, 99, hp),
+            new CombatStats(lvl, lvl, lvl, hp),
             mods,
             style,
             [],

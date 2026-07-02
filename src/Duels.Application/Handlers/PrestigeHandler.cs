@@ -42,8 +42,8 @@ public sealed class PrestigeHandler : ICommandHandler<PrestigeCommand>
         player.AddToInventory(phatId);
         state.Reset();
 
-        state.AppendLog($"{phatName} You have been reborn. The grind begins again.", LogEntryKind.System);
-        state.AppendLog($"Prestige level: {player.PrestigeLevel}. All progress reset.", LogEntryKind.System);
+        state.AppendLog($"{phatName} You have been reborn. Gold and gear reset — your levels and collection log remain.", LogEntryKind.System);
+        state.AppendLog($"Prestige level: {player.PrestigeLevel}.", LogEntryKind.System);
         if (player.PrestigeLevel >= 2)
             state.AppendLog("Perk: Your max HP is now 109.", LogEntryKind.System);
         if (player.PrestigeLevel >= 3)

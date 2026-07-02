@@ -46,6 +46,11 @@ public sealed class GameState
     public bool PlayerPoisoned { get; private set; }
     public int PoisonTickCounter { get; private set; }
 
+    // Collection log / achievements — persist across prestige (the account's permanent record)
+    public List<string> CollectionLog { get; } = new();
+    public List<string> DefeatedNpcs { get; } = new();
+    public int DamageTakenThisDuel { get; private set; }
+
     public GameState(string playerId, Player player)
     {
         PlayerId = playerId;
@@ -60,7 +65,13 @@ public sealed class GameState
         Player.RestorePrayer();
         InitDuelCooldowns();
         ClearDots();
+        DamageTakenThisDuel = 0;
     }
+
+    public void RecordDamageTaken(int amount) { if (amount > 0) DamageTakenThisDuel += amount; }
+
+    public void RecordLoot(string itemId) { if (!CollectionLog.Contains(itemId)) CollectionLog.Add(itemId); }
+    public void RecordDefeat(string npcId) { if (!DefeatedNpcs.Contains(npcId)) DefeatedNpcs.Add(npcId); }
 
     public void ApplyBleed(int ticks, int perTick) { BleedTicksLeft = ticks; BleedPerTick = perTick; }
     public void TickBleed() { if (BleedTicksLeft > 0) BleedTicksLeft--; }
@@ -168,7 +179,8 @@ public sealed class GameState
         EndlessWave = 0;
     }
 
-    public void RestoreFromSave(int winStreak, int bestEndlessWave, IEnumerable<string> unlockedOpponents)
+    public void RestoreFromSave(int winStreak, int bestEndlessWave, IEnumerable<string> unlockedOpponents,
+        IEnumerable<string>? collectionLog = null, IEnumerable<string>? defeatedNpcs = null)
     {
         WinStreak = winStreak;
         BestEndlessWave = bestEndlessWave;
@@ -176,6 +188,16 @@ public sealed class GameState
         foreach (var op in unlockedOpponents)
             if (!UnlockedOpponents.Contains(op))
                 UnlockedOpponents.Add(op);
+
+        CollectionLog.Clear();
+        foreach (var id in collectionLog ?? [])
+            if (!CollectionLog.Contains(id))
+                CollectionLog.Add(id);
+
+        DefeatedNpcs.Clear();
+        foreach (var id in defeatedNpcs ?? [])
+            if (!DefeatedNpcs.Contains(id))
+                DefeatedNpcs.Add(id);
     }
 }
 

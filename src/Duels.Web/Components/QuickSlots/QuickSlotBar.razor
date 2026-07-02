@@ -95,6 +95,10 @@
             <span class="qs-icon">⚔</span>
             <span class="qs-label">ARENA</span>
         </button>
+        <button class="quickslot" title="Collection Log" @onclick="() => OnOpenLog.InvokeAsync()">
+            <span class="qs-icon">📖</span>
+            <span class="qs-label">LOG</span>
+        </button>
     }
 </div>
 
@@ -102,6 +106,7 @@
     [Parameter] public GameState? State { get; set; }
     [Parameter] public EventCallback OnOpenShop { get; set; }
     [Parameter] public EventCallback OnOpenLadder { get; set; }
+    [Parameter] public EventCallback OnOpenLog { get; set; }
 
     private bool _busy;
 
