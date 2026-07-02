@@ -1,0 +1,19 @@
+@using Duels.Application.GameSession
+@using Duels.Web.Components.Stats
+
+<div class="shop-overlay" @onclick="OnClose">
+    <div class="shop-panel char-panel" @onclick:stopPropagation>
+        <div class="shop-header">
+            <span class="shop-title">Character</span>
+            <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
+        </div>
+        <div class="char-body">
+            <StatsPanel State="@State" />
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+}

@@ -578,7 +578,7 @@ public sealed class GameTickService : IDisposable
             state.UnlockOpponent(nextId);
             var nextTemplate = _npcs.GetTemplate(nextId);
             var nextName = nextTemplate?.Name ?? nextId;
-            state.AppendLog($"You have proven yourself — {nextName} now challenges you! (!duel {nextId})", LogEntryKind.System);
+            state.AppendLog($"You have proven yourself — {nextName} now challenges you!", LogEntryKind.System);
         }
 
         player.RestoreSpecialEnergy();

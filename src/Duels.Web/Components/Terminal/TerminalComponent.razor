@@ -1,7 +1,6 @@
 @using Duels.Application.GameSession
 @inject IJSRuntime JS
 
-<div class="tick-bar @(PlayerCooldown > 0 ? "tick-bar--locked" : "")" id="tick-bar"></div>
 <div class="terminal-log" id="terminal-log">
     @foreach (var entry in LogEntries.Where(FilterForLog))
     {
@@ -11,7 +10,6 @@
 
 @code {
     [Parameter] public IReadOnlyList<CombatLogEntry> LogEntries { get; set; } = [];
-    [Parameter] public int PlayerCooldown { get; set; }
 
     private int _lastCount;
 

@@ -18,6 +18,9 @@
     --bevel-hi:    #706253;
     --bevel-lo:    #0d0a07;
     --border-w:    3px;
+    --shell-max:   520px;
+    --hud-btn:     48px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* ─── Reset ─── */
@@ -102,53 +105,35 @@ html, body {
 .hint-text { color: var(--text-dim); font-size: 11px; line-height: 1.8; }
 .hint-text code { color: var(--amber); }
 
-/* ─── Game wrapper (full viewport, flex column) ─── */
-.game-wrapper {
+/* ─── Game shell — single phone-style column on every screen ─── */
+.game-shell {
     display: flex;
     flex-direction: column;
     height: 100dvh;
+    width: 100%;
+    max-width: var(--shell-max);
+    margin: 0 auto;
     overflow: hidden;
     background: var(--bg);
-}
-
-/* ─── Mobile tab bar (hidden on desktop) ─── */
-.mobile-tabs { display: none; }
-
-/* ─── Game layout — desktop 3-column grid ─── */
-.game-layout {
-    display: grid;
-    grid-template-columns: 160px 1fr 180px;
     gap: var(--panel-gap);
-    padding: var(--panel-gap);
-    flex: 1;
-    overflow: hidden;
-    min-height: 0;
+    padding: var(--panel-gap) var(--panel-gap) 0;
 }
 
-.game-left, .game-right {
-    display: flex;
-    flex-direction: column;
-    gap: var(--panel-gap);
-    overflow-y: auto;
-}
-.game-center {
-    display: flex;
-    flex-direction: column;
-    gap: var(--panel-gap);
-    min-height: 0;
-    overflow: hidden;
-}
-
-/* ─── Tick metronome bar ─── */
-.tick-bar {
-    height: 3px;
-    background: linear-gradient(90deg, #00c853, #69f0ae);
+/* ─── Tick metronome (docked in ActionHud — prayer-flick timing aid) ───
+   JS sweeps the fill left→right over each 600ms tick, then snap-resets
+   with a .tick-fire flash marking the tick boundary = the flick moment. */
+.tick-metronome {
+    height: 4px;
+    background: linear-gradient(90deg, #1b5e20, var(--green));
     transform-origin: left;
     transform: scaleX(0);
-    transition: transform 150ms ease-in-out;
-    margin-bottom: 4px;
+    box-shadow: 0 0 4px rgba(57, 211, 57, 0.35);
+    margin-bottom: 5px;
 }
-.tick-bar--locked { background: linear-gradient(90deg, #e65100, #ff9800); }
+.tick-metronome.tick-fire {
+    background: #b9ffb9;
+    box-shadow: 0 0 12px rgba(57, 211, 57, 0.95);
+}
 
 /* ─── Hitsplat zones (anchored to status panel HP bars) ─── */
 .hitsplat-zone {
@@ -247,74 +232,103 @@ html, body {
     100% { transform: translate(0,0); }
 }
 
-/* ─── Bottom bar (quickslots + input) ─── */
-.bottom-bar {
+/* ─── Action HUD (fixed bottom of shell, thumb zone) ─── */
+.action-hud {
+    flex-shrink: 0;
+    background: var(--bg-panel);
+    border: var(--border-w) double var(--border);
+    border-bottom: none;
+    box-shadow: inset 2px 2px 0 var(--bevel-hi), 0 -4px 12px rgba(0, 0, 0, 0.5);
+    padding: 6px 6px calc(6px + var(--safe-bottom));
+    margin: 0 calc(-1 * var(--panel-gap));
+}
+.hud-row { display: grid; gap: 4px; }
+.hud-row + .hud-row { margin-top: 4px; }
+.hud-belt    { grid-template-columns: repeat(auto-fit, minmax(48px, 1fr)); }
+.hud-weapons { grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); }
+.hud-prayers { grid-template-columns: repeat(5, 1fr); }
+.hud-nav     { grid-template-columns: repeat(5, 1fr); }
+
+/* Consumable belt slots */
+.belt-slot {
+    position: relative;
     display: flex;
     flex-direction: column;
-    gap: var(--panel-gap);
-    flex-shrink: 0;
-}
-
-/* ─── Terminal input ─── */
-.terminal-input-row {
-    display: flex;
     align-items: center;
-    gap: 6px;
-    background: var(--bg-panel);
-    border: var(--border-w) double var(--border);
-    box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
-    padding: 6px 8px;
-}
-.prompt { color: var(--green); font-size: 14px; }
-.terminal-input {
-    flex: 1;
-    background: transparent;
-    border: none;
-    outline: none;
-    color: var(--green);
+    justify-content: center;
+    min-height: 44px;
+    background: linear-gradient(160deg, #2e2518, #1e160d);
+    border: 2px solid var(--border);
+    box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo);
+    color: var(--text);
     font-family: var(--font);
-    font-size: 13px;
-    caret-color: var(--green);
-}
-.terminal-input::placeholder { color: var(--text-dim); }
-.send-btn {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    font-family: var(--font);
-    font-size: 11px;
-    padding: 3px 8px;
     cursor: pointer;
     border-radius: 0;
+    padding: 3px 2px;
+    transition: border-color 0.1s, transform 0.05s;
 }
-.send-btn:hover { border-color: var(--green); color: var(--green); }
+.belt-slot:hover:not(:disabled) { border-color: var(--amber); }
+.belt-slot:active:not(:disabled) { transform: translateY(2px); }
+.belt-slot:disabled { cursor: default; }
+.belt-icon  { font-size: 16px; line-height: 1; }
+.belt-label { font-size: 8px; margin-top: 2px; letter-spacing: 0.5px; }
+.belt-count {
+    position: absolute;
+    top: 1px; right: 2px;
+    font-size: 8px;
+    font-weight: bold;
+    color: var(--yellow);
+    background: rgba(0, 0, 0, 0.6);
+    padding: 0 3px;
+    pointer-events: none;
+}
+.belt-poisoned {
+    border-color: #5ada5a;
+    animation: belt-poison-pulse 0.8s ease-in-out infinite alternate;
+}
+@keyframes belt-poison-pulse {
+    from { box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 0 0 4px rgba(90, 218, 90, 0.4); }
+    to   { box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 0 0 12px rgba(90, 218, 90, 0.8); }
+}
 
-/* ─── Quickslot bar ─── */
-.quickslot-bar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    background: var(--bg-panel);
-    border: var(--border-w) double var(--border);
-    box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
-    padding: 6px;
-}
+/* ─── Quickslot buttons (weapons / prayers / nav) ─── */
 .quickslot {
     position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    min-height: var(--hud-btn);
     background: linear-gradient(160deg, #2e2518, #1e160d);
     border: 2px solid var(--border);
     box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 2px 2px 0 var(--bevel-lo);
     color: var(--text);
     font-family: var(--font);
     font-size: 10px;
-    padding: 4px 8px;
+    padding: 4px 2px;
     cursor: pointer;
     border-radius: 0;
-    min-width: 56px;
     transition: border-color 0.1s, transform 0.05s, box-shadow 0.05s;
+}
+.quickslot .qs-icon, .quickslot .qs-label { position: relative; }
+
+/* Cooldown fill: dark overlay draining bottom-up on the primary weapon */
+.qs-cd-fill {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.62);
+    transition: height 600ms linear;
+    pointer-events: none;
+}
+/* Attack ready: bright green frame pulse */
+.qs-ready {
+    border-color: var(--green);
+    animation: qs-ready-pulse 1.1s ease-in-out infinite;
+}
+@keyframes qs-ready-pulse {
+    0%, 100% { box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 0 0 4px rgba(57, 211, 57, 0.35); }
+    50%       { box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 0 0 11px rgba(57, 211, 57, 0.75); }
 }
 .quickslot:hover { border-color: var(--amber); color: var(--amber); }
 .quickslot:active {
@@ -381,25 +395,51 @@ html, body {
 .csb-val { font-size: 9px; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; min-width: 42px; }
 .csb-npc .csb-val { text-align: right; }
 
-/* ─── Retry bar ─── */
-.retry-bar {
+/* ─── Hub menu (out-of-duel home screen) ─── */
+.hub-menu {
     display: flex;
-    justify-content: center;
-    padding: 4px 0;
+    flex-direction: column;
+    gap: 6px;
     flex-shrink: 0;
+    overflow-y: auto;
 }
-.retry-btn {
+.hub-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 56px;
     background: linear-gradient(160deg, #2e2518, #1e160d);
-    border: 1px solid var(--amber);
-    color: var(--amber);
+    border: 2px solid var(--border);
+    box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 2px 2px 0 var(--bevel-lo);
+    color: var(--text);
     font-family: var(--font);
-    font-size: 12px;
-    padding: 5px 24px;
+    padding: 8px 14px;
     cursor: pointer;
     border-radius: 0;
-    transition: background 0.15s;
+    text-align: left;
+    transition: border-color 0.1s, transform 0.05s;
 }
-.retry-btn:hover { background: rgba(201,135,14,0.15); }
+.hub-card:hover:not(:disabled) { border-color: var(--amber); }
+.hub-card:active:not(:disabled) { transform: translateY(2px); }
+.hub-card:disabled { opacity: 0.5; cursor: not-allowed; }
+.hub-card-icon { font-size: 22px; flex-shrink: 0; }
+.hub-card-body { display: flex; flex-direction: column; gap: 2px; }
+.hub-card-title { font-size: 13px; font-weight: bold; color: var(--amber); letter-spacing: 1px; }
+.hub-card-sub   { font-size: 10px; color: var(--text-dim); }
+.hub-card-retry .hub-card-title { color: var(--green); }
+.hub-card-retry { border-color: #2c4a20; }
+.hub-card-prestige {
+    border-color: var(--yellow);
+    animation: hub-prestige-glow 1.6s ease-in-out infinite alternate;
+}
+.hub-card-prestige .hub-card-title { color: var(--yellow); }
+@keyframes hub-prestige-glow {
+    from { box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 0 0 4px rgba(255, 215, 0, 0.3); }
+    to   { box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 0 0 14px rgba(255, 215, 0, 0.65); }
+}
+.hub-card-beg { border-color: #3a3a3a; }
+.hub-card-beg .hub-card-title { color: var(--text-dim); }
 
 /* ─── Stats panel ─── */
 .stats-panel, .inventory-panel, .equipment-panel {
@@ -521,19 +561,8 @@ html, body {
     50%       { opacity: 0.5; }
 }
 
-/* ─── NPC card ─── */
-.npc-card {
-    background: var(--bg-panel);
-    border: var(--border-w) double var(--border);
-    box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
-    padding: 8px 10px;
-    flex-shrink: 0;
-}
-.npc-name  { color: var(--red); margin-bottom: 4px; }
-.npc-level { color: var(--text-dim); font-size: 11px; }
-.npc-hp-wrap { margin-bottom: 2px; }
+/* ─── NPC HP bar tint (combat status bar) ─── */
 .npc-hp-bar { background: var(--red); }
-.npc-hp-text { color: var(--text-dim); font-size: 11px; }
 
 /* ─── Inventory ─── */
 .inv-grid {
@@ -596,116 +625,10 @@ html, body {
 ::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 0; }
 ::-webkit-scrollbar-thumb:hover { background: #6a5840; }
 
-/* ─── Mobile: chat-app layout ─── */
-@media (max-width: 700px) {
-    /* Tab bar */
-    .mobile-tabs {
-        display: flex;
-        flex-shrink: 0;
-        background: var(--bg-panel);
-        border-bottom: 1px solid var(--border);
-    }
-    .mobile-tab {
-        flex: 1;
-        padding: 11px 0;
-        font-family: var(--font);
-        font-size: 12px;
-        color: var(--text-dim);
-        background: none;
-        border: none;
-        border-bottom: 2px solid transparent;
-        cursor: pointer;
-        letter-spacing: 0.5px;
-    }
-    .mobile-tab.active {
-        color: var(--yellow);
-        border-bottom-color: var(--yellow);
-    }
-
-    /* Layout: single flex column */
-    .game-layout {
-        display: flex;
-        flex-direction: column;
-        padding: 0;
-        gap: 0;
-    }
-
-    /* Hide side panels by default; show combat center */
-    .game-left, .game-right { display: none; }
-    .game-center {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        min-height: 0;
-        gap: 0;
-    }
-
-    /* Stats tab */
-    .game-layout.tab-stats .game-center { display: none; }
-    .game-layout.tab-stats .game-left {
-        display: flex;
-        flex-direction: column;
-        flex: 1;
-        overflow-y: auto;
-        padding: 8px;
-        gap: 8px;
-    }
-
-    /* Inventory tab */
-    .game-layout.tab-inventory .game-center { display: none; }
-    .game-layout.tab-inventory .game-right {
-        display: flex;
-        flex-direction: column;
-        flex: 1;
-        overflow-y: auto;
-        padding: 8px;
-        gap: 8px;
-    }
-
-    /* Terminal fills all remaining space */
-    .terminal-log {
-        flex: 1;
-        border-left: none;
-        border-right: none;
-        border-radius: 0;
-        padding: 8px;
-    }
-
-    /* Bottom bar docked above keyboard */
-    .bottom-bar {
-        flex-shrink: 0;
-        gap: 0;
-        border-top: 1px solid var(--border);
-    }
-
-    /* Quickslots: single row, horizontal scroll */
-    .quickslot-bar {
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        border-left: none;
-        border-right: none;
-        border-radius: 0;
-        border-bottom: none;
-        padding: 5px 6px;
-        gap: 5px;
-        -webkit-overflow-scrolling: touch;
-    }
-    .quickslot { flex-shrink: 0; min-width: 52px; }
-
-    /* Input row: no radius, flush */
-    .terminal-input-row {
-        border-left: none;
-        border-right: none;
-        border-bottom: none;
-        border-radius: 0;
-        padding: 8px 10px;
-    }
-
-    /* NPC card compact */
-    .npc-card { border-left: none; border-right: none; border-radius: 0; border-top: none; }
-
-    /* New game screen adjustments */
+/* ─── Small-phone tightening ─── */
+@media (max-width: 420px) {
     .new-game-box { padding: 28px 20px; }
+    .hud-prayers .qs-label { font-size: 8px; }
 }
 
 /* ─── Shop modal ─── */
@@ -905,6 +828,16 @@ html, body {
 
 @media (max-width: 400px) {
     .ladder-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ─── Bag & Character sheets ─── */
+.bag-panel, .char-panel { width: min(480px, 96vw); }
+.bag-body, .char-body {
+    overflow-y: auto;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 /* ─── Collection log modal ─── */

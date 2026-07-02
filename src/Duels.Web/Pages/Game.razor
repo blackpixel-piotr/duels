@@ -10,9 +10,9 @@
 @using Duels.Web.Components.Combat
 @using Duels.Web.Components.Stats
 @using Duels.Web.Components.Terminal
-@using Duels.Web.Components.QuickSlots
-@using Duels.Web.Components.Inventory
-@using Duels.Web.Components.Equipment
+@using Duels.Web.Components.Hud
+@using Duels.Web.Components.Hub
+@using Duels.Web.Components.Bag
 @using Duels.Web.Components.Shop
 @using Duels.Web.Components.Ladder
 @using Duels.Web.Components.Log
@@ -23,70 +23,71 @@
 }
 else
 {
-    <div class="game-wrapper">
-        <nav class="mobile-tabs">
-            <button class="mobile-tab @(_tab == "combat"    ? "active" : "")" @onclick='() => _tab = "combat"'>Combat</button>
-            <button class="mobile-tab @(_tab == "stats"     ? "active" : "")" @onclick='() => _tab = "stats"'>Stats</button>
-            <button class="mobile-tab @(_tab == "inventory" ? "active" : "")" @onclick='() => _tab = "inventory"'>Items</button>
-        </nav>
-
+    <div class="game-shell">
         @if (_shopOpen)
         {
             <ShopModal State="@_state"
                        OnClose="@(() => { _shopOpen = false; StateHasChanged(); })" />
         }
-
         @if (_ladderOpen)
         {
             <NpcLadderModal State="@_state"
                             OnClose="@(() => { _ladderOpen = false; StateHasChanged(); })"
                             OnDuelStarted="HandleDuelStarted" />
         }
-
         @if (_logOpen)
         {
             <CollectionLogModal State="@_state"
                                  OnClose="@(() => { _logOpen = false; StateHasChanged(); })" />
         }
+        @if (_bagOpen)
+        {
+            <BagSheet State="@_state"
+                      OnClose="@(() => { _bagOpen = false; StateHasChanged(); })" />
+        }
+        @if (_charOpen)
+        {
+            <CharacterSheet State="@_state"
+                            OnClose="@(() => { _charOpen = false; StateHasChanged(); })" />
+        }
 
-        <div class="game-layout tab-@_tab">
-            <div class="game-left">
-                <StatsPanel State="@_state" />
-            </div>
+        <StatsPanel State="@_state" />
 
-            <div class="game-center">
-                <CombatStatusBar State="@_state" />
-                <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])"
-                                   PlayerCooldown="@(_state?.PlayerCooldown ?? 0)" />
-                @if (_state is { InDuel: false, LastOpponentId: { } lastNpc })
-                {
-                    <div class="retry-bar">
-                        <button class="retry-btn" disabled="@_processing" @onclick="RetryDuel">@RetryLabel</button>
-                    </div>
-                }
-                <div class="bottom-bar">
-                    <QuickSlotBar State="@_state"
-                                  OnOpenShop="@(() => { _shopOpen = true; StateHasChanged(); })"
-                                  OnOpenLadder="@(() => { _ladderOpen = true; StateHasChanged(); })"
-                                  OnOpenLog="@(() => { _logOpen = true; StateHasChanged(); })" />
-                    <TerminalInput OnSubmit="HandleCommand" Disabled="@_processing" />
-                </div>
-            </div>
+        @if (_state?.InDuel == true)
+        {
+            <CombatStatusBar State="@_state" />
+            <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
+        }
+        else
+        {
+            <HubMenu State="@_state"
+                     Processing="@_processing"
+                     RetryLabel="@RetryLabel"
+                     OnArena="@(() => { _ladderOpen = true; StateHasChanged(); })"
+                     OnEndless="StartEndless"
+                     OnShop="@(() => { _shopOpen = true; StateHasChanged(); })"
+                     OnRetry="RetryDuel"
+                     OnPrestige="Prestige"
+                     OnBeg="Beg" />
+            <TerminalComponent LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
+        }
 
-            <div class="game-right">
-                <EquipmentPanel State="@_state" />
-                <InventoryGrid State="@_state" />
-            </div>
-        </div>
+        <ActionHud State="@_state"
+                   OnOpenShop="@(() => { _shopOpen = true; StateHasChanged(); })"
+                   OnOpenLadder="@(() => { _ladderOpen = true; StateHasChanged(); })"
+                   OnOpenLog="@(() => { _logOpen = true; StateHasChanged(); })"
+                   OnOpenBag="@(() => { _bagOpen = true; StateHasChanged(); })"
+                   OnOpenCharacter="@(() => { _charOpen = true; StateHasChanged(); })" />
     </div>
 }
 
 @code {
     private GameState? _state;
-    private string _tab = "combat";
     private bool _shopOpen   = false;
     private bool _ladderOpen = false;
     private bool _logOpen    = false;
+    private bool _bagOpen    = false;
+    private bool _charOpen   = false;
     private bool _processing = false;
     private bool _wasDueling = false;
 
@@ -120,31 +121,9 @@ else
         });
     }
 
-    private async Task HandleCommand(string command)
-    {
-        if (string.IsNullOrWhiteSpace(command) || _processing) return;
-        var verb = command.Trim().TrimStart('!').Split(' ', 2)[0].ToLowerInvariant();
-        if (verb is "shop" or "store")             { _shopOpen   = true; StateHasChanged(); return; }
-        if (verb is "npcs" or "enemies" or "list") { _ladderOpen = true; StateHasChanged(); return; }
-        _processing = true;
-        StateHasChanged();
-        bool wasDueling = _state?.InDuel ?? false;
-        try
-        {
-            await GameSvc.ExecuteCommandAsync(command);
-        }
-        finally
-        {
-            _processing = false;
-            _tab = "combat";
-            await SyncTickService(wasDueling);
-        }
-    }
-
     private async Task HandleDuelStarted()
     {
         _ladderOpen = false;
-        _tab = "combat";
         await SyncTickService(_wasDueling);
         StateHasChanged();
     }
@@ -152,13 +131,43 @@ else
     private async Task RetryDuel()
     {
         if (_processing || GameSvc.PlayerId is null || _state?.LastOpponentId is null) return;
+        await RunDuelAction(() =>
+            GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, _state!.LastOpponentId!, RetryWager)));
+    }
+
+    private async Task StartEndless()
+    {
+        if (_processing || GameSvc.PlayerId is null) return;
+        await RunDuelAction(() =>
+            GameSvc.DispatchAsync(new StartEndlessCommand(GameSvc.PlayerId!)));
+    }
+
+    private async Task Prestige()
+    {
+        if (_processing || GameSvc.PlayerId is null) return;
+        _processing = true;
+        StateHasChanged();
+        try { await GameSvc.DispatchAsync(new PrestigeCommand(GameSvc.PlayerId!)); }
+        finally { _processing = false; StateHasChanged(); }
+    }
+
+    private async Task Beg()
+    {
+        if (_processing || GameSvc.PlayerId is null) return;
+        _processing = true;
+        StateHasChanged();
+        try { await GameSvc.DispatchAsync(new BegCommand(GameSvc.PlayerId!)); }
+        finally { _processing = false; StateHasChanged(); }
+    }
+
+    private async Task RunDuelAction(Func<Task> dispatch)
+    {
         _processing = true;
         StateHasChanged();
         bool wasDueling = _state?.InDuel ?? false;
         try
         {
-            await GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, _state!.LastOpponentId!, RetryWager));
-            _tab = "combat";
+            await dispatch();
             await SyncTickService(wasDueling);
         }
         finally
@@ -189,13 +198,8 @@ else
         (_state?.LastWager ?? 0) > 0 && (_state?.Player?.Gold ?? 0) >= _state!.LastWager
             ? _state!.LastWager : 0;
 
-    private string RetryCmd =>
-        RetryWager > 0
-            ? $"duel {_state?.LastOpponentId} {RetryWager}"
-            : $"duel {_state?.LastOpponentId}";
-
     private string RetryLabel =>
-        RetryWager > 0 ? $"⚔ Retry ({RetryWager:N0}g)" : "⚔ Retry";
+        RetryWager > 0 ? $"RETRY ({RetryWager:N0}g)" : "RETRY";
 
     public void Dispose()
     {

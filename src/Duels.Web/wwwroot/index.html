@@ -27,10 +27,6 @@
             const el = document.getElementById(id);
             if (el) el.scrollTop = el.scrollHeight;
         };
-        window.focusElement = (id) => {
-            const el = document.getElementById(id);
-            if (el) el.focus();
-        };
         window.saveGame  = (json) => localStorage.setItem('duels_save', json);
         window.loadGame  = ()     => localStorage.getItem('duels_save');
         window.clearGame = ()     => localStorage.removeItem('duels_save');
@@ -42,21 +38,38 @@
             el.classList.add('shake-active');
             setTimeout(() => el.classList.remove('shake-active'), ms || 180);
         };
+        // Tick metronome: sweeps the fill left->right over each 600ms game tick,
+        // then snap-resets with a bright "tick-fire" flash marking the tick
+        // boundary — the prayer-flick moment.
         let _metro = null;
         window.startMetronome = () => {
             clearInterval(_metro);
-            let p = 0;
-            _metro = setInterval(() => {
-                p = 1 - p;
+            const sweep = () => {
                 const b = document.getElementById('tick-bar');
-                if (b) b.style.transform = `scaleX(${p})`;
-            }, 600);
+                if (!b) return;
+                // snap back to 0 with no transition, flash the boundary
+                b.style.transition = 'none';
+                b.style.transform = 'scaleX(0)';
+                b.classList.remove('tick-fire');
+                void b.offsetWidth;
+                b.classList.add('tick-fire');
+                setTimeout(() => b.classList.remove('tick-fire'), 120);
+                // sweep to full over the tick duration
+                b.style.transition = 'transform 600ms linear';
+                b.style.transform = 'scaleX(1)';
+            };
+            sweep();
+            _metro = setInterval(sweep, 600);
         };
         window.stopMetronome = () => {
             clearInterval(_metro);
             _metro = null;
             const b = document.getElementById('tick-bar');
-            if (b) b.style.transform = 'scaleX(0)';
+            if (b) {
+                b.style.transition = 'none';
+                b.style.transform = 'scaleX(0)';
+                b.classList.remove('tick-fire');
+            }
         };
         window.spawnHitsplats = (splats) => {
             for (const s of splats) {
