@@ -70,67 +70,67 @@ public sealed class InMemoryItemRepository : IItemRepository
     [
         new("rune_scimitar", "Rune Scimitar", AttackType.Slash,
             new ItemModifiers(StabAttack: 45, SlashAttack: 67, StrengthBonus: 66),
-            attackSpeed: 4, examineText: "A powerful rune scimitar."),
+            attackSpeed: 4, examineText: "A powerful rune scimitar.", attackLevelRequired: 60),
 
         new("dragon_scimitar", "Dragon Scimitar", AttackType.Slash,
             new ItemModifiers(StabAttack: 40, SlashAttack: 60, StrengthBonus: 67),
-            attackSpeed: 4, examineText: "A fearsome dragon scimitar."),
+            attackSpeed: 4, examineText: "A fearsome dragon scimitar.", attackLevelRequired: 65),
 
         new("dragon_dagger", "Dragon Dagger", AttackType.Stab,
             new ItemModifiers(StabAttack: 40, SlashAttack: 25, StrengthBonus: 40),
             attackSpeed: 4, examineText: "A vicious dragon dagger.",
             special: new SpecialAttack("!spec", 25, 1.0, "Double stab — boosted accuracy, uses 25% energy.",
-                Hits: 2, AccuracyMultiplier: 1.15)),
+                Hits: 2, AccuracyMultiplier: 1.15), attackLevelRequired: 65),
 
         new("abyssal_whip", "Abyssal Whip", AttackType.Slash,
             new ItemModifiers(StabAttack: 82, SlashAttack: 82, StrengthBonus: 82),
-            attackSpeed: 4, examineText: "Fast, accurate, and drains nothing. Pure DPS."),
+            attackSpeed: 4, examineText: "Fast, accurate, and drains nothing. Pure DPS.", attackLevelRequired: 70),
 
         new("armadyl_sword", "Armadyl Sword", AttackType.Slash,
             new ItemModifiers(StabAttack: 75, SlashAttack: 80, StrengthBonus: 85),
-            attackSpeed: 4, examineText: "A sword blessed by Armadyl."),
+            attackSpeed: 4, examineText: "A sword blessed by Armadyl.", attackLevelRequired: 72),
 
         new("dragon_claws", "Dragon Claws", AttackType.Slash,
             new ItemModifiers(StabAttack: 41, SlashAttack: 57, StrengthBonus: 56),
             attackSpeed: 4, examineText: "Four rapid slashes.",
             special: new SpecialAttack("!spec", 50, 0.5, "Four rapid hits — each at half max hit. Uses 50% energy.",
-                Hits: 4, AccuracyMultiplier: 1.0)),
+                Hits: 4, AccuracyMultiplier: 1.0), attackLevelRequired: 75),
 
         new("bandos_godsword", "Bandos Godsword", AttackType.Slash,
             new ItemModifiers(StabAttack: 132, SlashAttack: 132, StrengthBonus: 132),
             attackSpeed: 6, examineText: "The weapon of the Big High War God.",
             special: new SpecialAttack("!spec", 50, 1.0, "Two powerful strikes. Uses 50% energy.",
-                Hits: 2, AccuracyMultiplier: 1.0)),
+                Hits: 2, AccuracyMultiplier: 1.0), attackLevelRequired: 80),
 
         new("zamorak_godsword", "Zamorak Godsword", AttackType.Slash,
             new ItemModifiers(StabAttack: 132, SlashAttack: 132, StrengthBonus: 132),
             attackSpeed: 6, examineText: "Frozen in time, twice as deadly.",
             special: new SpecialAttack("!spec", 50, 1.0, "Two hits — second always connects. Uses 50% energy.",
-                Hits: 2, AccuracyMultiplier: 1.0, SecondHitGuaranteed: true)),
+                Hits: 2, AccuracyMultiplier: 1.0, SecondHitGuaranteed: true), attackLevelRequired: 80),
 
         new("saradomin_godsword", "Saradomin Godsword", AttackType.Slash,
             new ItemModifiers(StabAttack: 132, SlashAttack: 132, StrengthBonus: 132),
             attackSpeed: 6, examineText: "Heals the faithful.",
             special: new SpecialAttack("!spec", 50, 1.0, "Heals 50% of damage dealt. Uses 50% energy.",
-                Hits: 1, AccuracyMultiplier: 1.0, HealOnHit: true)),
+                Hits: 1, AccuracyMultiplier: 1.0, HealOnHit: true), attackLevelRequired: 80),
 
         new("armadyl_godsword", "Armadyl Godsword", AttackType.Slash,
             new ItemModifiers(StabAttack: 132, SlashAttack: 132, StrengthBonus: 132),
             attackSpeed: 6, examineText: "The most powerful spec in the arena.",
             special: new SpecialAttack("!spec", 50, 1.25, "Massive single hit — 125% damage, boosted accuracy. Uses 50% energy.",
-                Hits: 1, AccuracyMultiplier: 1.375)),
+                Hits: 1, AccuracyMultiplier: 1.375), attackLevelRequired: 82),
 
         new("scythe_of_vitur", "Scythe of Vitur", AttackType.Slash,
             new ItemModifiers(StabAttack: 75, SlashAttack: 110, StrengthBonus: 75),
             attackSpeed: 5, examineText: "Three hits per special. Costs 100% energy.",
             special: new SpecialAttack("!spec", 100, 1.0, "Three sweeping hits. Uses 100% energy.",
-                Hits: 3, AccuracyMultiplier: 1.0)),
+                Hits: 3, AccuracyMultiplier: 1.0), attackLevelRequired: 90),
 
         new("corrupted_whip", "Corrupted Whip", AttackType.Slash,
             new ItemModifiers(StabAttack: 90, SlashAttack: 90, StrengthBonus: 90),
             attackSpeed: 4, examineText: "A whip twisted by dark energy. Untradeable.",
             special: new SpecialAttack("!spec", 25, 1.0, "Dark lash — boosted strength. Uses 25% energy.",
-                Hits: 1, AccuracyMultiplier: 1.10)),
+                Hits: 1, AccuracyMultiplier: 1.10), attackLevelRequired: 75),
     ];
 
     private static IEnumerable<GearPiece> BuildGear(Dictionary<string, Weapon> weapons)

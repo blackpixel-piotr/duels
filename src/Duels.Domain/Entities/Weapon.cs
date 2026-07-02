@@ -11,6 +11,7 @@ public sealed class Weapon
     public int AttackSpeed { get; }
     public string ExamineText { get; }
     public SpecialAttack? Special { get; }
+    public int AttackLevelRequired { get; }
 
     public Weapon(
         string id,
@@ -19,7 +20,8 @@ public sealed class Weapon
         ItemModifiers modifiers,
         int attackSpeed = 4,
         string examineText = "",
-        SpecialAttack? special = null)
+        SpecialAttack? special = null,
+        int attackLevelRequired = 60)
     {
         Id = id;
         Name = name;
@@ -28,6 +30,7 @@ public sealed class Weapon
         AttackSpeed = attackSpeed;
         ExamineText = examineText;
         Special = special;
+        AttackLevelRequired = attackLevelRequired;
     }
 
     public GearPiece AsGearPiece() =>

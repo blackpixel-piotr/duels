@@ -54,9 +54,17 @@
             <span class="qs-icon">⚡</span>
             <span class="qs-label">PIETY</span>
         </button>
+        <button class="quickslot" title="Cycle combat style" disabled="@_busy" @onclick="CycleStyle">
+            <span class="qs-icon">🎯</span>
+            <span class="qs-label">@CurrentStyleLabel</span>
+        </button>
     }
     else
     {
+        <button class="quickslot" title="Cycle combat style" disabled="@_busy" @onclick="CycleStyle">
+            <span class="qs-icon">🎯</span>
+            <span class="qs-label">@CurrentStyleLabel</span>
+        </button>
         <button class="quickslot" title="Shop" @onclick="() => OnOpenShop.InvokeAsync()">
             <span class="qs-icon">🏪</span>
             <span class="qs-label">SHOP</span>
@@ -163,6 +171,24 @@
         StateHasChanged();
         try { await action(); }
         finally { _busy = false; }
+    }
+
+    private string CurrentStyleLabel => State?.Player?.ChosenStyle switch
+    {
+        AttackStyle.Aggressive => "AGG",
+        AttackStyle.Defensive  => "DEF",
+        _                      => "ACC",
+    };
+
+    private Task CycleStyle()
+    {
+        var next = State?.Player?.ChosenStyle switch
+        {
+            AttackStyle.Accurate   => AttackStyle.Aggressive,
+            AttackStyle.Aggressive => AttackStyle.Defensive,
+            _                      => AttackStyle.Accurate,
+        };
+        return Run(() => GameSvc.DispatchAsync(new SetStyleCommand(GameSvc.PlayerId!, next)));
     }
 
     private Task Attack()                   => Run(() => GameSvc.DispatchAsync(new AttackCommand(GameSvc.PlayerId!, AttackStyle.Accurate)));

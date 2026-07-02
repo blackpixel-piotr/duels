@@ -29,6 +29,14 @@ public sealed class WeaponShortcutHandler : ICommandHandler<WeaponShortcutComman
             return CommandResult.Fail($"You don't have {name}.");
         }
 
+        var shortcutWeapon = _itemRepo.GetWeapon(command.WeaponId);
+        if (shortcutWeapon is not null && player.AttackLevel < shortcutWeapon.AttackLevelRequired)
+        {
+            state.AppendLog($"You need {shortcutWeapon.AttackLevelRequired} Attack to wield {shortcutWeapon.Name}. (You: {player.AttackLevel})", LogEntryKind.System);
+            await _stateRepo.SaveAsync(state, ct);
+            return CommandResult.Fail($"Requires {shortcutWeapon.AttackLevelRequired} Attack.");
+        }
+
         var previousWeapon = player.GetEquippedWeaponId();
         bool switching = previousWeapon != command.WeaponId;
 

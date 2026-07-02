@@ -58,9 +58,10 @@ public sealed class CommandParser
             "attack" or "hit" => ParseAttack(playerId, args, AttackStyle.Accurate),
             "spec" or "special" => new ParseResult(true, new AttackCommand(playerId, AttackStyle.Accurate, UseSpecial: true), null),
 
-            "accurate" or "acc" => ParseAttack(playerId, [], AttackStyle.Accurate),
-            "aggressive" or "aggro" or "str" => ParseAttack(playerId, [], AttackStyle.Aggressive),
-            "defensive" or "def" => ParseAttack(playerId, [], AttackStyle.Defensive),
+            "accurate" or "acc" => new ParseResult(true, new SetStyleCommand(playerId, AttackStyle.Accurate), null),
+            "aggressive" or "aggro" or "str" => new ParseResult(true, new SetStyleCommand(playerId, AttackStyle.Aggressive), null),
+            "defensive" or "def" => new ParseResult(true, new SetStyleCommand(playerId, AttackStyle.Defensive), null),
+            "style" => ParseStyleCommand(playerId, args),
 
             "shop" or "store" => new ParseResult(true, new ShopCommand(playerId), null),
             "buy" or "purchase" => ParseBuy(playerId, args),
@@ -111,6 +112,13 @@ public sealed class CommandParser
     {
         var style = args.Length > 0 ? ParseStyle(args[0]) ?? defaultStyle : defaultStyle;
         return new ParseResult(true, new AttackCommand(playerId, style), null);
+    }
+
+    private static ParseResult ParseStyleCommand(string playerId, string[] args)
+    {
+        if (args.Length == 0 || ParseStyle(args[0]) is not { } style)
+            return new ParseResult(false, null, "Usage: style <accurate|aggressive|defensive>");
+        return new ParseResult(true, new SetStyleCommand(playerId, style), null);
     }
 
     private static AttackStyle? ParseStyle(string s) => s.ToLowerInvariant() switch

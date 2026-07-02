@@ -50,6 +50,7 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ICommandHandler<DrinkPotionCommand>, DrinkPotionHandler>();
         services.AddSingleton<ICommandHandler<VengeanceCommand>, VengeanceHandler>();
         services.AddSingleton<ICommandHandler<PrayerCommand>, PrayerHandler>();
+        services.AddSingleton<ICommandHandler<SetStyleCommand>, SetStyleHandler>();
         services.AddSingleton<ICommandHandler<BegCommand>, BegHandler>();
         services.AddSingleton<ICommandHandler<PrestigeCommand>, PrestigeHandler>();
 

@@ -17,9 +17,22 @@
             </div>
             <span class="stat-val">@p.CurrentHp / @p.MaxHp</span>
         </div>
-        <div class="stat-row"><span class="stat-label">Atk</span><span class="stat-val">@BoostVal(p.AttackLevel, p.CombatBoostRoundsLeft)</span></div>
-        <div class="stat-row"><span class="stat-label">Str</span><span class="stat-val">@BoostVal(p.StrengthLevel, p.CombatBoostRoundsLeft)</span></div>
-        <div class="stat-row"><span class="stat-label">Def</span><span class="stat-val">@p.DefenceLevel</span></div>
+        <div class="stat-row">
+            <span class="stat-label">Atk</span>
+            <div class="xp-bar-wrap"><div class="xp-bar" style="width: @XpPct(p.AttackXp)%"></div></div>
+            <span class="stat-val">@BoostVal(p.AttackLevel, p.CombatBoostRoundsLeft)</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Str</span>
+            <div class="xp-bar-wrap"><div class="xp-bar" style="width: @XpPct(p.StrengthXp)%"></div></div>
+            <span class="stat-val">@BoostVal(p.StrengthLevel, p.CombatBoostRoundsLeft)</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Def</span>
+            <div class="xp-bar-wrap"><div class="xp-bar" style="width: @XpPct(p.DefenceXp)%"></div></div>
+            <span class="stat-val">@p.DefenceLevel</span>
+        </div>
+        <div class="stat-row"><span class="stat-label">Style</span><span class="stat-val stat-style">@StyleLabel(p.ChosenStyle)</span></div>
         <div class="stat-row"><span class="stat-label">Gold</span><span class="stat-val">@p.Gold gp</span></div>
         @if (p.CombatBoostRoundsLeft > 0)
         {
@@ -88,5 +101,14 @@
         1 => "[Red Phat]",
         2 => "[Blue Phat]",
         _ => "[White Phat]"
+    };
+
+    private static int XpPct(int xp) => Duels.Domain.Services.ExperienceTable.ProgressPercent(xp);
+
+    private static string StyleLabel(AttackStyle style) => style switch
+    {
+        AttackStyle.Aggressive => "AGG (Str)",
+        AttackStyle.Defensive  => "DEF (Def)",
+        _                      => "ACC (Atk)",
     };
 }

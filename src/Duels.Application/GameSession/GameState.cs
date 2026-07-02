@@ -166,4 +166,5 @@ public enum LogEntryKind
     BossSpecial,
     HitsplatPlayer,
     HitsplatNpc,
+    LevelUp,
 }

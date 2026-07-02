@@ -214,7 +214,7 @@ html, body {
 .log-npcmiss   { color: var(--text-dim); font-style: italic; }
 .log-system    { color: var(--amber); }
 .log-loot      { color: var(--yellow); font-weight: bold; }
-.log-levelup   { color: var(--purple); font-weight: bold; }
+.log-levelup   { color: var(--yellow); font-weight: bold; text-shadow: 0 0 6px rgba(255,215,0,0.45); animation: pulse-grow 0.25s ease-in-out 2; }
 .log-maxhit {
     color: #ffd700;
     font-weight: bold;
@@ -475,6 +475,17 @@ html, body {
 .hp-bar      { height: 100%; background: linear-gradient(90deg, #259925, var(--green)); transition: width 0.2s; }
 .spec-bar    { height: 100%; background: linear-gradient(90deg, #8a5a00, var(--amber)); transition: width 0.2s; }
 .prayer-bar  { height: 100%; background: linear-gradient(90deg, #1565c0, #6ec6ff); transition: width 0.2s; }
+
+/* ─── XP progress bars (stats panel) ─── */
+.xp-bar-wrap {
+    flex: 1;
+    height: 5px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+.xp-bar { height: 100%; background: linear-gradient(90deg, #4a2a6a, var(--purple)); transition: width 0.3s; }
+.stat-style { color: var(--amber); font-weight: bold; }
 
 /* ─── NPC card ─── */
 .npc-card {

@@ -4,6 +4,7 @@ using Duels.Application.Commands;
 using Duels.Application.GameSession;
 using Duels.Application.Parsing;
 using Duels.Domain.Entities;
+using Duels.Domain.Services;
 using Duels.Domain.ValueObjects;
 using Duels.Web.Models;
 using Microsoft.JSInterop;
@@ -110,8 +111,15 @@ public sealed class GameService
                 .Select(kv => (Enum.TryParse<EquipmentSlot>(kv.Key, out var slot), slot, kv.Value))
                 .Where(t => t.Item1)
                 .Select(t => new KeyValuePair<EquipmentSlot, string>(t.slot, t.Value));
+
+            // Legacy saves (pre-xp) carry -1 sentinels: grandfather them to max level (they were 99s)
+            int MigrateXp(int xp) => xp < 0 ? ExperienceTable.MaxLevelXp : xp;
+            var style = Enum.TryParse<AttackStyle>(data.ChosenStyle, out var s) ? s : AttackStyle.Accurate;
+
             player.RestoreFromSave(data.Gold, data.CurrentHp, data.SpecialEnergy, data.PrestigeLevel,
-                data.Inventory, equippedKvps);
+                data.Inventory, equippedKvps,
+                MigrateXp(data.AttackXp), MigrateXp(data.StrengthXp),
+                MigrateXp(data.DefenceXp), MigrateXp(data.HitpointsXp), style);
 
             var state = new GameState(data.PlayerId, player);
             state.RestoreFromSave(data.WinStreak, data.BestEndlessWave, data.UnlockedOpponents);
@@ -150,7 +158,12 @@ public sealed class GameService
                 BestEndlessWave: state.BestEndlessWave,
                 Inventory: p.Inventory.ToList(),
                 Equipped: p.Equipped.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value),
-                UnlockedOpponents: state.UnlockedOpponents.ToList()
+                UnlockedOpponents: state.UnlockedOpponents.ToList(),
+                AttackXp: p.AttackXp,
+                StrengthXp: p.StrengthXp,
+                DefenceXp: p.DefenceXp,
+                HitpointsXp: p.HitpointsXp,
+                ChosenStyle: p.ChosenStyle.ToString()
             );
 
             var json = JsonSerializer.Serialize(data);

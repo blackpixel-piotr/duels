@@ -151,7 +151,7 @@ public sealed class GameTickService : IDisposable
         }
         else
         {
-            var playerSnapshot = BuildPlayerSnapshot(state, AttackStyle.Accurate);
+            var playerSnapshot = BuildPlayerSnapshot(state, player.ChosenStyle);
             var npcSnapshot = BuildNpcSnapshot(npc);
             var roll = _combat.Roll(playerSnapshot, npcSnapshot);
 
@@ -187,6 +187,7 @@ public sealed class GameTickService : IDisposable
                 }
 
                 npc.TakeDamage(damage);
+                AwardOffensiveXp(state, player, damage);
                 await _events.PublishAsync(new AttackLanded(player.Id, npc.Template.Id, damage));
             }
             else
@@ -218,7 +219,7 @@ public sealed class GameTickService : IDisposable
             return;
         }
 
-        var baseSnapshot    = BuildPlayerSnapshot(state, AttackStyle.Accurate);
+        var baseSnapshot    = BuildPlayerSnapshot(state, player.ChosenStyle);
         var boostedSnapshot = baseSnapshot with { AttackLevel = (int)(baseSnapshot.AttackLevel * spec.AccuracyMultiplier) };
         var npcSnapshot     = BuildNpcSnapshot(npc);
 
@@ -248,6 +249,7 @@ public sealed class GameTickService : IDisposable
                 string blockMsg = warlordBlocking ? " (⛉ blocked)" : "";
                 state.AppendLog($"{player.PhatPrefix}⚡ SPEC! You hit {npc.Template.Name} for {damage}{healMsg}{blockMsg}{suffix}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.SpecHit);
                 state.AppendLog($"{damage}:spec", LogEntryKind.HitsplatPlayer);
+                AwardOffensiveXp(state, player, damage);
             }
             else
             {
@@ -300,6 +302,7 @@ public sealed class GameTickService : IDisposable
                     damage = (int)(damage * (1.0 - reduction));
 
                 player.TakeDamage(damage);
+                AwardDefensiveXp(state, player, damage);
                 state.AppendLog($"{damage}:normal", LogEntryKind.HitsplatNpc);
                 await _events.PublishAsync(new AttackLanded(npc.Template.Id, player.Id, damage));
 
@@ -367,6 +370,7 @@ public sealed class GameTickService : IDisposable
         int damage = reduction > 0 ? (int)(rawDamage * (1.0 - reduction)) : rawDamage;
 
         player.TakeDamage(damage);
+        AwardDefensiveXp(state, player, damage);
         state.AppendLog($"★ {npc.Template.Name} unleashes their special attack for {damage} damage! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.BossSpecial);
         state.AppendLog($"{damage}:boss", LogEntryKind.HitsplatNpc);
         await _events.PublishAsync(new AttackLanded(npc.Template.Id, player.Id, damage));
@@ -378,6 +382,35 @@ public sealed class GameTickService : IDisposable
             state.ConsumeVeng();
             state.AppendLog($"VENGEANCE! {vengDmg} damage reflected!", LogEntryKind.Vengeance);
         }
+    }
+
+    // Offensive xp: 4×damage to the chosen style's skill, HP xp = damage×4/3
+    private static void AwardOffensiveXp(GameState state, Player player, int damage)
+    {
+        if (damage <= 0) return;
+        int xp = damage * 4;
+        int hpXp = damage * 4 / 3;
+        var ups = player.ChosenStyle switch
+        {
+            AttackStyle.Aggressive => player.GainXp(0, xp, 0, hpXp),
+            AttackStyle.Defensive  => player.GainXp(0, 0, xp, hpXp),
+            _                      => player.GainXp(xp, 0, 0, hpXp),
+        };
+        LogLevelUps(state, ups);
+    }
+
+    // Defensive xp: taking hits trains Defence — losses still pay
+    private static void AwardDefensiveXp(GameState state, Player player, int damage)
+    {
+        if (damage <= 0) return;
+        int xp = damage * 3 * (player.ChosenStyle == AttackStyle.Defensive ? 2 : 1);
+        LogLevelUps(state, player.GainXp(0, 0, xp, 0));
+    }
+
+    private static void LogLevelUps(GameState state, IReadOnlyList<(string Skill, int NewLevel)> ups)
+    {
+        foreach (var (skill, level) in ups)
+            state.AppendLog($"✨ Congratulations! Your {skill} level is now {level}!", LogEntryKind.LevelUp);
     }
 
     private static double GetPrayerReduction(GameState state, AttackType npcAttackType)
@@ -515,7 +548,7 @@ public sealed class GameTickService : IDisposable
     private CombatantSnapshot BuildPlayerDefSnapshot(Player player)
     {
         var mods = AggregatePlayerMods(player);
-        return new CombatantSnapshot(player.AttackLevel, player.StrengthLevel, player.DefenceLevel, mods, AttackType.Slash, AttackStyle.Defensive);
+        return new CombatantSnapshot(player.AttackLevel, player.StrengthLevel, player.DefenceLevel, mods, AttackType.Slash, player.ChosenStyle);
     }
 
     private ItemModifiers AggregatePlayerMods(Player player)

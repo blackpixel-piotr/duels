@@ -11,5 +11,11 @@ public sealed record SaveData(
     int BestEndlessWave,
     List<string> Inventory,
     Dictionary<string, string> Equipped,
-    List<string> UnlockedOpponents
+    List<string> UnlockedOpponents,
+    // v2: xp fields — -1 sentinel means "legacy save" (grandfathered to max level on restore)
+    int AttackXp = -1,
+    int StrengthXp = -1,
+    int DefenceXp = -1,
+    int HitpointsXp = -1,
+    string ChosenStyle = "Accurate"
 );
