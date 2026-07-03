@@ -4,14 +4,14 @@
 
 <div class="new-game-screen">
     <div class="new-game-box">
-        <pre class="title-art">
+        <pre class="title-art glow-green">
   ____  _   _ _____ _     ____
  |  _ \| | | | ____| |   / ___|
  | | | | | | |  _| | |   \___ \
  | |_| | |_| | |___| |___ ___) |
  |____/ \___/|_____|_____|____/
         </pre>
-        <p class="subtitle">A RuneScape-inspired text duel game</p>
+        <p class="subtitle">A RuneScape-inspired duel game</p>
 
         @if (!string.IsNullOrEmpty(_error))
         {
@@ -40,14 +40,13 @@
                    placeholder="e.g. Zezima"
                    autocomplete="off"
                    spellcheck="false" />
-            <button @onclick="StartGame" disabled="@_starting">
-                @(_starting ? "Creating..." : "Begin Adventure")
+            <button class="continue-btn" @onclick="StartGame" disabled="@_starting">
+                @(_starting ? "Creating..." : "▶ BEGIN ADVENTURE")
             </button>
         </div>
 
         <div class="hint-text">
-            <p>Fight NPCs · Buy weapons · Climb the ladder</p>
-            <p>Commands: <code>!duel goblin</code> · <code>!attack</code> · <code>!whip</code> · <code>!ags</code></p>
+            <p>Fight NPCs · Buy gear · Climb the ladder</p>
         </div>
     </div>
 </div>

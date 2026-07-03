@@ -1,0 +1,22 @@
+@using Duels.Application.GameSession
+@using Duels.Web.Components.Equipment
+@using Duels.Web.Components.Inventory
+
+<div class="shop-overlay" @onclick="OnClose">
+    <div class="shop-panel bag-panel" @onclick:stopPropagation>
+        <div class="shop-header">
+            <span class="shop-title">Bag</span>
+            <span class="shop-gold">@(State?.Player?.Gold.ToString("N0") ?? "0") gp</span>
+            <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
+        </div>
+        <div class="bag-body">
+            <EquipmentPanel State="@State" />
+            <InventoryGrid State="@State" />
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+}

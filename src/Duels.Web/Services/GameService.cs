@@ -2,7 +2,6 @@ using System.Text.Json;
 using Duels.Application.Abstractions;
 using Duels.Application.Commands;
 using Duels.Application.GameSession;
-using Duels.Application.Parsing;
 using Duels.Domain.Entities;
 using Duels.Domain.Services;
 using Duels.Domain.ValueObjects;
@@ -14,7 +13,6 @@ namespace Duels.Web.Services;
 public sealed class GameService
 {
     private readonly ICommandDispatcher _dispatcher;
-    private readonly CommandParser _parser;
     private readonly IGameStateRepository _stateRepo;
     private readonly IPlayerRepository _playerRepo;
     private readonly IJSRuntime _js;
@@ -24,10 +22,9 @@ public sealed class GameService
 
     public event Action? StateChanged;
 
-    public GameService(ICommandDispatcher dispatcher, CommandParser parser, IGameStateRepository stateRepo, IPlayerRepository playerRepo, IJSRuntime js)
+    public GameService(ICommandDispatcher dispatcher, IGameStateRepository stateRepo, IPlayerRepository playerRepo, IJSRuntime js)
     {
         _dispatcher = dispatcher;
-        _parser = parser;
         _stateRepo = stateRepo;
         _playerRepo = playerRepo;
         _js = js;
@@ -37,25 +34,6 @@ public sealed class GameService
     {
         PlayerId = Guid.NewGuid().ToString("N");
         var result = await _dispatcher.DispatchAsync(new StartGameCommand(PlayerId, playerName));
-        NotifyStateChanged();
-        await PersistAsync();
-        return result;
-    }
-
-    public async Task<CommandResult> ExecuteCommandAsync(string input)
-    {
-        if (PlayerId is null) return CommandResult.Fail("No active game.");
-
-        var parsed = _parser.Parse(PlayerId, input);
-        if (!parsed.Success)
-        {
-            var state = await _stateRepo.GetAsync(PlayerId);
-            state?.AppendLog(parsed.Error ?? "Unknown error.", LogEntryKind.System);
-            NotifyStateChanged();
-            return CommandResult.Fail(parsed.Error ?? "Parse error.");
-        }
-
-        var result = await _dispatcher.DispatchAsync((dynamic)parsed.Command!);
         NotifyStateChanged();
         await PersistAsync();
         return result;

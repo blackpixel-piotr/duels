@@ -80,7 +80,7 @@ public sealed class StartDuelHandler : ICommandHandler<StartDuelCommand>
             state.AppendLog($"You stake {command.Wager:N0}g! Win = {potentialPayout:N0}g (streak ×{state.WinStreakMultiplier:F1})", LogEntryKind.Loot);
         }
 
-        state.AppendLog("Type !attack, !spec, or use a quickslot to fight.", LogEntryKind.System);
+        state.AppendLog("Fight!", LogEntryKind.System);
 
         await _stateRepo.SaveAsync(state, ct);
         await _events.PublishAsync(new DuelStarted(command.PlayerId, template.Id, template.Name), ct);

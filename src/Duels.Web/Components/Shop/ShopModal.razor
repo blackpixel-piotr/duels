@@ -12,6 +12,7 @@
 
         <div class="shop-tabs">
             <button class="shop-tab @(_tab == "weapons" ? "active" : "")" @onclick='() => SetTab("weapons")'>Weapons</button>
+            <button class="shop-tab @(_tab == "armor"   ? "active" : "")" @onclick='() => SetTab("armor")'>Armor</button>
             <button class="shop-tab @(_tab == "food"    ? "active" : "")" @onclick='() => SetTab("food")'>Food</button>
             <button class="shop-tab @(_tab == "potions" ? "active" : "")" @onclick='() => SetTab("potions")'>Potions</button>
         </div>
@@ -40,15 +41,16 @@
                 }
                 else
                 {
-                    var reqUnmet = item.AtkReq > 0 && (State?.Player?.AttackLevel ?? 0) < item.AtkReq;
+                    var reqUnmet = ReqUnmet(item);
+                    var reqLabel = item.AtkReq > 0 ? $"{item.AtkReq} Atk" : item.DefReq > 0 ? $"{item.DefReq} Def" : null;
                     <button class="shop-cell @(reqUnmet ? "shop-cell-locked" : "")" @onclick="() => OnCellClick(itemLocal)"
-                            title="@item.Name — @item.Price.ToString("N0")g@(item.AtkReq > 0 ? $" (needs {item.AtkReq} Atk)" : "")">
+                            title="@item.Name — @item.Price.ToString("N0")g@(reqLabel is not null ? $" (needs {reqLabel})" : "")">
                         <span class="shop-cell-icon">@item.Icon</span>
                         <span class="shop-cell-name">@item.Name</span>
                         <span class="shop-cell-price">@item.Price.ToString("N0")g</span>
-                        @if (item.AtkReq > 0)
+                        @if (reqLabel is not null)
                         {
-                            <span class="shop-cell-req @(reqUnmet ? "shop-req-unmet" : "")">@item.AtkReq Atk</span>
+                            <span class="shop-cell-req @(reqUnmet ? "shop-req-unmet" : "")">@reqLabel</span>
                         }
                     </button>
                 }
@@ -68,7 +70,7 @@
     private string? _confirmItemId = null;
     private static readonly int[] _quantities = [1, 5, 10];
 
-    private sealed record ShopItem(string Id, string Name, int Price, string Icon, bool NeedsConfirm = false, int AtkReq = 0);
+    private sealed record ShopItem(string Id, string Name, int Price, string Icon, bool NeedsConfirm = false, int AtkReq = 0, int DefReq = 0);
 
     private static readonly ShopItem[] _weapons =
     [
@@ -90,6 +92,25 @@
         new("scythe_of_vitur",    "Scythe",      150_000, "⚔", NeedsConfirm: true, AtkReq: 90),
     ];
 
+    private static readonly ShopItem[] _armor =
+    [
+        new("rune_full_helm",      "R Helm",      500,    "⛑", DefReq: 60),
+        new("rune_kiteshield",     "R Shield",    800,    "🛡", DefReq: 60),
+        new("rune_platelegs",      "R Legs",      1_200,  "👖", DefReq: 60),
+        new("rune_platebody",     "R Body",      2_000,  "🎽", DefReq: 60),
+        new("dragon_med_helm",     "D Helm",      3_000,  "⛑", DefReq: 70),
+        new("dragon_boots",        "D Boots",     4_000,  "👢", DefReq: 65),
+        new("dragon_sq_shield",   "D Shield",    4_000,  "🛡", DefReq: 70),
+        new("dragon_platelegs",   "D Legs",      6_000,  "👖", DefReq: 70),
+        new("barrows_gloves",     "Barrows Glvs", 6_000,  "🧤", DefReq: 70),
+        new("dragon_platebody",   "D Body",      9_000,  "🎽", DefReq: 70),
+        new("amulet_of_fury",     "Fury",       15_000,  "📿", DefReq: 70),
+        new("justiciar_faceguard", "Justiciar",  30_000, "⛑", DefReq: 82, NeedsConfirm: true),
+        new("dragonfire_shield",  "DFS",         35_000,  "🛡", DefReq: 82, NeedsConfirm: true),
+        new("bandos_tassets",     "Bandos Legs", 45_000,  "👖", DefReq: 82, NeedsConfirm: true),
+        new("bandos_chestplate", "Bandos Body", 60_000,  "🎽", DefReq: 82, NeedsConfirm: true),
+    ];
+
     private static readonly ShopItem[] _food =
     [
         new("karambwan",  "Karambwan", 200, "🦑"),
@@ -105,12 +126,17 @@
 
     private ShopItem[] CurrentItems() => _tab switch
     {
+        "armor"   => _armor,
         "food"    => _food,
         "potions" => _potions,
         _         => _weapons,
     };
 
     private void SetTab(string tab) { _tab = tab; _confirmItemId = null; }
+
+    private bool ReqUnmet(ShopItem item) =>
+        (item.AtkReq > 0 && (State?.Player?.AttackLevel ?? 0) < item.AtkReq) ||
+        (item.DefReq > 0 && (State?.Player?.DefenceLevel ?? 0) < item.DefReq);
 
     private async Task OnCellClick(ShopItem item)
     {

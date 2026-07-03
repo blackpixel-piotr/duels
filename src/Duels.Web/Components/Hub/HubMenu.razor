@@ -1,0 +1,77 @@
+@using Duels.Application.GameSession
+
+<div class="hub-menu">
+    @if (State?.CanPrestige == true)
+    {
+        <button class="hub-card hub-card-prestige" disabled="@Processing" @onclick="() => OnPrestige.InvokeAsync()">
+            <span class="hub-card-icon">👑</span>
+            <span class="hub-card-body">
+                <span class="hub-card-title">PRESTIGE</span>
+                <span class="hub-card-sub">Reset for a Partyhat — levels &amp; collection remain</span>
+            </span>
+        </button>
+    }
+
+    @if (State?.LastOpponentId is not null)
+    {
+        <button class="hub-card hub-card-retry" disabled="@Processing" @onclick="() => OnRetry.InvokeAsync()">
+            <span class="hub-card-icon">⚔</span>
+            <span class="hub-card-body">
+                <span class="hub-card-title">@RetryLabel</span>
+                <span class="hub-card-sub">Rematch your last opponent</span>
+            </span>
+        </button>
+    }
+
+    <button class="hub-card" disabled="@Processing" @onclick="() => OnArena.InvokeAsync()">
+        <span class="hub-card-icon">🏟</span>
+        <span class="hub-card-body">
+            <span class="hub-card-title">DUEL ARENA</span>
+            <span class="hub-card-sub">Pick an opponent, set a stake</span>
+        </span>
+    </button>
+
+    <button class="hub-card" disabled="@Processing" @onclick="() => OnEndless.InvokeAsync()">
+        <span class="hub-card-icon">♾</span>
+        <span class="hub-card-body">
+            <span class="hub-card-title">ENDLESS MODE</span>
+            <span class="hub-card-sub">@(BestWave > 0 ? $"Best: Wave {BestWave}" : "Fight until you fall")</span>
+        </span>
+    </button>
+
+    <button class="hub-card" disabled="@Processing" @onclick="() => OnShop.InvokeAsync()">
+        <span class="hub-card-icon">🏪</span>
+        <span class="hub-card-body">
+            <span class="hub-card-title">SHOP</span>
+            <span class="hub-card-sub">Weapons · armor · supplies</span>
+        </span>
+    </button>
+
+    @if (BegEligible)
+    {
+        <button class="hub-card hub-card-beg" disabled="@Processing" @onclick="() => OnBeg.InvokeAsync()">
+            <span class="hub-card-icon">🙏</span>
+            <span class="hub-card-body">
+                <span class="hub-card-title">BEG</span>
+                <span class="hub-card-sub">Emergency coin, once per life</span>
+            </span>
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public bool Processing { get; set; }
+    [Parameter] public string RetryLabel { get; set; } = "⚔ Retry";
+    [Parameter] public EventCallback OnArena { get; set; }
+    [Parameter] public EventCallback OnEndless { get; set; }
+    [Parameter] public EventCallback OnShop { get; set; }
+    [Parameter] public EventCallback OnRetry { get; set; }
+    [Parameter] public EventCallback OnPrestige { get; set; }
+    [Parameter] public EventCallback OnBeg { get; set; }
+
+    private int BestWave => State?.BestEndlessWave ?? 0;
+
+    private bool BegEligible =>
+        (State?.Player?.Gold ?? int.MaxValue) < 100 && State?.HasBegged == false;
+}

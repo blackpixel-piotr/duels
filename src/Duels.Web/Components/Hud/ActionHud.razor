@@ -1,0 +1,295 @@
+@using Duels.Application.GameSession
+@using Duels.Application.Abstractions
+@using Duels.Application.Commands
+@using Duels.Domain.ValueObjects
+@using Duels.Domain.Entities
+@inject Duels.Web.Services.GameService GameSvc
+@inject IItemRepository ItemRepo
+
+<div class="action-hud">
+    @if (State?.InDuel == true)
+    {
+        <div class="tick-metronome" id="tick-bar"></div>
+
+        @* ── Row 1: consumable belt ── *@
+        <div class="hud-row hud-belt">
+            <button class="belt-slot @(FoodCount("shark") == 0 ? "qs-spec-depleted" : "")"
+                    title="Shark — heals 20 (+2 tick delay)"
+                    disabled="@(_busy || FoodCount("shark") == 0)"
+                    @onclick='() => Eat("shark")'>
+                <span class="belt-icon">🦈</span>
+                <span class="belt-count">@FoodCount("shark")</span>
+            </button>
+            <button class="belt-slot @(FoodCount("karambwan") == 0 ? "qs-spec-depleted" : "")"
+                    title="Karambwan — heals 18, combo food (no delay)"
+                    disabled="@(_busy || FoodCount("karambwan") == 0)"
+                    @onclick='() => Eat("karambwan")'>
+                <span class="belt-icon">🦑</span>
+                <span class="belt-count">@FoodCount("karambwan")</span>
+            </button>
+            <button class="belt-slot @(FoodCount("anglerfish") == 0 ? "qs-spec-depleted" : "")"
+                    title="Anglerfish — heals 22, overheals (+2 tick delay)"
+                    disabled="@(_busy || FoodCount("anglerfish") == 0)"
+                    @onclick='() => Eat("anglerfish")'>
+                <span class="belt-icon">🐟</span>
+                <span class="belt-count">@FoodCount("anglerfish")</span>
+            </button>
+            <button class="belt-slot @(FoodCount("super_combat_potion") == 0 ? "qs-spec-depleted" : "")"
+                    title="Super Combat Potion — +Atk/Str for 4 rounds (+1 tick delay)"
+                    disabled="@(_busy || FoodCount("super_combat_potion") == 0)"
+                    @onclick='() => Drink("super_combat_potion")'>
+                <span class="belt-icon">⚗</span>
+                <span class="belt-count">@FoodCount("super_combat_potion")</span>
+            </button>
+            @if (FoodCount("antidote") > 0 || State.PlayerPoisoned)
+            {
+                <button class="belt-slot @(State.PlayerPoisoned ? "belt-poisoned" : "") @(FoodCount("antidote") == 0 ? "qs-spec-depleted" : "")"
+                        title="Antidote — cures poison (+1 tick delay)"
+                        disabled="@(_busy || FoodCount("antidote") == 0)"
+                        @onclick='() => Drink("antidote")'>
+                    <span class="belt-icon">🧪</span>
+                    <span class="belt-count">@FoodCount("antidote")</span>
+                </button>
+            }
+            <button class="belt-slot @VengClass"
+                    title="@VengTitle"
+                    disabled="@(_busy || !VengReady)"
+                    @onclick="Veng">
+                <span class="belt-icon">💢</span>
+                <span class="belt-label">@VengLabel</span>
+            </button>
+        </div>
+
+        @* ── Row 2: weapons ── *@
+        <div class="hud-row hud-weapons">
+            @{ var weaponSlots = WeaponSlots().ToList(); }
+            @if (weaponSlots.Count == 0)
+            {
+                <button class="quickslot qs-primary @(State.PlayerCooldown == 0 ? "qs-ready" : "")" title="Attack" disabled="@_busy" @onclick="Attack">
+                    <span class="qs-cd-fill" style="height:@(CooldownPct(null))%"></span>
+                    <span class="qs-icon">⚔</span>
+                    <span class="qs-label">ATTACK</span>
+                </button>
+            }
+            else
+            {
+                @foreach (var slot in weaponSlots)
+                {
+                    var depleted  = SpecDepleted(slot.WeaponId);
+                    var slotLocal = slot;
+                    <button class="quickslot @(slot.IsPrimary ? "qs-primary" : "") @(slot.IsPrimary && State.PlayerCooldown == 0 ? "qs-ready" : "") @(slot.IsQueued ? "qs-queued" : "") @(depleted ? "qs-spec-depleted" : "")"
+                            title="@slot.Label"
+                            disabled="@_busy"
+                            @onclick="() => WeaponShortcut(slotLocal.WeaponId)">
+                        @if (slot.IsPrimary)
+                        {
+                            <span class="qs-cd-fill" style="height:@(CooldownPct(slot.WeaponId))%"></span>
+                        }
+                        @if (_specCosts.TryGetValue(slot.WeaponId, out int cost))
+                        {
+                            <span class="qs-spec-badge">@cost%</span>
+                        }
+                        <span class="qs-icon">⚔</span>
+                        <span class="qs-label">@slot.Label</span>
+                    </button>
+                }
+            }
+        </div>
+
+        @* ── Row 3: prayers + style ── *@
+        <div class="hud-row hud-prayers">
+            @{
+                var activeProt  = State.Player?.ActiveProtection ?? ProtectionPrayer.None;
+                var pietyActive = State.Player?.PietyActive == true;
+                var noPrayer    = (State.Player?.PrayerPoints ?? 0) <= 0;
+            }
+            <button class="quickslot pray-slot @(activeProt == ProtectionPrayer.Melee ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
+                    title="Protect from Melee" disabled="@_busy" @onclick='() => Protect("protect_melee")'>
+                <span class="qs-icon">⛉</span><span class="qs-label">MELEE</span>
+            </button>
+            <button class="quickslot pray-slot @(activeProt == ProtectionPrayer.Range ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
+                    title="Protect from Ranged" disabled="@_busy" @onclick='() => Protect("protect_range")'>
+                <span class="qs-icon">➶</span><span class="qs-label">RANGE</span>
+            </button>
+            <button class="quickslot pray-slot @(activeProt == ProtectionPrayer.Magic ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
+                    title="Protect from Magic" disabled="@_busy" @onclick='() => Protect("protect_magic")'>
+                <span class="qs-icon">✦</span><span class="qs-label">MAGIC</span>
+            </button>
+            <button class="quickslot pray-slot @(pietyActive ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
+                    title="Piety — +20% Atk/Str, drains prayer faster" disabled="@_busy" @onclick="Piety">
+                <span class="qs-icon">⚡</span><span class="qs-label">PIETY</span>
+            </button>
+            <button class="quickslot pray-slot" title="Cycle combat style" disabled="@_busy" @onclick="CycleStyle">
+                <span class="qs-icon">🎯</span><span class="qs-label">@CurrentStyleLabel</span>
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="hud-row hud-nav">
+            <button class="quickslot nav-slot" title="Duel Arena" @onclick="() => OnOpenLadder.InvokeAsync()">
+                <span class="qs-icon">⚔</span><span class="qs-label">ARENA</span>
+            </button>
+            <button class="quickslot nav-slot" title="Shop" @onclick="() => OnOpenShop.InvokeAsync()">
+                <span class="qs-icon">🏪</span><span class="qs-label">SHOP</span>
+            </button>
+            <button class="quickslot nav-slot" title="Bag — inventory & equipment" @onclick="() => OnOpenBag.InvokeAsync()">
+                <span class="qs-icon">🎒</span><span class="qs-label">BAG</span>
+            </button>
+            <button class="quickslot nav-slot" title="Character sheet" @onclick="() => OnOpenCharacter.InvokeAsync()">
+                <span class="qs-icon">📜</span><span class="qs-label">CHAR</span>
+            </button>
+            <button class="quickslot nav-slot" title="Collection Log" @onclick="() => OnOpenLog.InvokeAsync()">
+                <span class="qs-icon">📖</span><span class="qs-label">LOG</span>
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public EventCallback OnOpenShop { get; set; }
+    [Parameter] public EventCallback OnOpenLadder { get; set; }
+    [Parameter] public EventCallback OnOpenLog { get; set; }
+    [Parameter] public EventCallback OnOpenBag { get; set; }
+    [Parameter] public EventCallback OnOpenCharacter { get; set; }
+
+    private bool _busy;
+
+    private static readonly Dictionary<string, string> _shorthands = new()
+    {
+        ["armadyl_godsword"]   = "AGS",
+        ["bandos_godsword"]    = "BGS",
+        ["zamorak_godsword"]   = "ZGS",
+        ["saradomin_godsword"] = "SGS",
+        ["dragon_dagger"]      = "DDS",
+        ["dragon_claws"]       = "CLAWS",
+        ["abyssal_whip"]       = "WHIP",
+        ["scythe_of_vitur"]    = "SCYTHE",
+        ["corrupted_whip"]     = "C.WHIP",
+        ["granite_maul"]       = "G.MAUL",
+        ["abyssal_bludgeon"]   = "BLUDGN",
+        ["elder_maul"]         = "E.MAUL",
+        ["zamorakian_hasta"]   = "HASTA",
+        ["ghrazi_rapier"]      = "RAPIER",
+        ["venomous_fang"]      = "FANG",
+    };
+
+    private static readonly string[] _weaponOrder =
+    [
+        "rune_scimitar", "dragon_scimitar", "dragon_dagger", "granite_maul",
+        "abyssal_whip", "zamorakian_hasta", "armadyl_sword", "dragon_claws",
+        "abyssal_bludgeon", "bandos_godsword", "zamorak_godsword", "ghrazi_rapier",
+        "saradomin_godsword", "armadyl_godsword", "elder_maul", "scythe_of_vitur",
+        "corrupted_whip", "venomous_fang",
+    ];
+
+    private static readonly HashSet<string> _knownWeaponIds = new(_weaponOrder);
+
+    private static readonly Dictionary<string, int> _specCosts = new()
+    {
+        ["dragon_dagger"]      = 25,
+        ["corrupted_whip"]     = 25,
+        ["dragon_claws"]       = 50,
+        ["bandos_godsword"]    = 50,
+        ["zamorak_godsword"]   = 50,
+        ["saradomin_godsword"] = 50,
+        ["armadyl_godsword"]   = 50,
+        ["granite_maul"]       = 50,
+        ["abyssal_bludgeon"]   = 50,
+        ["elder_maul"]         = 50,
+        ["scythe_of_vitur"]    = 100,
+    };
+
+    private int FoodCount(string id) => State?.Player?.Inventory.Count(i => i == id) ?? 0;
+
+    // Cooldown fill: % of the primary weapon's attack speed still remaining.
+    // Eat-delays can push PlayerCooldown above the weapon speed — clamp at 100.
+    private int CooldownPct(string? weaponId)
+    {
+        int cd = State?.PlayerCooldown ?? 0;
+        if (cd <= 0) return 0;
+        int speed = weaponId is not null ? (ItemRepo.GetWeapon(weaponId)?.AttackSpeed ?? 4) : 4;
+        return Math.Clamp(cd * 100 / Math.Max(1, speed), 0, 100);
+    }
+
+    private bool VengReady => State is { VengActive: false, VengCooldownRounds: 0 };
+    private string VengClass => State?.VengActive == true ? "qs-active"
+        : (State?.VengCooldownRounds ?? 0) > 0 ? "qs-spec-depleted" : "";
+    private string VengLabel => State?.VengActive == true ? "ARMED"
+        : (State?.VengCooldownRounds ?? 0) > 0 ? $"VENG {State!.VengCooldownRounds}" : "VENG";
+    private string VengTitle => State?.VengActive == true
+        ? "Vengeance armed — next hit taken reflects 75%"
+        : "Vengeance — reflect 75% of the next hit taken";
+
+    private bool SpecDepleted(string weaponId) =>
+        _specCosts.TryGetValue(weaponId, out int cost) &&
+        (State?.Player?.SpecialEnergy ?? 100) < cost;
+
+    private IEnumerable<WeaponSlotDef> WeaponSlots()
+    {
+        if (State?.Player is not { } player) yield break;
+
+        var equippedId = player.GetEquippedWeaponId();
+        var primaryId  = State?.RevertWeaponId ?? equippedId;
+        var queuedId   = State?.RevertWeaponId != null ? equippedId : null;
+
+        if (primaryId is not null && _knownWeaponIds.Contains(primaryId))
+            yield return MakeSlot(primaryId, isPrimary: true, isQueued: false);
+
+        if (queuedId is not null && queuedId != primaryId && _knownWeaponIds.Contains(queuedId))
+            yield return MakeSlot(queuedId, isPrimary: false, isQueued: true);
+
+        foreach (var id in _weaponOrder)
+        {
+            if (id == primaryId || id == queuedId) continue;
+            if (player.Inventory.Contains(id))
+                yield return MakeSlot(id, isPrimary: false, isQueued: false);
+        }
+    }
+
+    private static WeaponSlotDef MakeSlot(string weaponId, bool isPrimary, bool isQueued)
+    {
+        var label = _shorthands.TryGetValue(weaponId, out var sh)
+            ? sh
+            : weaponId.Replace("_", " ").ToUpperInvariant();
+        return new WeaponSlotDef(weaponId, label, isPrimary, isQueued);
+    }
+
+    private string CurrentStyleLabel => State?.Player?.ChosenStyle switch
+    {
+        AttackStyle.Aggressive => "AGG",
+        AttackStyle.Defensive  => "DEF",
+        _                      => "ACC",
+    };
+
+    private Task CycleStyle()
+    {
+        var next = State?.Player?.ChosenStyle switch
+        {
+            AttackStyle.Accurate   => AttackStyle.Aggressive,
+            AttackStyle.Aggressive => AttackStyle.Defensive,
+            _                      => AttackStyle.Accurate,
+        };
+        return Run(() => GameSvc.DispatchAsync(new SetStyleCommand(GameSvc.PlayerId!, next)));
+    }
+
+    private async Task Run(Func<Task> action)
+    {
+        if (_busy || GameSvc.PlayerId is null) return;
+        _busy = true;
+        StateHasChanged();
+        try { await action(); }
+        finally { _busy = false; }
+    }
+
+    private Task Attack()                  => Run(() => GameSvc.DispatchAsync(new AttackCommand(GameSvc.PlayerId!, AttackStyle.Accurate)));
+    private Task WeaponShortcut(string id) => Run(() => GameSvc.DispatchAsync(new WeaponShortcutCommand(GameSvc.PlayerId!, id)));
+    private Task Protect(string prayer)    => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, prayer)));
+    private Task Piety()                   => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, "piety")));
+    private Task Eat(string id)            => Run(() => GameSvc.DispatchAsync(new EatItemCommand(GameSvc.PlayerId!, id)));
+    private Task Drink(string id)          => Run(() => GameSvc.DispatchAsync(new DrinkPotionCommand(GameSvc.PlayerId!, id)));
+    private Task Veng()                    => Run(() => GameSvc.DispatchAsync(new VengeanceCommand(GameSvc.PlayerId!)));
+
+    private sealed record WeaponSlotDef(string WeaponId, string Label, bool IsPrimary, bool IsQueued);
+}

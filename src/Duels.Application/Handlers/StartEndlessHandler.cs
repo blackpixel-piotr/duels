@@ -34,7 +34,6 @@ public sealed class StartEndlessHandler : ICommandHandler<StartEndlessCommand>
 
         state.AppendLog("═══ ENDLESS MODE ═══", LogEntryKind.System);
         state.AppendLog($"Wave {wave}: {npc.Template.Name} ({npc.MaxHp} HP). Fight until you fall!", LogEntryKind.System);
-        state.AppendLog("Type !attack to fight.", LogEntryKind.System);
 
         await _stateRepo.SaveAsync(state, ct);
         await _events.PublishAsync(new DuelStarted(command.PlayerId, npc.Template.Id, npc.Template.Name), ct);

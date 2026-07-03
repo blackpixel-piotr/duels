@@ -87,7 +87,7 @@ Use cases and the command pipeline. Depends on Domain only.
 | `GameSession/GameState.cs` | Per-session state: `Player`, `ActiveNpc`, `CombatLog`, `InDuel`. `AppendLog(msg, kind)` with 500-entry cap. |
 | `Commands/*.cs` | `StartGameCommand`, `StartDuelCommand`, `AttackCommand`, `EquipItemCommand`, `UnequipItemCommand`, `InspectCommand`, `ListNpcsCommand`, `HelpCommand`. |
 | `Handlers/*.cs` | One handler per command. `AttackHandler` runs one full combat tick (player → NPC → NPC → player), emits events, calls `ItemUnlockService` on kill, awards XP + logs level-ups. |
-| `Parsing/CommandParser.cs` | Maps raw text (`!duel goblin`, `!whip`, `!attack aggressive`) to typed commands. Returns `ParseResult(Success, Command, Error)`. **Both terminal input and quickslot bar go through this.** |
+| `Parsing/CommandParser.cs` | Maps raw text (`!duel goblin`, `!whip`, `!attack aggressive`) to typed commands. Kept for potential future text-input reintroduction, but unused by the current UI — every button dispatches a typed command directly via `GameService.DispatchAsync<T>()`, no parsing step. Not registered in DI. |
 | `Services/ItemUnlockService.cs` | Rolls loot table on NPC death using `IRandomProvider`. Skips items already owned. |
 
 ---
@@ -119,17 +119,20 @@ Blazor WASM. Depends on Application (interfaces) + Infrastructure (DI wiring onl
 | Path | Contents |
 |---|---|
 | `Program.cs` | Calls `AddDuelsInfrastructure()` + registers `GameService` as singleton. |
-| `Services/GameService.cs` | Owns `PlayerId`. Exposes `StartNewGameAsync`, `ExecuteCommandAsync`, `GetStateAsync`. Fires `StateChanged` event so components re-render. |
+| `Services/GameService.cs` | Owns `PlayerId`. Exposes `StartNewGameAsync`, `DispatchAsync<TCommand>`, `GetStateAsync`. Fires `StateChanged` event so components re-render. |
 | `Pages/NewGame.razor` | `/` route — character name input, calls `GameService.StartNewGameAsync`. |
-| `Pages/Game.razor` | `/game` route — three-column layout. Subscribes to `GameService.StateChanged`. |
-| `Components/Terminal/TerminalComponent.razor` | Scrolling combat log. Auto-scrolls via `scrollToBottom` JS interop. |
-| `Components/Terminal/TerminalInput.razor` | Text field + Send button. Fires `OnSubmit(string)` callback. Calls `focusElement` JS interop after submit. |
-| `Components/QuickSlots/QuickSlotBar.razor` | Row of preset command buttons. Each fires `OnCommand(string)` — same pipeline as typed text. Edit slot definitions here to add/change quickslots. |
-| `Components/Stats/StatsPanel.razor` | Left panel: HP bar, special bar, combat levels, gold. |
-| `Components/Inventory/InventoryGrid.razor` | Right panel: 28-slot OSRS-style grid + equipped items. Click → `!equip <id>`. |
-| `Components/Combat/NpcCard.razor` | NPC name, level, HP bar. Shown only during a duel. |
-| `wwwroot/index.html` | Minimal HTML. Includes `scrollToBottom` + `focusElement` JS helpers. |
-| `wwwroot/css/terminal.css` | All styles — CSS variables, dark terminal theme. No external CSS frameworks. |
+| `Pages/Game.razor` | `/game` route — single-column mobile shell (`.game-shell`, max-width 520px on every screen size). Subscribes to `GameService.StateChanged` + `GameTickService.RegisterNotify`. |
+| `Components/Hud/StatusStrip.razor` | Always-visible slim header: name, Atk/Str/Def levels, gold, HP/prayer/spec bars, status chips. |
+| `Components/Hud/ActionHud.razor` | Fixed bottom action bar. In duel: tick metronome (`#tick-bar`) + consumable belt + weapon grid (cooldown fill) + prayer row. Out of duel: ARENA/SHOP/BAG/CHAR/LOG nav. Every button dispatches a typed command directly — no text parsing. |
+| `Components/Hub/HubMenu.razor` | Out-of-duel home screen — big cards for Arena/Endless/Shop plus conditional Retry/Prestige/Beg cards. |
+| `Components/Combat/CombatStage.razor` | Enemy-first duel view — NPC name/style badge/HP bar + telegraph banner, compact player row with `#zone-player`/`#zone-npc` hitsplat anchors. |
+| `Components/Terminal/EventLog.razor` | Narrative combat log, capped to ~5 lines (tap to expand). Auto-scrolls via `scrollToBottom` JS interop; also drives hitsplat spawn + shake JS calls off the same log diff. |
+| `Components/Hud/ToastHost.razor` | Top-center toast stack for level-up/loot log entries, timestamp-pruned after 3s. |
+| `Components/Hud/CharacterSheet.razor`, `Components/Bag/BagSheet.razor` | Modal sheets wrapping `StatsPanel` and `EquipmentPanel`+`InventoryGrid` respectively. |
+| `Components/Stats/StatsPanel.razor` | Full stat detail (levels, xp bars, gold, prayer/streak/veng state) — shown inside `CharacterSheet`. |
+| `Components/Inventory/InventoryGrid.razor` | 28-slot OSRS-style grid + equipped items. Tap routes by item type: food → `EatItemCommand`, potions → `DrinkPotionCommand`, else → `EquipItemCommand`. |
+| `wwwroot/index.html` | Minimal HTML. `scrollToBottom`, `saveGame`/`loadGame`/`clearGame`, `triggerShake`, `startMetronome`/`stopMetronome` (tick-cycle sweep + flash, a prayer-flick timing aid), `spawnHitsplats` JS helpers. |
+| `wwwroot/css/terminal.css` | All styles — CSS variables, dark terminal theme, CRT scanline overlay + glow utilities. No external CSS frameworks. |
 
 ---
 
@@ -140,10 +143,9 @@ Blazor WASM. Depends on Application (interfaces) + Infrastructure (DI wiring onl
 | Add a new NPC | `src/Duels.Infrastructure/Persistence/InMemoryNpcRepository.cs` — add entry to `BuildNpcs()` |
 | Add a new weapon | `src/Duels.Infrastructure/Persistence/InMemoryItemRepository.cs` — add to `BuildWeapons()` |
 | Add new gear | Same file — add to `BuildGear()` |
-| Add a command alias | `src/Duels.Application/Parsing/CommandParser.cs` — add to the `switch` expression |
-| Add a quickslot | `src/Duels.Web/Components/QuickSlots/QuickSlotBar.razor` — add to `_slots` array |
+| Add a HUD button | `src/Duels.Web/Components/Hud/ActionHud.razor` — dispatches a typed command directly, no parser involved |
 | Change combat formula | `src/Duels.Domain/Services/CombatCalculator.cs` |
-| Change XP curve | `src/Duels.Domain/Entities/Player.cs` — `XpForLevel` method |
+| Change XP curve | `src/Duels.Domain/Services/ExperienceTable.cs` |
 
 ---
 

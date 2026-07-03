@@ -7,7 +7,7 @@
     <div class="inv-grid">
         @foreach (var itemId in Items)
         {
-            <button class="inv-slot" title="@itemId" @onclick="() => Equip(itemId)">
+            <button class="inv-slot @SlotClass(itemId)" title="@SlotTitle(itemId)" @onclick="() => UseItem(itemId)">
                 <span class="inv-item-name">@ShortName(itemId)</span>
             </button>
         }
@@ -21,13 +21,30 @@
 @code {
     [Parameter] public GameState? State { get; set; }
 
+    private static readonly HashSet<string> _food    = ["shark", "karambwan", "anglerfish"];
+    private static readonly HashSet<string> _potions = ["super_combat_potion", "antidote"];
+
     private IReadOnlyList<string> Items => State?.Player?.Inventory ?? [];
 
-    private async Task Equip(string itemId)
+    // Food eats, potions drink, everything else equips
+    private async Task UseItem(string itemId)
     {
         if (GameSvc.PlayerId is null) return;
-        await GameSvc.DispatchAsync(new EquipItemCommand(GameSvc.PlayerId!, itemId));
+        if (_food.Contains(itemId))
+            await GameSvc.DispatchAsync(new EatItemCommand(GameSvc.PlayerId!, itemId));
+        else if (_potions.Contains(itemId))
+            await GameSvc.DispatchAsync(new DrinkPotionCommand(GameSvc.PlayerId!, itemId));
+        else
+            await GameSvc.DispatchAsync(new EquipItemCommand(GameSvc.PlayerId!, itemId));
     }
+
+    private static string SlotClass(string id) =>
+        _food.Contains(id) ? "inv-food" : _potions.Contains(id) ? "inv-potion" : "";
+
+    private static string SlotTitle(string id) =>
+        _food.Contains(id) ? $"{ShortName(id)} — tap to eat"
+        : _potions.Contains(id) ? $"{ShortName(id)} — tap to drink"
+        : $"{ShortName(id)} — tap to equip";
 
     private static string ShortName(string id) =>
         string.Join(" ", id.Split('_').Select(w => char.ToUpper(w[0]) + w[1..]));

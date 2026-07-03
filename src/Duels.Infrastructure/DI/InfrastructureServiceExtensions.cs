@@ -1,7 +1,6 @@
 using Duels.Application.Abstractions;
 using Duels.Application.Commands;
 using Duels.Application.Handlers;
-using Duels.Application.Parsing;
 using Duels.Application.Services;
 using Duels.Domain.Interfaces;
 using Duels.Domain.Services;
@@ -30,7 +29,6 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ICommandDispatcher, LocalCommandQueue>();
 
         // Application services
-        services.AddSingleton<CommandParser>();
         services.AddSingleton<GameTickService>();
 
         // Command handlers
