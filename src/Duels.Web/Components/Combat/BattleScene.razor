@@ -63,6 +63,7 @@
     private int _lastCount;
     private bool _inited;
     private bool _lastTelegraph;
+    private string? _lastWindup;
     private bool _deathFired;
     private string? _enemyId;
     private string _enemyName = "";
@@ -171,6 +172,17 @@
         {
             _lastTelegraph = telegraph;
             await JS.InvokeVoidAsync("voxel.setBattleFlags", "battle-canvas", new { telegraph });
+        }
+
+        // NpcCooldown == 1 after a tick means the enemy attacks on the next
+        // tick (~600ms) — the reaction window prayer flicking will key off.
+        string? windup =
+            State is { InDuel: true, NpcCooldown: 1, ActiveNpc: { } wn } && !EnemyDead && !PlayerDead
+                ? StyleClass(wn.CurrentAttackType) : null;
+        if (windup != _lastWindup)
+        {
+            _lastWindup = windup;
+            await JS.InvokeVoidAsync("voxel.setBattleFlags", "battle-canvas", new { windup });
         }
 
         if ((EnemyDead || PlayerDead) && !_deathFired)
