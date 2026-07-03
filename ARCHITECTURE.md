@@ -126,7 +126,7 @@ Blazor WASM. Depends on Application (interfaces) + Infrastructure (DI wiring onl
 | `Components/Hud/ActionHud.razor` | Fixed bottom action bar. In duel: tick metronome (`#tick-bar`) + consumable belt + weapon grid (cooldown fill) + prayer row. Out of duel: ARENA/SHOP/BAG/CHAR/LOG nav. Every button dispatches a typed command directly — no text parsing. |
 | `Components/Hub/HubMenu.razor` | Out-of-duel home screen — big cards for Arena/Endless/Shop plus conditional Retry/Prestige/Beg cards. |
 | `Components/Combat/CombatStage.razor` | Enemy-first duel view — NPC name/style badge/HP bar + telegraph banner, compact player row with `#zone-player`/`#zone-npc` hitsplat anchors. |
-| `Components/Terminal/EventLog.razor` | Narrative combat log, capped to ~5 lines (tap to expand). Auto-scrolls via `scrollToBottom` JS interop; also drives hitsplat spawn + shake JS calls off the same log diff. |
+| `Components/Terminal/EventLog.razor` | Narrative combat log, fills all remaining space above the action HUD. Auto-scrolls via `scrollToBottom` JS interop; also drives hitsplat spawn + shake JS calls off the same log diff. |
 | `Components/Hud/ToastHost.razor` | Top-center toast stack for level-up/loot log entries, timestamp-pruned after 3s. |
 | `Components/Hud/CharacterSheet.razor`, `Components/Bag/BagSheet.razor` | Modal sheets wrapping `StatsPanel` and `EquipmentPanel`+`InventoryGrid` respectively. |
 | `Components/Stats/StatsPanel.razor` | Full stat detail (levels, xp bars, gold, prayer/streak/veng state) — shown inside `CharacterSheet`. |

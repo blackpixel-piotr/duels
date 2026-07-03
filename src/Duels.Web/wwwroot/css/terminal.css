@@ -185,25 +185,15 @@ html, body {
     100% { transform: translateY(-42px) scale(1); opacity: 0; }
 }
 
-/* ─── Event log — demoted to a small window; tap to expand ─── */
+/* ─── Event log — fills all remaining space above the action HUD ─── */
 .terminal-log {
-    flex: 0 0 auto;
-    height: 7.6em;
+    flex: 1 1 0;
+    min-height: 0;
     overflow-y: auto;
     background: var(--bg-panel);
     border: var(--border-w) double var(--border);
     box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
     padding: 8px 10px;
-    cursor: pointer;
-    -webkit-mask-image: linear-gradient(to bottom, transparent, black 22px);
-    mask-image: linear-gradient(to bottom, transparent, black 22px);
-}
-.terminal-log-expanded {
-    flex: 1 1 0;
-    height: auto;
-    min-height: 0;
-    -webkit-mask-image: none;
-    mask-image: none;
 }
 .log-entry {
     padding: 1px 0;
@@ -562,15 +552,31 @@ html, body {
     pointer-events: none;
 }
 .toast {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     background: var(--bg-panel);
     border: 2px solid var(--border);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
-    padding: 5px 12px;
+    padding: 5px 8px 5px 12px;
     font-size: 11px;
     font-weight: bold;
-    text-align: center;
     animation: toast-in 0.2s ease-out;
+    pointer-events: auto;
 }
+.toast-msg { flex: 1; text-align: center; }
+.toast-close {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: inherit;
+    opacity: 0.6;
+    font-size: 11px;
+    line-height: 1;
+    padding: 2px 4px;
+    cursor: pointer;
+}
+.toast-close:hover { opacity: 1; }
 .toast-levelup { border-color: var(--yellow); color: var(--yellow); text-shadow: 0 0 6px rgba(255, 215, 0, 0.55); }
 .toast-loot    { border-color: var(--amber); color: var(--yellow); text-shadow: 0 0 6px rgba(255, 215, 0, 0.4); }
 @keyframes toast-in {

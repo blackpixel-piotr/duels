@@ -77,7 +77,7 @@
                 {
                     var depleted  = SpecDepleted(slot.WeaponId);
                     var slotLocal = slot;
-                    <button class="quickslot @(slot.IsPrimary ? "qs-primary" : "") @(slot.IsPrimary && State.PlayerCooldown == 0 ? "qs-ready" : "") @(slot.IsQueued ? "qs-queued" : "") @(depleted ? "qs-spec-depleted" : "")"
+                    <button @key="slot.WeaponId" class="quickslot @(slot.IsPrimary ? "qs-primary" : "") @(slot.IsPrimary && State.PlayerCooldown == 0 ? "qs-ready" : "") @(slot.IsQueued ? "qs-queued" : "") @(depleted ? "qs-spec-depleted" : "")"
                             title="@slot.Label"
                             disabled="@_busy"
                             @onclick="() => WeaponShortcut(slotLocal.WeaponId)">
@@ -234,17 +234,20 @@
         var primaryId  = State?.RevertWeaponId ?? equippedId;
         var queuedId   = State?.RevertWeaponId != null ? equippedId : null;
 
+        // Slot 1 is always the primary (auto-attack) weapon.
         if (primaryId is not null && _knownWeaponIds.Contains(primaryId))
             yield return MakeSlot(primaryId, isPrimary: true, isQueued: false);
 
-        if (queuedId is not null && queuedId != primaryId && _knownWeaponIds.Contains(queuedId))
-            yield return MakeSlot(queuedId, isPrimary: false, isQueued: true);
-
+        // Every other weapon stays in its natural, stable position — only the
+        // queued flag (dashed amber border) toggles in place, nothing reorders.
+        // Use HasItem (inventory OR equipped): the queued weapon is temporarily
+        // equipped by WeaponShortcutHandler, so it's briefly out of Inventory —
+        // checking Inventory alone would make it vanish from the row entirely.
         foreach (var id in _weaponOrder)
         {
-            if (id == primaryId || id == queuedId) continue;
-            if (player.Inventory.Contains(id))
-                yield return MakeSlot(id, isPrimary: false, isQueued: false);
+            if (id == primaryId) continue;
+            if (player.HasItem(id))
+                yield return MakeSlot(id, isPrimary: false, isQueued: id == queuedId);
         }
     }
 
