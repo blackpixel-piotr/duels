@@ -54,6 +54,10 @@ public sealed class GameState
     public List<string> Bank { get; } = new();
     public int DamageTakenThisDuel { get; private set; }
 
+    // Duel result — populated at duel end, consumed by the result overlay
+    public DuelSummary? LastDuelSummary { get; private set; }
+    public int XpGainedThisDuel { get; private set; }
+
     public GameState(string playerId, Player player)
     {
         PlayerId = playerId;
@@ -69,9 +73,12 @@ public sealed class GameState
         InitDuelCooldowns();
         ClearDots();
         DamageTakenThisDuel = 0;
+        XpGainedThisDuel = 0;
     }
 
     public void RecordDamageTaken(int amount) { if (amount > 0) DamageTakenThisDuel += amount; }
+    public void RecordXpGained(int xp) { if (xp > 0) XpGainedThisDuel += xp; }
+    public void SetDuelSummary(DuelSummary summary) => LastDuelSummary = summary;
 
     public void RecordLoot(string itemId) { if (!CollectionLog.Contains(itemId)) CollectionLog.Add(itemId); }
     public void RecordDefeat(string npcId) { if (!DefeatedNpcs.Contains(npcId)) DefeatedNpcs.Add(npcId); }
@@ -211,6 +218,18 @@ public sealed class GameState
 }
 
 public sealed record CombatLogEntry(string Message, LogEntryKind Kind, DateTimeOffset Timestamp);
+
+/// <summary>Snapshot of a finished duel for the end-of-fight result overlay.</summary>
+public sealed record DuelSummary(
+    bool Won,
+    string NpcId,
+    string NpcName,
+    int GoldGained,
+    IReadOnlyList<string> LootItemIds,
+    int XpGained,
+    int WinStreak,
+    bool Flawless,
+    int EndlessWaveReached);
 
 public enum LogEntryKind
 {

@@ -470,6 +470,7 @@ public sealed class GameTickService : IDisposable
         if (damage <= 0) return;
         int xp = damage * 4;
         int hpXp = damage * 4 / 3;
+        state.RecordXpGained(xp + hpXp);
         var ups = player.ChosenStyle switch
         {
             AttackStyle.Aggressive => player.GainXp(0, xp, 0, hpXp),
@@ -484,6 +485,7 @@ public sealed class GameTickService : IDisposable
     {
         if (damage <= 0) return;
         int xp = damage * 3 * (player.ChosenStyle == AttackStyle.Defensive ? 2 : 1);
+        state.RecordXpGained(xp);
         LogLevelUps(state, player.GainXp(0, 0, xp, 0));
     }
 
@@ -542,7 +544,8 @@ public sealed class GameTickService : IDisposable
         if (state.WinStreak > 1)
             state.AppendLog($"Win streak: {state.WinStreak}! (×{state.WinStreakMultiplier:F1} multiplier)", LogEntryKind.System);
 
-        RollLoot(state, player, npc.Template);
+        var (lootItems, lootGold) = RollLoot(state, player, npc.Template);
+        payout += lootGold;
 
         if (npc.Template.Id == "champion")
         {
@@ -581,13 +584,27 @@ public sealed class GameTickService : IDisposable
             state.AppendLog($"You have proven yourself — {nextName} now challenges you!", LogEntryKind.System);
         }
 
+        state.SetDuelSummary(new DuelSummary(
+            Won: true,
+            NpcId: npc.Template.Id,
+            NpcName: npc.Template.Name,
+            GoldGained: payout,
+            LootItemIds: lootItems,
+            XpGained: state.XpGainedThisDuel,
+            WinStreak: state.WinStreak,
+            Flawless: state.DamageTakenThisDuel == 0,
+            EndlessWaveReached: 0));
+
         player.RestoreSpecialEnergy();
         state.EndDuel();
         await _events.PublishAsync(new DuelWon(player.Id, npc.Template.Id, npc.Template.Name, payout));
     }
 
-    private void RollLoot(GameState state, Player player, NpcTemplate template)
+    private (List<string> Items, int Gold) RollLoot(GameState state, Player player, NpcTemplate template)
     {
+        var lootedItems = new List<string>();
+        int lootedGold = 0;
+
         foreach (var entry in template.LootTable)
         {
             if (entry.OnceOnly && player.HasItem(entry.ItemId)) continue;
@@ -599,6 +616,7 @@ public sealed class GameTickService : IDisposable
             if (entry.ItemId == "gold")
             {
                 player.AddGold(qty);
+                lootedGold += qty;
                 state.AppendLog($"You find {qty:N0} gold on the body.", LogEntryKind.Loot);
                 continue;
             }
@@ -612,11 +630,13 @@ public sealed class GameTickService : IDisposable
                 {
                     int fenceValue = _items.GetFenceValue(entry.ItemId);
                     player.AddGold(fenceValue);
+                    lootedGold += fenceValue;
                     state.AppendLog($"Your pack is full — you fence the {itemName} for {fenceValue:N0}g.", LogEntryKind.Loot);
                 }
                 else
                 {
                     player.AddToInventory(entry.ItemId);
+                    lootedItems.Add(entry.ItemId);
                 }
             }
 
@@ -630,6 +650,8 @@ public sealed class GameTickService : IDisposable
                 state.AppendLog($"You loot {(qty > 1 ? $"{qty}× " : "")}{itemName}.", LogEntryKind.Loot);
             }
         }
+
+        return (lootedItems, lootedGold);
     }
 
     private async Task HandleDefeat(GameState state, Player player, NpcInstance npc)
@@ -639,11 +661,23 @@ public sealed class GameTickService : IDisposable
 
         state.ResetWinStreak();
 
+        int waveReached = state.InEndlessMode ? state.EndlessWave : 0;
         if (state.InEndlessMode)
         {
             state.AppendLog($"Endless run over! You reached wave {state.EndlessWave}. Best: {state.BestEndlessWave}.", LogEntryKind.System);
             state.EndEndless();
         }
+
+        state.SetDuelSummary(new DuelSummary(
+            Won: false,
+            NpcId: npc.Template.Id,
+            NpcName: npc.Template.Name,
+            GoldGained: 0,
+            LootItemIds: [],
+            XpGained: state.XpGainedThisDuel,
+            WinStreak: 0,
+            Flawless: false,
+            EndlessWaveReached: waveReached));
 
         player.RestoreHp();
         state.EndDuel();

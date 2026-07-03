@@ -182,46 +182,6 @@ html, body {
     100% { transform: translateY(-42px) scale(1); opacity: 0; }
 }
 
-/* ─── Event log — fills all remaining space above the action HUD ─── */
-.terminal-log {
-    flex: 1 1 0;
-    min-height: 0;
-    overflow-y: auto;
-    background: var(--bg-panel);
-    border: var(--border-w) double var(--border);
-    box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
-    padding: 8px 10px;
-}
-.log-entry {
-    padding: 1px 0;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    word-break: break-word;
-}
-.log-info      { color: var(--text); }
-.log-playerhit { color: var(--green); }
-.log-playermiss{ color: var(--text-dim); }
-.log-npchit    { color: var(--red); }
-.log-npcmiss   { color: var(--text-dim); font-style: italic; }
-.log-system    { color: var(--amber); }
-.log-loot      { color: var(--yellow); font-weight: bold; }
-.log-levelup   { color: var(--yellow); font-weight: bold; text-shadow: 0 0 6px rgba(255,215,0,0.45); animation: pulse-grow 0.25s ease-in-out 2; }
-.log-maxhit {
-    color: #ffd700;
-    font-weight: bold;
-    font-size: 1.1em;
-    text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
-    animation: pulse-grow 0.25s ease-in-out 2;
-}
-.log-spechit    { color: #ff8c00; font-weight: bold; }
-.log-vengeance  { color: var(--purple); font-weight: bold; }
-.log-prayer     { color: #6ec6ff; font-style: italic; }
-.log-bossspecial {
-    color: #ff6b00;
-    font-weight: bold;
-    text-shadow: 0 0 6px rgba(255,107,0,0.4);
-}
-
 @keyframes pulse-grow {
     0%, 100% { transform: scale(1); }
     50%       { transform: scale(1.06); }
@@ -382,66 +342,195 @@ html, body {
 .qs-spec-depleted { opacity: 0.38; filter: grayscale(0.5); }
 .qs-spec-depleted .qs-spec-badge { background: #1a1510; color: var(--text-dim); }
 
-/* ─── Combat stage — enemy-first duel view ─── */
-.combat-stage {
+/* ─── Battle scene — Pokemon-style voxel duel view ─── */
+.battle-wrap {
+    position: relative;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    flex: 1 1 0;
+    min-height: 0;
+}
+.battle-scene {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 0;
     background: var(--bg-panel);
     border: var(--border-w) double var(--border);
     box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
-    padding: 10px 12px;
-    flex-shrink: 0;
+    overflow: hidden;
 }
-.stage-npc { position: relative; display: flex; flex-direction: column; gap: 4px; }
-.stage-npc-name {
-    font-size: 16px;
-    font-weight: bold;
-    color: var(--red);
-    text-align: center;
-}
-.stage-banner {
-    background: rgba(255, 107, 0, 0.15);
-    border: 1px solid #ff6b00;
-    color: #ffb26b;
-    font-size: 11px;
-    font-weight: bold;
-    text-align: center;
-    padding: 4px 8px;
-    text-shadow: 0 0 6px rgba(255, 107, 0, 0.5);
-    animation: crt-flicker 0.12s steps(2) 3;
+/* Stretched to fill the box: %-anchored overlays stay aligned with the
+   fractional LAYOUT anchors used by the canvas renderer. */
+#battle-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
 }
 @keyframes crt-flicker {
     0%, 100% { opacity: 1; }
     50%       { opacity: 0.35; }
 }
-.stage-hp-row { display: flex; align-items: center; gap: 6px; }
-.stage-hp-val { color: var(--text-dim); font-size: 10px; white-space: nowrap; min-width: 46px; text-align: right; text-shadow: 0 0 4px rgba(122, 106, 82, 0.4); }
-
-.stage-player-row {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-top: 1px solid var(--border);
-    padding-top: 6px;
-}
-.stage-player-name { font-size: 11px; font-weight: bold; color: var(--yellow); flex-shrink: 0; }
-.stage-mini-bars { display: flex; flex-direction: column; gap: 3px; flex: 1; }
 .mini-bar-wrap {
     height: 6px;
     background: var(--bg);
     border: 1px solid var(--border);
     overflow: hidden;
 }
-.mini-bar-wrap .hp-bar, .mini-bar-wrap .spec-bar { height: 100%; }
+.mini-bar-wrap .hp-bar, .mini-bar-wrap .spec-bar, .mini-bar-wrap .prayer-bar { height: 100%; }
+
+/* Pokemon-convention HP boxes: enemy box opposite the enemy sprite */
+.battle-box {
+    position: absolute;
+    min-width: 44%;
+    max-width: 60%;
+    background: rgba(21, 15, 9, 0.88);
+    border: 2px solid var(--border);
+    box-shadow: inset 1px 1px 0 var(--bevel-hi), 2px 2px 0 rgba(0, 0, 0, 0.45);
+    padding: 5px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    z-index: 5;
+}
+.battle-box-enemy  { top: 6px; left: 6px; }
+.battle-box-player { bottom: 6px; right: 6px; }
+.battle-box-name {
+    font-size: 12px;
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.battle-box-enemy .battle-box-name  { color: var(--red); }
+.battle-box-player .battle-box-name { color: var(--yellow); }
+.battle-box-bars { display: flex; align-items: center; gap: 5px; }
+.battle-box-bars .hp-bar-wrap { flex: 1; }
+.battle-box-bars .mini-bar-wrap { flex: 1; }
+.battle-box-val { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
+
+/* Hitsplat zones anchored over the actors (left/top set by voxel.initBattle
+   from the same LAYOUT the renderer uses) */
+.battle-zone {
+    position: absolute;
+    width: 0;
+    z-index: 10;
+}
+.battle-zone .hitsplat { transform: translateX(-50%); }
+
+/* Telegraphed special — speech bubble above the enemy */
+.telegraph-bubble {
+    position: absolute;
+    top: 4%;
+    right: 4%;
+    max-width: 58%;
+    background: var(--bg-input);
+    border: 2px solid #cc44ff;
+    color: #ff8b3d;
+    font-size: 10px;
+    font-weight: bold;
+    line-height: 1.35;
+    padding: 5px 8px;
+    z-index: 8;
+    box-shadow: 0 0 10px rgba(204, 68, 255, 0.35);
+    animation: bubble-pop 0.18s ease-out, crt-flicker 0.12s steps(2) 3;
+}
+.telegraph-bubble::after {
+    content: '';
+    position: absolute;
+    bottom: -8px;
+    right: 24%;
+    border: 8px solid transparent;
+    border-top-color: #cc44ff;
+    border-bottom: none;
+}
+@keyframes bubble-pop {
+    0%   { transform: scale(0.6); opacity: 0; }
+    100% { transform: scale(1);   opacity: 1; }
+}
+
+/* Overhead prayer icons (OSRS-style) */
+.overhead {
+    position: absolute;
+    transform: translateX(-50%);
+    font-size: 17px;
+    font-weight: bold;
+    pointer-events: none;
+    z-index: 9;
+    text-shadow: 1px 1px 0 #000;
+    animation: overhead-float 2.2s ease-in-out infinite;
+}
+.overhead-player { left: 30%; top: 28%; }
+.overhead-npc    { left: 52%; top: 18%; }  /* beside the enemy's head, clear of bubble + hitsplats */
+.overhead-melee  { color: #ff5555; filter: drop-shadow(0 0 5px rgba(255, 85, 85, 0.7)); }
+.overhead-ranged { color: #5ada5a; filter: drop-shadow(0 0 5px rgba(90, 218, 90, 0.7)); }
+.overhead-magic  { color: #6ec6ff; filter: drop-shadow(0 0 5px rgba(110, 198, 255, 0.7)); }
+.overhead-piety  { color: var(--yellow); filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.7)); }
+@keyframes overhead-float {
+    0%, 100% { margin-top: 0; }
+    50%       { margin-top: -3px; }
+}
+
+/* ─── Duel result overlay (over the battle scene) ─── */
+.duel-result-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+    /* delay lets the loser's death collapse play out first */
+    animation: result-in 0.3s ease-out 0.9s both;
+}
+@keyframes result-in {
+    0%   { opacity: 0; transform: translateY(10px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+.duel-result-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-panel);
+    border: var(--border-w) double var(--border);
+    box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
+    padding: 14px 22px;
+    max-width: 86%;
+    max-height: 92%;
+    overflow-y: auto;
+}
+.duel-result-header { font-size: 24px; font-weight: bold; letter-spacing: 3px; }
+.result-win  { color: var(--yellow); }
+.result-lose { color: var(--red); }
+.duel-result-npc { color: var(--text-dim); font-size: 11px; }
+.duel-result-flawless { color: var(--yellow); font-size: 12px; font-weight: bold; animation: pulse-grow 0.25s ease-in-out 2; }
+.duel-result-row { font-size: 13px; }
+.result-gold   { color: var(--yellow); font-weight: bold; }
+.result-xp     { color: var(--green); }
+.result-streak { color: var(--amber); }
+.duel-result-loot {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border-top: 1px solid var(--border);
+    padding-top: 6px;
+    margin-top: 2px;
+    align-items: flex-start;
+}
+.duel-result-loot-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--yellow); }
+.duel-result-actions { display: flex; gap: 8px; margin-top: 8px; }
+.result-btn { min-width: 96px; min-height: 40px; }
 
 /* ─── Hub menu (out-of-duel home screen) ─── */
+/* With the event log gone the hub fills the column above the HUD. */
 .hub-menu {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    flex-shrink: 0;
+    flex: 1 1 0;
+    min-height: 0;
     overflow-y: auto;
 }
 .hub-card {
@@ -577,6 +666,7 @@ html, body {
 .toast-close:hover { opacity: 1; }
 .toast-levelup { border-color: var(--yellow); color: var(--yellow); text-shadow: 0 0 6px rgba(255, 215, 0, 0.55); }
 .toast-loot    { border-color: var(--amber); color: var(--yellow); text-shadow: 0 0 6px rgba(255, 215, 0, 0.4); }
+.toast-system  { border-color: var(--amber); color: var(--amber); }
 @keyframes toast-in {
     from { transform: translateY(-10px); opacity: 0; }
     to   { transform: translateY(0);     opacity: 1; }

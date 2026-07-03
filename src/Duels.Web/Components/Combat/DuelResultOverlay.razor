@@ -1,0 +1,67 @@
+@using Duels.Application.GameSession
+@using Duels.Web.Components.Inventory
+
+@* End-of-duel result screen over the battle scene; the entry animation is
+   delayed in CSS so the loser's collapse plays out first. *@
+<div class="duel-result-overlay">
+    <div class="duel-result-panel">
+        <div class="duel-result-header @(Summary.Won ? "result-win glow-yellow" : "result-lose glow-red")">
+            @(Summary.Won ? "YOU WIN" : "YOU LOSE")
+        </div>
+        <div class="duel-result-npc">vs @Summary.NpcName</div>
+
+        @if (Summary.Won && Summary.Flawless)
+        {
+            <div class="duel-result-flawless">⭐ FLAWLESS ⭐</div>
+        }
+        @if (Summary.EndlessWaveReached > 0)
+        {
+            <div class="duel-result-row">Reached wave <b>@Summary.EndlessWaveReached</b></div>
+        }
+
+        @if (Summary.GoldGained > 0)
+        {
+            <div class="duel-result-row result-gold">+@Summary.GoldGained.ToString("N0")g</div>
+        }
+        @if (Summary.XpGained > 0)
+        {
+            <div class="duel-result-row result-xp">+@Summary.XpGained.ToString("N0") xp</div>
+        }
+        @if (Summary.Won && Summary.WinStreak > 1)
+        {
+            <div class="duel-result-row result-streak">Win streak: @Summary.WinStreak</div>
+        }
+
+        @if (Summary.LootItemIds.Count > 0)
+        {
+            <div class="duel-result-loot">
+                @foreach (var itemId in Summary.LootItemIds)
+                {
+                    <div class="duel-result-loot-item">
+                        <VoxelIcon ItemId="@itemId" Size="24" />
+                        <span>@ShortName(itemId)</span>
+                    </div>
+                }
+            </div>
+        }
+
+        <div class="duel-result-actions">
+            <button class="quickslot result-btn" @onclick="() => OnContinue.InvokeAsync()">CONTINUE</button>
+            @if (ShowRetry)
+            {
+                <button class="quickslot result-btn" @onclick="() => OnRetry.InvokeAsync()">@RetryLabel</button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public DuelSummary Summary { get; set; } = default!;
+    [Parameter] public EventCallback OnContinue { get; set; }
+    [Parameter] public EventCallback OnRetry { get; set; }
+    [Parameter] public bool ShowRetry { get; set; }
+    [Parameter] public string RetryLabel { get; set; } = "RETRY";
+
+    private static string ShortName(string id) =>
+        string.Join(" ", id.Split('_').Select(w => char.ToUpper(w[0]) + w[1..]));
+}
