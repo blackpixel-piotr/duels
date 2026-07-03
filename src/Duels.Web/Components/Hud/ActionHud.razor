@@ -77,7 +77,7 @@
                 {
                     var depleted  = SpecDepleted(slot.WeaponId);
                     var slotLocal = slot;
-                    <button @key="slot.WeaponId" class="quickslot @(slot.IsPrimary ? "qs-primary" : "") @(slot.IsPrimary && State.PlayerCooldown == 0 ? "qs-ready" : "") @(slot.IsQueued ? "qs-queued" : "") @(depleted ? "qs-spec-depleted" : "")"
+                    <button @key="slot.WeaponId" class="quickslot @(slot.IsPrimary ? "qs-primary" : "") @(slot.IsPrimary && State.PlayerCooldown == 0 ? "qs-ready" : "") @(depleted ? "qs-spec-depleted" : "")"
                             title="@slot.Label"
                             disabled="@_busy"
                             @onclick="() => WeaponShortcut(slotLocal.WeaponId)">

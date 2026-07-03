@@ -318,12 +318,13 @@ html, body {
 }
 .quickslot .qs-icon, .quickslot .qs-label { position: relative; }
 
-/* Cooldown fill: dark overlay draining bottom-up on the primary weapon */
+/* Cooldown fill: dark overlay draining bottom-up on the primary weapon.
+   No CSS transition — snaps to the correct tick-accurate height instantly
+   so the bar reaches 0 exactly when the attack fires. */
 .qs-cd-fill {
     position: absolute;
     left: 0; right: 0; bottom: 0;
     background: rgba(0, 0, 0, 0.62);
-    transition: height 600ms linear;
     pointer-events: none;
 }
 /* Attack ready: bright green frame pulse */
