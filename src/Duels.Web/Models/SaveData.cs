@@ -20,5 +20,7 @@ public sealed record SaveData(
     string ChosenStyle = "Accurate",
     // v3: permanent account record — survives prestige, absent on older saves
     List<string>? CollectionLog = null,
-    List<string>? DefeatedNpcs = null
+    List<string>? DefeatedNpcs = null,
+    // v4: bank storage — cleared on prestige, absent on older saves
+    List<string>? Bank = null
 );

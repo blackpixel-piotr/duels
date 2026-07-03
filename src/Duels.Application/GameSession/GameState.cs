@@ -49,6 +49,9 @@ public sealed class GameState
     // Collection log / achievements — persist across prestige (the account's permanent record)
     public List<string> CollectionLog { get; } = new();
     public List<string> DefeatedNpcs { get; } = new();
+
+    // Bank — off-inventory storage; cleared on prestige
+    public List<string> Bank { get; } = new();
     public int DamageTakenThisDuel { get; private set; }
 
     public GameState(string playerId, Player player)
@@ -177,10 +180,12 @@ public sealed class GameState
         HasBegged = false;
         InEndlessMode = false;
         EndlessWave = 0;
+        Bank.Clear();
     }
 
     public void RestoreFromSave(int winStreak, int bestEndlessWave, IEnumerable<string> unlockedOpponents,
-        IEnumerable<string>? collectionLog = null, IEnumerable<string>? defeatedNpcs = null)
+        IEnumerable<string>? collectionLog = null, IEnumerable<string>? defeatedNpcs = null,
+        IEnumerable<string>? bank = null)
     {
         WinStreak = winStreak;
         BestEndlessWave = bestEndlessWave;
@@ -198,6 +203,10 @@ public sealed class GameState
         foreach (var id in defeatedNpcs ?? [])
             if (!DefeatedNpcs.Contains(id))
                 DefeatedNpcs.Add(id);
+
+        Bank.Clear();
+        foreach (var id in bank ?? [])
+            Bank.Add(id);
     }
 }
 

@@ -51,6 +51,9 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ICommandHandler<SetStyleCommand>, SetStyleHandler>();
         services.AddSingleton<ICommandHandler<BegCommand>, BegHandler>();
         services.AddSingleton<ICommandHandler<PrestigeCommand>, PrestigeHandler>();
+        services.AddSingleton<ICommandHandler<SellItemCommand>, SellItemHandler>();
+        services.AddSingleton<ICommandHandler<DepositItemCommand>, DepositItemHandler>();
+        services.AddSingleton<ICommandHandler<WithdrawItemCommand>, WithdrawItemHandler>();
 
         return services;
     }
