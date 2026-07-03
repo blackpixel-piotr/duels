@@ -291,9 +291,12 @@
     // aspect distortion); scaleFrac scales off the smaller canvas dimension.
     const BATTLE_PX = 3;
     const LAYOUT = {
-        player: { x: 0.30, y: 0.92, scaleFrac: 1.12, angle: Math.PI + Math.PI / 5, zoneY: 0.62 },
-        enemy:  { x: 0.72, y: 0.42, scaleFrac: 0.72, angle: -Math.PI / 5,          zoneY: 0.20 },
+        player: { x: 0.26, y: 0.92, scaleFrac: 0.85, angle: Math.PI + Math.PI / 5, zoneY: 0.70 },
+        enemy:  { x: 0.75, y: 0.40, scaleFrac: 0.55, angle: -Math.PI / 5,          zoneY: 0.24 },
     };
+
+    // Attack-style accent colors (match .style-badge-* in terminal.css).
+    const STYLE_COLORS = { melee: '#ff5555', ranged: '#7ddc7d', magic: '#6ec6ff' };
 
     const battles = new Map(); // canvasId → state
 
@@ -301,11 +304,17 @@
         return { model, base, tint: tint ?? null, anims: [], bobPhase: Math.random() * 6.28, off: document.createElement('canvas') };
     }
 
+    // Voxel size for an actor at the current canvas resolution.
+    function actorScale(actor, minDim) {
+        const m = actor.model;
+        return Math.max(1, Math.floor(minDim * actor.base.scaleFrac / (m.height + 1 + m.radius * 2 * TILT)));
+    }
+
     // Render an actor to its offscreen canvas; returns {S, w, h, feetX, feetY}
     // where feet* locate the model's ground-center inside the offscreen.
     function renderActorOffscreen(actor, flashTint, minDim) {
         const m = actor.model;
-        const S = Math.max(1, Math.floor(minDim * actor.base.scaleFrac / (m.height + 1 + m.radius * 2 * TILT)));
+        const S = actorScale(actor, minDim);
         const w = Math.ceil((m.radius * 2 + 1) * S) + 2;
         const h = Math.ceil((m.height + 1 + m.radius * 2 * TILT) * S) + 2;
         const off = actor.off;
@@ -324,16 +333,17 @@
     }
 
     // Active animation offsets for an actor at time `now`.
-    function animState(actor, now, towardX, towardY) {
+    function animState(actor, now, towardX, towardY, windup) {
         const st = { dx: 0, dy: 0, flash: null, squash: 0, alpha: 1, scale: 1 };
+        const len = Math.hypot(towardX, towardY) || 1;
         actor.anims = actor.anims.filter(a => a.type === 'death' || now - a.t0 < a.dur);
         for (const a of actor.anims) {
             const p = Math.min(1, (now - a.t0) / a.dur);
             switch (a.type) {
-                case 'lunge': { // out-and-back toward the opponent
+                case 'attack': { // in-place pop toward the opponent — no travel
                     const e = Math.sin(Math.PI * p);
-                    st.dx += towardX * 0.20 * e;
-                    st.dy += towardY * 0.20 * e;
+                    st.dx += (towardX / len) * 3 * e;
+                    st.dy += (towardY / len) * 3 * e - 2 * e;
                     break;
                 }
                 case 'hit': { // white → red flash + recoil away from attacker
@@ -361,12 +371,17 @@
         }
         const dying = actor.anims.some(a => a.type === 'death');
         if (!dying) st.dy += Math.sin(now * 0.0025 + actor.bobPhase) * 1.5;
+        if (windup && !dying) { // lean back/up before the attack lands
+            st.dx -= (towardX / len) * 2;
+            st.dy -= 2 + Math.sin(now * 0.02) * 1.5;
+            st.scale *= 1.04;
+        }
         return st;
     }
 
-    function drawActor(ctx, W, H, actor, other, now) {
+    function drawActor(ctx, W, H, actor, other, now, windup) {
         const ax = actor.base.x * W, ay = actor.base.y * H;
-        const a = animState(actor, now, (other.base.x - actor.base.x) * W, (other.base.y - actor.base.y) * H);
+        const a = animState(actor, now, (other.base.x - actor.base.x) * W, (other.base.y - actor.base.y) * H, windup);
         const r = renderActorOffscreen(actor, a.flash, Math.min(W, H));
 
         // Ground shadow (fades out with the actor)
@@ -392,6 +407,64 @@
         g.addColorStop(1, 'rgba(204,68,255,0)');
         ctx.fillStyle = g;
         ctx.fillRect(cx - rad, cy - rad, rad * 2, rad * 2);
+    }
+
+    // Elliptical battle pad under an actor's feet (Pokemon-style depth cue).
+    function drawPlatform(ctx, W, H, actor) {
+        const S = actorScale(actor, Math.min(W, H));
+        const rx = actor.model.radius * S * 1.5, ry = rx * 0.38;
+        const x = actor.base.x * W, y = actor.base.y * H + 1;
+        ctx.fillStyle = 'rgba(16,26,20,0.55)';
+        ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, 6.2832); ctx.fill();
+        ctx.strokeStyle = 'rgba(140,220,170,0.18)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, 6.2832); ctx.stroke();
+    }
+
+    // Pulsing starburst above the enemy while their attack winds up; color
+    // encodes the incoming style so prayer switches can be timed off it.
+    function drawWindupGlint(ctx, W, H, actor, now, color) {
+        const minDim = Math.min(W, H);
+        const x = actor.base.x * W;
+        const y = actor.base.y * H - minDim * actor.base.scaleFrac * 1.02;
+        const pulse = 0.5 + 0.5 * Math.sin(now * 0.02);
+        const r = minDim * 0.05 * (0.7 + 0.5 * pulse);
+        ctx.save();
+        ctx.globalAlpha = 0.5 + 0.5 * pulse;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        for (let i = 0; i < 4; i++) {
+            const ang = i * Math.PI / 4 + now * 0.003;
+            ctx.beginPath();
+            ctx.moveTo(x - Math.cos(ang) * r, y - Math.sin(ang) * r);
+            ctx.lineTo(x + Math.cos(ang) * r, y + Math.sin(ang) * r);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    // Impact slash over the defender: sweeping arcs + radial sparks, fading out.
+    function drawSlash(ctx, x, y, r, p, color) {
+        ctx.save();
+        ctx.globalAlpha = 1 - p;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        const sweep = p * 1.4;
+        for (let i = 0; i < 3; i++) {
+            ctx.beginPath();
+            ctx.arc(x, y, r * (0.45 + i * 0.25), -2.2 + sweep, -0.9 + sweep);
+            ctx.stroke();
+        }
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 5; i++) {
+            const ang = i * 1.2566 + 0.6;
+            const r0 = r * (0.25 + 0.55 * p), r1 = r * (0.5 + 0.8 * p);
+            ctx.beginPath();
+            ctx.moveTo(x + Math.cos(ang) * r0, y + Math.sin(ang) * r0);
+            ctx.lineTo(x + Math.cos(ang) * r1, y + Math.sin(ang) * r1);
+            ctx.stroke();
+        }
+        ctx.restore();
     }
 
     function npcModelUrl(enemyId) {
@@ -427,7 +500,9 @@
             player: makeActor(playerModel, LAYOUT.player, null),
             enemy: makeActor(enemyModel, LAYOUT.enemy, npcFallbackTint(opts.enemyId)),
             enemySwapToken: 0,
-            flags: { telegraph: false },
+            flags: { telegraph: false, windup: null },
+            lastWindupStyle: null,
+            effects: [],
             raf: 0,
             ro: null,
         };
@@ -457,9 +532,20 @@
             const now = performance.now();
             const W = canvas.width, H = canvas.height;
             st.ctx.clearRect(0, 0, W, H);
+            drawPlatform(st.ctx, W, H, st.enemy);
+            drawPlatform(st.ctx, W, H, st.player);
             if (st.flags.telegraph) drawTelegraphGlow(st.ctx, W, H, st.enemy, now);
-            drawActor(st.ctx, W, H, st.enemy, st.player, now);  // far actor first
-            drawActor(st.ctx, W, H, st.player, st.enemy, now);
+            drawActor(st.ctx, W, H, st.enemy, st.player, now, st.flags.windup);  // far actor first
+            drawActor(st.ctx, W, H, st.player, st.enemy, now, null);
+            if (st.flags.windup)
+                drawWindupGlint(st.ctx, W, H, st.enemy, now, STYLE_COLORS[st.flags.windup] ?? '#ffffff');
+            st.effects = st.effects.filter(e => now - e.t0 < e.dur);
+            const minDim = Math.min(W, H);
+            for (const e of st.effects) {
+                const base = e.on === 'player' ? LAYOUT.player : LAYOUT.enemy;
+                drawSlash(st.ctx, base.x * W, base.y * H - minDim * base.scaleFrac * 0.45,
+                    minDim * base.scaleFrac * 0.4, (now - e.t0) / e.dur, e.color);
+            }
             st.raf = requestAnimationFrame(loop);
         };
         st.raf = requestAnimationFrame(loop);
@@ -489,7 +575,11 @@
 
     function setBattleFlags(canvasId, flags) {
         const st = battles.get(canvasId);
-        if (st) Object.assign(st.flags, flags);
+        if (!st) return;
+        Object.assign(st.flags, flags);
+        // Style rotation can advance the moment the NPC attacks, so the impact
+        // color comes from the style that was showing during the wind-up.
+        if (st.flags.windup) st.lastWindupStyle = st.flags.windup;
     }
 
     // evt = { type, tier? }; types: playerAttack | enemyAttack | playerHit |
@@ -498,25 +588,31 @@
         const st = battles.get(canvasId);
         if (!st) return;
         const now = performance.now();
+        const landed = evt.tier !== 'miss' && evt.tier !== 'poison';
         switch (evt.type) {
-            case 'playerAttack': st.player.anims.push({ type: 'lunge', t0: now, dur: 320 }); break;
-            case 'enemyAttack':  st.enemy.anims.push({ type: 'lunge', t0: now, dur: 320 }); break;
+            case 'playerAttack': st.player.anims.push({ type: 'attack', t0: now, dur: 320 }); break;
+            case 'enemyAttack':  st.enemy.anims.push({ type: 'attack', t0: now, dur: 320 }); break;
             case 'playerHit':
                 st.player.anims.push(evt.tier === 'miss'
                     ? { type: 'dodge', t0: now, dur: 260 }
                     : { type: 'hit', t0: now, dur: 260 });
+                if (landed) st.effects.push({ on: 'player', t0: now, dur: 280,
+                    color: STYLE_COLORS[st.lastWindupStyle] ?? '#ffffff' });
                 break;
             case 'enemyHit':
                 st.enemy.anims.push(evt.tier === 'miss'
                     ? { type: 'dodge', t0: now, dur: 260 }
                     : { type: 'hit', t0: now, dur: 260 });
+                if (landed) st.effects.push({ on: 'enemy', t0: now, dur: 280, color: '#ffd76a' });
                 break;
             case 'enemyDeath':
                 st.flags.telegraph = false;
+                st.flags.windup = null;
                 st.enemy.anims = [{ type: 'death', t0: now, dur: 900 }];
                 break;
             case 'playerDeath':
                 st.flags.telegraph = false;
+                st.flags.windup = null;
                 st.player.anims = [{ type: 'death', t0: now, dur: 900 }];
                 break;
         }
