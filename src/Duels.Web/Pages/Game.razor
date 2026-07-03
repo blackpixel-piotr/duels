@@ -64,7 +64,8 @@ else
                 <BattleScene State="@_state"
                              LogEntries="@(_state?.CombatLog.ToList() ?? [])"
                              EnemyDead="@(_duelResult?.Won == true)"
-                             PlayerDead="@(_duelResult is { Won: false })" />
+                             PlayerDead="@(_duelResult is { Won: false })"
+                             WeaponId="@(_state?.Player?.GetEquippedWeaponId())" />
                 @if (_duelResult is not null)
                 {
                     <DuelResultOverlay Summary="@_duelResult"

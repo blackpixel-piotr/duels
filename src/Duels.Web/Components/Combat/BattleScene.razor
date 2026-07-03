@@ -1,6 +1,8 @@
 @using Duels.Application.GameSession
+@using Duels.Application.Abstractions
 @using Duels.Domain.ValueObjects
 @inject IJSRuntime JS
+@inject IItemRepository ItemRepo
 @implements IAsyncDisposable
 
 @* Pokemon-style battle scene: voxel player close-up lower-left, enemy
@@ -59,11 +61,13 @@
     [Parameter] public IReadOnlyList<CombatLogEntry> LogEntries { get; set; } = [];
     [Parameter] public bool EnemyDead { get; set; }
     [Parameter] public bool PlayerDead { get; set; }
+    [Parameter] public string? WeaponId { get; set; }
 
     private int _lastCount;
     private bool _inited;
     private bool _lastTelegraph;
     private string? _lastWindup;
+    private string? _lastWeapon;
     private bool _deathFired;
     private string? _enemyId;
     private string _enemyName = "";
@@ -126,10 +130,19 @@
                 zonePlayerId = "zone-player",
                 zoneNpcId = "zone-npc",
             });
+            _lastWeapon = WeaponId;
+            await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId);
             _inited = true;
             return;
         }
         if (!_inited) return;
+
+        // RETRY rematches reuse the mounted scene — restore the crumbled loser.
+        if (State?.InDuel == true && _deathFired)
+        {
+            _deathFired = false;
+            await JS.InvokeVoidAsync("voxel.resetBattle", "battle-canvas");
+        }
 
         // Endless waves swap the enemy without remounting the scene.
         if (State?.ActiveNpc is { } npc && npc.Template.Id != _enemyId)
@@ -137,6 +150,20 @@
             _enemyId = npc.Template.Id;
             await JS.InvokeVoidAsync("voxel.setBattleEnemy", "battle-canvas", _enemyId);
         }
+
+        // Weapon switches show up in the player's hand.
+        if (WeaponId != _lastWeapon)
+        {
+            _lastWeapon = WeaponId;
+            await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId);
+        }
+
+        // HP fractions drive voxel erosion (damage chips the model, food regrows it).
+        await JS.InvokeVoidAsync("voxel.setBattleVitals", "battle-canvas", new
+        {
+            player = State?.Player is { MaxHp: > 0 } pl ? pl.CurrentHp / (double)pl.MaxHp : 1.0,
+            enemy = _enemyMaxHp > 0 ? EnemyHp / (double)_enemyMaxHp : 1.0,
+        });
 
         var newEntries = LogEntries.Count > _lastCount ? LogEntries.Skip(_lastCount).ToList() : [];
         _lastCount = LogEntries.Count;
@@ -155,12 +182,12 @@
             await JS.InvokeVoidAsync("spawnHitsplats",
                 (object)new[] { new { zoneId = zone, damage = dmg, tier } });
 
-            // DoT ticks aren't attacks — no lunge, just the victim's flash.
+            // DoT ticks aren't attacks — no swing, just the victim's flash.
             if (tier != "poison")
                 await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
-                    new { type = onEnemy ? "playerAttack" : "enemyAttack" });
+                    new { type = onEnemy ? "playerAttack" : "enemyAttack", style = onEnemy ? PlayerStyle() : null });
             await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
-                new { type = onEnemy ? "enemyHit" : "playerHit", tier });
+                new { type = onEnemy ? "enemyHit" : "playerHit", tier, dmg });
         }
 
         if (newEntries.Any(e => e.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit
@@ -192,6 +219,10 @@
                 new { type = EnemyDead ? "enemyDeath" : "playerDeath" });
         }
     }
+
+    // The player's projectile/effect style comes from the equipped weapon.
+    private string PlayerStyle() =>
+        WeaponId is { } id && ItemRepo.GetWeapon(id) is { } w ? StyleClass(w.AttackType) : "melee";
 
     private static string StyleClass(AttackType t) => t switch
     {
