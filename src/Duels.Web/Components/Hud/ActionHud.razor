@@ -89,8 +89,12 @@
                         {
                             <span class="qs-spec-badge">@cost%</span>
                         }
-                        <span class="qs-icon">⚔</span>
-                        <span class="qs-label">@slot.Label</span>
+                        <VoxelIcon ItemId="@slot.WeaponId" Size="40">
+                            <Fallback>
+                                <span class="qs-icon">⚔</span>
+                                <span class="qs-label">@slot.Label</span>
+                            </Fallback>
+                        </VoxelIcon>
                     </button>
                 }
             }
