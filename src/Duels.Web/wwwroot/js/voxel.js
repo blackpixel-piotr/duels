@@ -300,8 +300,50 @@
 
     const battles = new Map(); // canvasId → state
 
+    // Actors own a copy of the voxel list ordered core-first, so HP-driven
+    // erosion chips voxels off the outside while the silhouette survives.
+    // view is what actually renders: the first visCount entries of ordered.
     function makeActor(model, base, tint) {
-        return { model, base, tint: tint ?? null, anims: [], bobPhase: Math.random() * 6.28, off: document.createElement('canvas') };
+        let cy = 0;
+        for (const v of model.voxels) cy += v.y;
+        cy /= model.voxels.length || 1;
+        const ordered = model.voxels
+            .map(v => ({ v, k: Math.hypot(v.x, (v.y - cy) * 0.7, v.z) + Math.random() * model.radius * 0.5 }))
+            .sort((a, b) => a.k - b.k)
+            .map(o => o.v);
+        return {
+            model, base, tint: tint ?? null, anims: [],
+            bobPhase: Math.random() * 6.28, off: document.createElement('canvas'),
+            ordered, visCount: ordered.length, lastRemoved: [],
+            view: { ...model, voxels: ordered.slice(), scratch: new Array(ordered.length) },
+            crumbled: false,
+        };
+    }
+
+    // Erode or regrow an actor to `count` visible voxels. Voxels removed by an
+    // erosion step are kept in lastRemoved so the hit event can turn exactly
+    // those into debris.
+    function setActorVisible(actor, count) {
+        const N = actor.ordered.length;
+        count = Math.max(8, Math.min(N, count | 0));
+        if (count === actor.visCount) return;
+        if (count < actor.visCount) actor.lastRemoved = actor.ordered.slice(count, actor.visCount);
+        actor.visCount = count;
+        actor.view.voxels = actor.ordered.slice(0, count);
+        actor.view.scratch = new Array(count);
+    }
+
+    // Canvas position of a model-space voxel at the actor's base pose.
+    function voxelCanvasPos(actor, v, W, H) {
+        const S = actorScale(actor, Math.min(W, H));
+        const c = Math.cos(actor.base.angle), sn = Math.sin(actor.base.angle);
+        const rx = v.x * c - v.z * sn, rz = v.x * sn + v.z * c;
+        return { x: actor.base.x * W + rx * S, y: actor.base.y * H - v.y * S + rz * S * TILT, S };
+    }
+
+    function torso(base, W, H) {
+        const minDim = Math.min(W, H);
+        return { x: base.x * W, y: base.y * H - minDim * base.scaleFrac * 0.5 };
     }
 
     // Voxel size for an actor at the current canvas resolution.
@@ -312,7 +354,8 @@
 
     // Render an actor to its offscreen canvas; returns {S, w, h, feetX, feetY}
     // where feet* locate the model's ground-center inside the offscreen.
-    function renderActorOffscreen(actor, flashTint, minDim) {
+    // Renders the eroded view, not the full model.
+    function renderActorOffscreen(actor, flashTint, minDim, angle) {
         const m = actor.model;
         const S = actorScale(actor, minDim);
         const w = Math.ceil((m.radius * 2 + 1) * S) + 2;
@@ -321,7 +364,7 @@
         if (off.width !== w || off.height !== h) { off.width = w; off.height = h; }
         const ctx = off.getContext('2d');
         ctx.clearRect(0, 0, w, h);
-        renderModel(ctx, m, actor.base.angle, S, w / 2, h - m.radius * TILT * S - S - 1);
+        renderModel(ctx, actor.view, angle ?? actor.base.angle, S, w / 2, h - m.radius * TILT * S - S - 1);
         const tint = flashTint ?? actor.tint;
         if (tint) {
             ctx.globalCompositeOperation = 'source-atop';
@@ -332,46 +375,47 @@
         return { S, w, h, feetX: w / 2, feetY: h - m.radius * TILT * S - 1 };
     }
 
-    // Active animation offsets for an actor at time `now`.
+    // Active animation offsets for an actor at time `now` (scene time).
+    // Anims may carry a future t0 (projectile travel); they render nothing
+    // until their time comes.
     function animState(actor, now, towardX, towardY, windup) {
-        const st = { dx: 0, dy: 0, flash: null, squash: 0, alpha: 1, scale: 1 };
+        const st = { dx: 0, dy: 0, flash: null, alpha: 1, scale: 1 };
         const len = Math.hypot(towardX, towardY) || 1;
-        actor.anims = actor.anims.filter(a => a.type === 'death' || now - a.t0 < a.dur);
+        actor.anims = actor.anims.filter(a => now - a.t0 < a.dur);
         for (const a of actor.anims) {
             const p = Math.min(1, (now - a.t0) / a.dur);
+            if (p < 0) continue;
             switch (a.type) {
-                case 'attack': { // in-place pop toward the opponent — no travel
-                    const e = Math.sin(Math.PI * p);
-                    st.dx += (towardX / len) * 3 * e;
-                    st.dy += (towardY / len) * 3 * e - 2 * e;
+                case 'attack': { // anticipation → strike → recovery, in place
+                    let e;
+                    if (p < 0.4) e = -(p / 0.4) * 0.6;                        // pull back
+                    else if (p < 0.55) e = -0.6 + ((p - 0.4) / 0.15) * 1.6;   // snap forward
+                    else { e = 1 - (p - 0.55) / 0.45; e *= e; }               // ease back
+                    st.dx += (towardX / len) * 5 * e;
+                    st.dy += (towardY / len) * 5 * e - Math.max(0, e) * 2;
                     break;
                 }
-                case 'hit': { // white → red flash + recoil away from attacker
+                case 'hit': { // white → red flash + damage-scaled knockback
                     st.flash = p < 0.3 ? 'rgba(255,255,255,0.85)' : `rgba(224,32,16,${0.6 * (1 - p)})`;
                     const e = Math.sin(Math.PI * Math.min(1, p * 1.4));
-                    st.dx -= towardX * 0.06 * e;
-                    st.dy -= towardY * 0.06 * e;
+                    const amp = a.amp ?? 4;
+                    st.dx -= (towardX / len) * amp * e;
+                    st.dy -= (towardY / len) * amp * e;
                     break;
                 }
                 case 'dodge': { // sidestep, no flash (miss)
                     st.dx += Math.sin(Math.PI * p) * 8;
                     break;
                 }
-                case 'death': {
-                    st.squash = Math.max(st.squash, p * 0.65);
-                    st.alpha = Math.min(st.alpha, 1 - p * 0.75);
-                    break;
-                }
-                case 'spawn': { // pop-in for endless wave swaps
+                case 'spawn': { // pop-in for endless wave swaps / duel resets
                     st.scale = Math.min(st.scale, 0.2 + 0.8 * p);
                     st.alpha = Math.min(st.alpha, p);
                     break;
                 }
             }
         }
-        const dying = actor.anims.some(a => a.type === 'death');
-        if (!dying) st.dy += Math.sin(now * 0.0025 + actor.bobPhase) * 1.5;
-        if (windup && !dying) { // lean back/up before the attack lands
+        st.dy += Math.sin(now * 0.0025 + actor.bobPhase) * 1.5;
+        if (windup) { // lean back/up before the attack lands
             st.dx -= (towardX / len) * 2;
             st.dy -= 2 + Math.sin(now * 0.02) * 1.5;
             st.scale *= 1.04;
@@ -379,10 +423,14 @@
         return st;
     }
 
+    // Draws an actor; returns its animState so followers (the weapon) can
+    // track its motion. Crumbled actors are gone — their voxels are particles.
     function drawActor(ctx, W, H, actor, other, now, windup) {
+        if (actor.crumbled) return null;
         const ax = actor.base.x * W, ay = actor.base.y * H;
         const a = animState(actor, now, (other.base.x - actor.base.x) * W, (other.base.y - actor.base.y) * H, windup);
-        const r = renderActorOffscreen(actor, a.flash, Math.min(W, H));
+        const wobble = Math.sin(now * 0.0004 + actor.bobPhase) * 0.05; // ambient life
+        const r = renderActorOffscreen(actor, a.flash, Math.min(W, H), actor.base.angle + wobble);
 
         // Ground shadow (fades out with the actor)
         ctx.fillStyle = `rgba(0,0,0,${0.30 * a.alpha})`;
@@ -390,10 +438,100 @@
         ctx.ellipse(ax + a.dx * 0.4, ay, actor.model.radius * r.S * 0.9, actor.model.radius * r.S * 0.32, 0, 0, 6.2832);
         ctx.fill();
 
-        const w = r.w * a.scale, h = r.h * a.scale * (1 - a.squash);
+        const w = r.w * a.scale, h = r.h * a.scale;
         ctx.globalAlpha = a.alpha;
         ctx.drawImage(actor.off, ax + a.dx - w / 2, ay + a.dy - h, w, h);
         ctx.globalAlpha = 1;
+        return a;
+    }
+
+    // Equipped weapon rendered at the player's hand, swung on attack with a
+    // motion trail. Only weapons with a .vox model appear (ITEM_ASSETS).
+    function drawWeapon(st, W, H, playerA, now) {
+        const wp = st.weapon;
+        if (!wp || st.player.crumbled || !playerA) return;
+        const pl = st.player, m = pl.model;
+        const pS = actorScale(pl, Math.min(W, H));
+        const wS = Math.max(1, Math.floor(m.height * pS * 0.5 / (wp.model.height + 1)));
+        if (wp.S !== wS) { // (re)render the weapon offscreen at this scale
+            wp.S = wS;
+            const w = Math.ceil((wp.model.radius * 2 + 1) * wS) + 2;
+            const h = Math.ceil((wp.model.height + 1 + wp.model.radius * 2 * TILT) * wS) + 2;
+            wp.off.width = w; wp.off.height = h;
+            renderModel(wp.off.getContext('2d'), wp.model, Math.PI / 5, wS,
+                w / 2, h - wp.model.radius * TILT * wS - wS - 1);
+        }
+        const dirX = Math.sign(st.enemy.base.x - pl.base.x) || 1;
+        const hx = pl.base.x * W + dirX * m.radius * pS * 0.8 + playerA.dx;
+        const hy = pl.base.y * H - m.height * pS * 0.52 + playerA.dy;
+
+        let ang = 0.5, trail = false; // idle rest angle
+        const atk = pl.anims.find(a => a.type === 'attack');
+        if (atk) {
+            const p = Math.min(1, Math.max(0, (now - atk.t0) / atk.dur));
+            if (p < 0.4) ang = 0.5 - (p / 0.4) * 1.3;                              // raise
+            else if (p < 0.55) { ang = -0.8 + ((p - 0.4) / 0.15) * 2.0; trail = true; } // sweep
+            else ang = 1.2 - ((p - 0.55) / 0.45) * 0.7;                            // settle
+        }
+        const blit = (a2, alpha) => {
+            st.ctx.save();
+            st.ctx.globalAlpha = alpha * playerA.alpha;
+            st.ctx.translate(hx, hy);
+            st.ctx.rotate(a2 * dirX);
+            st.ctx.drawImage(wp.off, -wp.off.width / 2, -wp.off.height * 0.9);
+            st.ctx.restore();
+        };
+        if (trail) { blit(ang - 0.6, 0.18); blit(ang - 0.3, 0.35); }
+        blit(ang, 1);
+    }
+
+    // Debris burst at (a subset of) the given voxels' positions.
+    function spawnDebris(st, actor, other, count, t0, sourceVoxels) {
+        const W = st.canvas.width, H = st.canvas.height;
+        const src = (sourceVoxels && sourceVoxels.length)
+            ? sourceVoxels
+            : actor.ordered.slice(Math.max(0, actor.visCount - 30), actor.visCount);
+        if (!src.length) return;
+        const dirX = Math.sign(actor.base.x - other.base.x) || 1; // away from attacker
+        const floor = actor.base.y * H + 2;
+        for (let i = 0; i < count && st.particles.length < 150; i++) {
+            const v = src[(Math.random() * src.length) | 0];
+            const p = voxelCanvasPos(actor, v, W, H);
+            st.particles.push({
+                x: p.x, y: p.y,
+                vx: dirX * (0.4 + Math.random() * 1.4) + (Math.random() - 0.5) * 0.8,
+                vy: -1.2 - Math.random() * 1.6,
+                size: Math.max(1, p.S - (Math.random() < 0.5 ? 1 : 0)),
+                color: (actor.model.shadeTable[v.ci] ?? ['#888', '#888', '#888', '#888'])[3],
+                t0, life: 700 + Math.random() * 500, floor,
+            });
+        }
+    }
+
+    // Death: the whole remaining model bursts into physical voxel particles
+    // that scatter, bounce on the platform, and fade.
+    function crumbleActor(st, actor, other) {
+        const W = st.canvas.width, H = st.canvas.height;
+        const vs = actor.view.voxels;
+        const step = vs.length > 400 ? 2 : 1;
+        const dirX = Math.sign(actor.base.x - other.base.x) || 1;
+        const cx = actor.base.x * W;
+        const t0 = st.time;
+        for (let i = 0; i < vs.length; i += step) {
+            const v = vs[i];
+            const p = voxelCanvasPos(actor, v, W, H);
+            st.particles.push({
+                x: p.x, y: p.y,
+                vx: dirX * Math.random() * 1.0 + (p.x - cx) * 0.03,
+                vy: -0.4 - Math.random() * 2.2,
+                size: p.S,
+                color: (actor.model.shadeTable[v.ci] ?? ['#888', '#888', '#888', '#888'])[3],
+                t0, life: 800 + Math.random() * 900,
+                floor: actor.base.y * H + 2 + Math.random() * 3,
+            });
+        }
+        actor.crumbled = true;
+        actor.anims = [];
     }
 
     function drawTelegraphGlow(ctx, W, H, actor, now) {
@@ -500,9 +638,23 @@
             player: makeActor(playerModel, LAYOUT.player, null),
             enemy: makeActor(enemyModel, LAYOUT.enemy, npcFallbackTint(opts.enemyId)),
             enemySwapToken: 0,
+            weaponToken: 0,
+            weapon: null,
             flags: { telegraph: false, windup: null },
             lastWindupStyle: null,
             effects: [],
+            particles: [],
+            projectiles: [],
+            // Scene time: freezes during hit-stop, crawls during slow-mo.
+            time: 0,
+            lastReal: performance.now(),
+            freezeUntil: 0,       // real-time ms
+            slowUntil: 0,         // real-time ms
+            pendingFreezes: [],   // { at: sceneTime, dur: realMs }
+            cam: null,            // { amt, x, y, t0, dur } punch-zoom
+            shake: null,          // { mag, t0, dur }
+            delayEnemyVis: 0,     // projectile travel offsets, consumed by the
+            delayPlayerVis: 0,    // matching hit event
             raf: 0,
             ro: null,
         };
@@ -529,23 +681,102 @@
         }
 
         const loop = () => {
-            const now = performance.now();
-            const W = canvas.width, H = canvas.height;
-            st.ctx.clearRect(0, 0, W, H);
-            drawPlatform(st.ctx, W, H, st.enemy);
-            drawPlatform(st.ctx, W, H, st.player);
-            if (st.flags.telegraph) drawTelegraphGlow(st.ctx, W, H, st.enemy, now);
-            drawActor(st.ctx, W, H, st.enemy, st.player, now, st.flags.windup);  // far actor first
-            drawActor(st.ctx, W, H, st.player, st.enemy, now, null);
-            if (st.flags.windup)
-                drawWindupGlint(st.ctx, W, H, st.enemy, now, STYLE_COLORS[st.flags.windup] ?? '#ffffff');
-            st.effects = st.effects.filter(e => now - e.t0 < e.dur);
-            const minDim = Math.min(W, H);
-            for (const e of st.effects) {
-                const base = e.on === 'player' ? LAYOUT.player : LAYOUT.enemy;
-                drawSlash(st.ctx, base.x * W, base.y * H - minDim * base.scaleFrac * 0.45,
-                    minDim * base.scaleFrac * 0.4, (now - e.t0) / e.dur, e.color);
+            // Scene clock: dt freezes for hit-stop, crawls for killing-blow
+            // slow-mo; everything below runs on st.time, so all motion —
+            // anims, bob, debris, projectiles — obeys the same clock.
+            const real = performance.now();
+            let dt = Math.min(50, real - st.lastReal);
+            st.lastReal = real;
+            if (real < st.freezeUntil) dt = 0;
+            else if (real < st.slowUntil) dt *= 0.3;
+            st.time += dt;
+            const now = st.time;
+            for (let i = st.pendingFreezes.length - 1; i >= 0; i--) {
+                if (st.pendingFreezes[i].at <= now) {
+                    st.freezeUntil = real + st.pendingFreezes[i].dur;
+                    st.pendingFreezes.splice(i, 1);
+                }
             }
+
+            const W = canvas.width, H = canvas.height;
+            const ctx = st.ctx;
+            const minDim = Math.min(W, H);
+            ctx.clearRect(0, 0, W, H);
+            ctx.save();
+
+            // Camera: ambient breathe, punch-zoom anchored on the victim, shake
+            const breathe = 1 + 0.010 * (0.5 + 0.5 * Math.sin(now * 0.0005));
+            ctx.translate(W / 2, H / 2); ctx.scale(breathe, breathe); ctx.translate(-W / 2, -H / 2);
+            if (st.cam) {
+                const p = (now - st.cam.t0) / st.cam.dur;
+                if (p >= 1) st.cam = null;
+                else if (p >= 0) {
+                    const z = 1 + st.cam.amt * (1 - p) * (1 - p);
+                    ctx.translate(st.cam.x, st.cam.y); ctx.scale(z, z); ctx.translate(-st.cam.x, -st.cam.y);
+                }
+            }
+            if (st.shake) {
+                const p = (now - st.shake.t0) / st.shake.dur;
+                if (p >= 1) st.shake = null;
+                else if (p >= 0)
+                    ctx.translate((Math.random() * 2 - 1) * st.shake.mag, (Math.random() * 2 - 1) * st.shake.mag);
+            }
+
+            drawPlatform(ctx, W, H, st.enemy);
+            drawPlatform(ctx, W, H, st.player);
+            if (st.flags.telegraph) drawTelegraphGlow(ctx, W, H, st.enemy, now);
+            drawActor(ctx, W, H, st.enemy, st.player, now, st.flags.windup);  // far actor first
+            const pa = drawActor(ctx, W, H, st.player, st.enemy, now, null);
+            drawWeapon(st, W, H, pa, now);
+            if (st.flags.windup && !st.enemy.crumbled)
+                drawWindupGlint(ctx, W, H, st.enemy, now, STYLE_COLORS[st.flags.windup] ?? '#ffffff');
+
+            // Impact slashes (style-color cue; debris carries the weight now)
+            st.effects = st.effects.filter(e => now - e.t0 < e.dur);
+            for (const e of st.effects) {
+                if (now < e.t0) continue;
+                const base = e.on === 'player' ? LAYOUT.player : LAYOUT.enemy;
+                drawSlash(ctx, base.x * W, base.y * H - minDim * base.scaleFrac * 0.45,
+                    minDim * base.scaleFrac * 0.28, (now - e.t0) / e.dur, e.color);
+            }
+
+            // Projectiles (arrow line / swirling motes)
+            st.projectiles = st.projectiles.filter(pr => now - pr.t0 < pr.dur);
+            for (const pr of st.projectiles) {
+                const p = (now - pr.t0) / pr.dur;
+                if (p < 0) continue;
+                const x = pr.x0 + (pr.x1 - pr.x0) * p;
+                const y = pr.y0 + (pr.y1 - pr.y0) * p - Math.sin(Math.PI * p) * (pr.style === 'ranged' ? 7 : 3);
+                ctx.fillStyle = STYLE_COLORS[pr.style] ?? '#fff';
+                if (pr.style === 'magic') {
+                    for (let i = 0; i < 4; i++) {
+                        const a = now * 0.02 + i * 1.57;
+                        ctx.fillRect((x + Math.cos(a) * 3) | 0, (y + Math.sin(a) * 2) | 0, 2, 2);
+                    }
+                } else {
+                    const dx = pr.x1 - pr.x0, dy = pr.y1 - pr.y0, L = Math.hypot(dx, dy) || 1;
+                    for (let i = 0; i < 3; i++)
+                        ctx.fillRect((x - dx / L * i * 2) | 0, (y - dy / L * i * 2) | 0, 2, 2);
+                }
+            }
+
+            // Debris: gravity, platform bounce, fade over the last 30% of life
+            st.particles = st.particles.filter(pt => now - pt.t0 < pt.life);
+            for (const pt of st.particles) {
+                if (now < pt.t0) continue;
+                const k = dt / 16.7;
+                pt.vy += 0.28 * k;
+                pt.x += pt.vx * k;
+                pt.y += pt.vy * k;
+                if (pt.y > pt.floor) { pt.y = pt.floor; pt.vy *= -0.35; pt.vx *= 0.7; }
+                const lp = (now - pt.t0) / pt.life;
+                ctx.globalAlpha = lp > 0.7 ? (1 - lp) / 0.3 : 1;
+                ctx.fillStyle = pt.color;
+                ctx.fillRect(pt.x | 0, pt.y | 0, pt.size, pt.size);
+            }
+            ctx.globalAlpha = 1;
+
+            ctx.restore();
             st.raf = requestAnimationFrame(loop);
         };
         st.raf = requestAnimationFrame(loop);
@@ -570,7 +801,7 @@
         const live = battles.get(canvasId);
         if (!model || !live || live.enemySwapToken !== token) return; // stale swap or destroyed
         live.enemy = makeActor(model, LAYOUT.enemy, npcFallbackTint(enemyId));
-        live.enemy.anims.push({ type: 'spawn', t0: performance.now(), dur: 300 });
+        live.enemy.anims.push({ type: 'spawn', t0: live.time, dur: 300 });
     }
 
     function setBattleFlags(canvasId, flags) {
@@ -582,44 +813,114 @@
         if (st.flags.windup) st.lastWindupStyle = st.flags.windup;
     }
 
-    // evt = { type, tier? }; types: playerAttack | enemyAttack | playerHit |
-    // enemyHit | enemyDeath | playerDeath. No-op when the battle is gone.
+    // HP fractions (0..1) drive voxel erosion/regrow; called every game tick.
+    function setBattleVitals(canvasId, vitals) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        for (const [actor, frac] of [[st.player, vitals.player], [st.enemy, vitals.enemy]]) {
+            if (actor.crumbled || typeof frac !== 'number') continue;
+            const f = Math.max(0, Math.min(1, frac));
+            setActorVisible(actor, Math.round(actor.ordered.length * (0.45 + 0.55 * f)));
+        }
+    }
+
+    // Equip/unequip the weapon shown in the player's hand.
+    async function setBattleWeapon(canvasId, weaponId) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const token = ++st.weaponToken;
+        if (!weaponId || !ITEM_ASSETS.has(weaponId)) { st.weapon = null; return; }
+        const model = await loadModel(`assets/items/${weaponId}.vox`).catch(() => null);
+        const live = battles.get(canvasId);
+        if (!live || live.weaponToken !== token) return; // stale or destroyed
+        live.weapon = model ? { model, off: document.createElement('canvas'), S: 0 } : null;
+    }
+
+    // Restore both actors for a rematch on the same mounted scene (RETRY).
+    function resetBattle(canvasId) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        for (const actor of [st.player, st.enemy]) {
+            actor.crumbled = false;
+            actor.anims = [{ type: 'spawn', t0: st.time, dur: 250 }];
+            actor.lastRemoved = [];
+            setActorVisible(actor, actor.ordered.length);
+        }
+        st.effects = []; st.particles = []; st.projectiles = [];
+        st.pendingFreezes = []; st.cam = null; st.shake = null;
+        st.freezeUntil = 0; st.slowUntil = 0;
+        st.delayEnemyVis = 0; st.delayPlayerVis = 0;
+    }
+
+    // evt = { type, tier?, dmg?, style? }; types: playerAttack | enemyAttack |
+    // playerHit | enemyHit | enemyDeath | playerDeath. Attack events fire
+    // projectiles for ranged/magic and delay the matching hit's visuals by the
+    // travel time. No-op when the battle is gone.
     function battleEvent(canvasId, evt) {
         const st = battles.get(canvasId);
         if (!st) return;
-        const now = performance.now();
+        const now = st.time;
+        const dmg = evt.dmg | 0;
         const landed = evt.tier !== 'miss' && evt.tier !== 'poison';
+        const big = evt.tier === 'heavy' || evt.tier === 'spec' || evt.tier === 'boss';
+        const W = st.canvas.width, H = st.canvas.height;
+
+        const attack = (attacker, defender, style) => {
+            attacker.anims.push({ type: 'attack', t0: now, dur: 340 });
+            if (style === 'ranged' || style === 'magic') {
+                const a = torso(attacker.base, W, H), b = torso(defender.base, W, H);
+                st.projectiles.push({ x0: a.x, y0: a.y, x1: b.x, y1: b.y, t0: now + 60, dur: 170, style });
+                return 230; // defender visuals wait for the projectile
+            }
+            return 0;
+        };
+        const impact = (defender, attacker, delay, color) => {
+            const t0 = now + delay;
+            if (evt.tier === 'miss') { defender.anims.push({ type: 'dodge', t0, dur: 260 }); return; }
+            defender.anims.push({ type: 'hit', t0, dur: 260, amp: Math.min(7, 2 + dmg * 0.35) });
+            if (!landed) return; // poison DoT: flash only
+            st.effects.push({ on: defender === st.player ? 'player' : 'enemy', t0, dur: 280, color });
+            spawnDebris(st, defender, attacker, Math.min(4 + dmg, 14), t0, defender.lastRemoved);
+            defender.lastRemoved = [];
+            st.pendingFreezes.push({ at: t0, dur: big ? 95 : 60 });
+            st.shake = { mag: Math.min(3, 1 + dmg * 0.15), t0, dur: 90 };
+            if (big) {
+                const c = torso(defender.base, W, H);
+                st.cam = { amt: 0.10, x: c.x, y: c.y, t0, dur: 300 };
+            }
+        };
+
         switch (evt.type) {
-            case 'playerAttack': st.player.anims.push({ type: 'attack', t0: now, dur: 320 }); break;
-            case 'enemyAttack':  st.enemy.anims.push({ type: 'attack', t0: now, dur: 320 }); break;
-            case 'playerHit':
-                st.player.anims.push(evt.tier === 'miss'
-                    ? { type: 'dodge', t0: now, dur: 260 }
-                    : { type: 'hit', t0: now, dur: 260 });
-                if (landed) st.effects.push({ on: 'player', t0: now, dur: 280,
-                    color: STYLE_COLORS[st.lastWindupStyle] ?? '#ffffff' });
+            case 'playerAttack': st.delayEnemyVis = attack(st.player, st.enemy, evt.style); break;
+            case 'enemyAttack':  st.delayPlayerVis = attack(st.enemy, st.player, st.lastWindupStyle); break;
+            case 'enemyHit': {
+                const d = st.delayEnemyVis; st.delayEnemyVis = 0;
+                impact(st.enemy, st.player, d, '#ffd76a');
                 break;
-            case 'enemyHit':
-                st.enemy.anims.push(evt.tier === 'miss'
-                    ? { type: 'dodge', t0: now, dur: 260 }
-                    : { type: 'hit', t0: now, dur: 260 });
-                if (landed) st.effects.push({ on: 'enemy', t0: now, dur: 280, color: '#ffd76a' });
+            }
+            case 'playerHit': {
+                const d = st.delayPlayerVis; st.delayPlayerVis = 0;
+                impact(st.player, st.enemy, d, STYLE_COLORS[st.lastWindupStyle] ?? '#ffffff');
                 break;
+            }
             case 'enemyDeath':
+            case 'playerDeath': {
                 st.flags.telegraph = false;
                 st.flags.windup = null;
-                st.enemy.anims = [{ type: 'death', t0: now, dur: 900 }];
+                const dying = evt.type === 'enemyDeath' ? st.enemy : st.player;
+                const other = evt.type === 'enemyDeath' ? st.player : st.enemy;
+                const c = torso(dying.base, W, H);
+                crumbleActor(st, dying, other);
+                st.slowUntil = performance.now() + 600;
+                st.cam = { amt: 0.15, x: c.x, y: c.y, t0: now, dur: 900 };
                 break;
-            case 'playerDeath':
-                st.flags.telegraph = false;
-                st.flags.windup = null;
-                st.player.anims = [{ type: 'death', t0: now, dur: 900 }];
-                break;
+            }
         }
     }
 
     window.voxel = {
         initPreview, destroyPreview, renderIcon, itemIcon,
         initBattle, destroyBattle, setBattleEnemy, setBattleFlags, battleEvent,
+        setBattleVitals, setBattleWeapon, resetBattle,
     };
 })();
