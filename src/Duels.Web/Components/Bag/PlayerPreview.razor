@@ -1,0 +1,20 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="preview-wrap">
+    <canvas id="player-preview-canvas" class="voxel-canvas" width="64" height="80"></canvas>
+</div>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await JS.InvokeVoidAsync("voxel.initPreview", "player-preview-canvas", "assets/player.vox");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("voxel.destroyPreview", "player-preview-canvas"); }
+        catch { /* JS runtime may already be tearing down */ }
+    }
+}

@@ -8,6 +8,7 @@
         @foreach (var itemId in Items)
         {
             <button class="inv-slot @SlotClass(itemId)" title="@SlotTitle(itemId)" @onclick="() => UseItem(itemId)">
+                <VoxelIcon ItemId="@itemId" Size="28" />
                 <span class="inv-item-name">@ShortName(itemId)</span>
             </button>
         }

@@ -1,0 +1,44 @@
+@using Duels.Application.Commands
+@using Duels.Domain.ValueObjects
+@inject Duels.Web.Services.GameService GameSvc
+
+<button class="eq-slot-cell @(ItemId is null ? "eq-slot-empty" : "")"
+        title="@(ItemId is null ? Slot.ToString() : $"{ShortName(ItemId)} — click to unequip")"
+        disabled="@(ItemId is null)"
+        @onclick="Unequip">
+    <span class="eq-slot-label">@SlotLabel(Slot)</span>
+    @if (ItemId is not null)
+    {
+        <VoxelIcon ItemId="@ItemId" Size="24" />
+        <span class="eq-slot-item">@ShortName(ItemId)</span>
+    }
+</button>
+
+@code {
+    [Parameter] public EquipmentSlot Slot { get; set; }
+    [Parameter] public string? ItemId { get; set; }
+
+    private static string SlotLabel(EquipmentSlot slot) => slot switch
+    {
+        EquipmentSlot.Weapon => "WPN",
+        EquipmentSlot.Shield => "SHLD",
+        EquipmentSlot.Helmet => "HEAD",
+        EquipmentSlot.Body   => "BODY",
+        EquipmentSlot.Legs   => "LEGS",
+        EquipmentSlot.Boots  => "FEET",
+        EquipmentSlot.Gloves => "HAND",
+        EquipmentSlot.Cape   => "CAPE",
+        EquipmentSlot.Amulet => "NECK",
+        EquipmentSlot.Ring   => "RING",
+        _ => slot.ToString(),
+    };
+
+    private static string ShortName(string id) =>
+        string.Join(" ", id.Split('_').Select(w => char.ToUpper(w[0]) + w[1..]));
+
+    private async Task Unequip()
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new UnequipItemCommand(GameSvc.PlayerId!, Slot));
+    }
+}
