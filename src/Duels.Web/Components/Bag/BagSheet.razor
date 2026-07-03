@@ -1,6 +1,6 @@
 @using Duels.Application.GameSession
+@using Duels.Domain.ValueObjects
 @using Duels.Web.Components.Equipment
-@using Duels.Web.Components.Inventory
 
 <div class="shop-overlay" @onclick="OnClose">
     <div class="shop-panel bag-panel" @onclick:stopPropagation>
@@ -10,7 +10,21 @@
             <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
         </div>
         <div class="bag-body">
-            <EquipmentPanel State="@State" />
+            <div class="paperdoll">
+                <div class="paperdoll-col">
+                    @foreach (var slot in _leftSlots)
+                    {
+                        <EquipmentSlotButton Slot="@slot" ItemId="@Item(slot)" />
+                    }
+                </div>
+                <PlayerPreview />
+                <div class="paperdoll-col">
+                    @foreach (var slot in _rightSlots)
+                    {
+                        <EquipmentSlotButton Slot="@slot" ItemId="@Item(slot)" />
+                    }
+                </div>
+            </div>
             <InventoryGrid State="@State" />
         </div>
     </div>
@@ -19,4 +33,12 @@
 @code {
     [Parameter] public GameState? State { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
+
+    // RS3-style split: armour on the left, hands/feet/jewellery on the right.
+    private static readonly EquipmentSlot[] _leftSlots =
+        [EquipmentSlot.Helmet, EquipmentSlot.Cape, EquipmentSlot.Amulet, EquipmentSlot.Body, EquipmentSlot.Legs];
+    private static readonly EquipmentSlot[] _rightSlots =
+        [EquipmentSlot.Weapon, EquipmentSlot.Shield, EquipmentSlot.Gloves, EquipmentSlot.Boots, EquipmentSlot.Ring];
+
+    private string? Item(EquipmentSlot slot) => State?.Player?.Equipped.GetValueOrDefault(slot);
 }
