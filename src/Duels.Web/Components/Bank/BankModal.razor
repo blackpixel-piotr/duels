@@ -1,0 +1,150 @@
+@using Duels.Application.GameSession
+@using Duels.Application.Commands
+@using Duels.Application.Abstractions
+@using Duels.Domain.ValueObjects
+@inject Duels.Web.Services.GameService GameSvc
+@inject IItemRepository ItemRepo
+
+<div class="shop-overlay" @onclick="OnClose">
+    <div class="shop-panel bank-panel" @onclick:stopPropagation>
+        <div class="shop-header">
+            <span class="shop-title">Bank</span>
+            <span class="shop-gold">@(State?.Player?.Gold.ToString("N0") ?? "0") gp</span>
+            <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
+        </div>
+
+        <div class="bank-body">
+            @* ── Left: Bank ── *@
+            <div class="bank-pane">
+                <div class="bank-pane-title">Bank — click to withdraw</div>
+                @{
+                    var bankItems = BankItems().ToList();
+                }
+                @if (bankItems.Count == 0)
+                {
+                    <div class="bank-empty">Empty</div>
+                }
+                else
+                {
+                    <div class="bank-grid">
+                        @foreach (var (itemId, count) in bankItems)
+                        {
+                            var idLocal = itemId;
+                            var name = ItemRepo.GetItemName(itemId) ?? ShortName(itemId);
+                            <button class="inv-slot bank-item" title="@name — click to withdraw" @onclick="() => Withdraw(idLocal)">
+                                <span class="inv-item-name">@name</span>
+                                @if (count > 1)
+                                {
+                                    <span class="inv-count">@count</span>
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+
+            @* ── Right: Equipment + Inventory ── *@
+            <div class="bank-pane">
+                <div class="bank-pane-title">Equipment — click to unequip</div>
+                <div class="bank-eq-grid">
+                    @foreach (var slot in _slots)
+                    {
+                        var slotLocal = slot;
+                        var itemId = State?.Player?.Equipped.GetValueOrDefault(slot);
+                        <button class="eq-slot-cell @(itemId is null ? "eq-slot-empty" : "")"
+                                title="@(itemId is null ? slot.ToString() : $"{ShortName(itemId)} — click to unequip")"
+                                disabled="@(itemId is null)"
+                                @onclick="() => Unequip(slotLocal)">
+                            <span class="eq-slot-label">@SlotLabel(slot)</span>
+                            @if (itemId is not null)
+                            {
+                                <span class="eq-slot-item">@ShortName(itemId)</span>
+                            }
+                        </button>
+                    }
+                </div>
+
+                <div class="bank-pane-title" style="margin-top:6px;">Inventory — click to deposit</div>
+                @{
+                    var inventory = State?.Player?.Inventory ?? [];
+                    var invItems = inventory.GroupBy(id => id).Select(g => (g.Key, g.Count())).ToList();
+                }
+                @if (invItems.Count == 0)
+                {
+                    <div class="bank-empty">Empty</div>
+                }
+                else
+                {
+                    <div class="bank-grid">
+                        @foreach (var (itemId, count) in invItems)
+                        {
+                            var idLocal = itemId;
+                            var name = ItemRepo.GetItemName(itemId) ?? ShortName(itemId);
+                            <button class="inv-slot bank-item" title="@name — click to deposit" @onclick="() => Deposit(idLocal)">
+                                <span class="inv-item-name">@name</span>
+                                @if (count > 1)
+                                {
+                                    <span class="inv-count">@count</span>
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private static readonly EquipmentSlot[] _slots =
+    [
+        EquipmentSlot.Weapon, EquipmentSlot.Shield, EquipmentSlot.Helmet, EquipmentSlot.Body,
+        EquipmentSlot.Legs, EquipmentSlot.Boots, EquipmentSlot.Gloves, EquipmentSlot.Cape,
+        EquipmentSlot.Amulet, EquipmentSlot.Ring,
+    ];
+
+    private IEnumerable<(string ItemId, int Count)> BankItems() =>
+        (State?.Bank ?? [])
+            .GroupBy(id => id)
+            .Select(g => (g.Key, g.Count()))
+            .OrderBy(x => x.Key);
+
+    private static string ShortName(string id) =>
+        string.Join(" ", id.Split('_').Select(w => char.ToUpper(w[0]) + w[1..]));
+
+    private static string SlotLabel(EquipmentSlot slot) => slot switch
+    {
+        EquipmentSlot.Weapon => "WPN",
+        EquipmentSlot.Shield => "SHLD",
+        EquipmentSlot.Helmet => "HEAD",
+        EquipmentSlot.Body   => "BODY",
+        EquipmentSlot.Legs   => "LEGS",
+        EquipmentSlot.Boots  => "FEET",
+        EquipmentSlot.Gloves => "HAND",
+        EquipmentSlot.Cape   => "CAPE",
+        EquipmentSlot.Amulet => "NECK",
+        EquipmentSlot.Ring   => "RING",
+        _ => slot.ToString(),
+    };
+
+    private async Task Deposit(string itemId)
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new DepositItemCommand(GameSvc.PlayerId!, itemId));
+    }
+
+    private async Task Withdraw(string itemId)
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new WithdrawItemCommand(GameSvc.PlayerId!, itemId));
+    }
+
+    private async Task Unequip(EquipmentSlot slot)
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new UnequipItemCommand(GameSvc.PlayerId!, slot));
+    }
+}

@@ -101,7 +101,7 @@ public sealed class GameService
 
             var state = new GameState(data.PlayerId, player);
             state.RestoreFromSave(data.WinStreak, data.BestEndlessWave, data.UnlockedOpponents,
-                data.CollectionLog, data.DefeatedNpcs);
+                data.CollectionLog, data.DefeatedNpcs, data.Bank);
 
             await _playerRepo.SaveAsync(player);
             await _stateRepo.SaveAsync(state);
@@ -144,7 +144,8 @@ public sealed class GameService
                 HitpointsXp: p.HitpointsXp,
                 ChosenStyle: p.ChosenStyle.ToString(),
                 CollectionLog: state.CollectionLog.ToList(),
-                DefeatedNpcs: state.DefeatedNpcs.ToList()
+                DefeatedNpcs: state.DefeatedNpcs.ToList(),
+                Bank: state.Bank.ToList()
             );
 
             var json = JsonSerializer.Serialize(data);

@@ -1,6 +1,8 @@
 @using Duels.Application.GameSession
 @using Duels.Application.Commands
+@using Duels.Application.Abstractions
 @inject Duels.Web.Services.GameService GameSvc
+@inject IItemRepository ItemRepo
 
 <div class="shop-overlay" @onclick="OnClose">
     <div class="shop-panel" @onclick:stopPropagation>
@@ -15,47 +17,93 @@
             <button class="shop-tab @(_tab == "armor"   ? "active" : "")" @onclick='() => SetTab("armor")'>Armor</button>
             <button class="shop-tab @(_tab == "food"    ? "active" : "")" @onclick='() => SetTab("food")'>Food</button>
             <button class="shop-tab @(_tab == "potions" ? "active" : "")" @onclick='() => SetTab("potions")'>Potions</button>
+            <button class="shop-tab @(_tab == "sell"    ? "active" : "")" @onclick='() => SetTab("sell")'>Sell</button>
         </div>
 
-        <div class="shop-qty-row">
-            @foreach (var q in _quantities)
-            {
-                var qLocal = q;
-                <button class="shop-qty @(_qty == qLocal ? "active" : "")"
-                        @onclick="() => { _qty = qLocal; _confirmItemId = null; }">×@qLocal</button>
-            }
-        </div>
+        @if (_tab != "sell")
+        {
+            <div class="shop-qty-row">
+                @foreach (var q in _quantities)
+                {
+                    var qLocal = q;
+                    <button class="shop-qty @(_qty == qLocal ? "active" : "")"
+                            @onclick="() => { _qty = qLocal; _confirmItemId = null; }">×@qLocal</button>
+                }
+            </div>
+        }
 
-        <div class="shop-grid">
-            @foreach (var item in CurrentItems())
-            {
-                var itemLocal = item;
-                @if (_confirmItemId == item.Id)
-                {
-                    <div class="shop-confirm-cell">
-                        <span class="shop-cell-name">@item.Name</span>
-                        <span class="shop-cell-price">@((item.Price * _qty).ToString("N0"))g</span>
-                        <button class="shop-confirm-btn" @onclick="() => ExecuteBuy(itemLocal)">Confirm</button>
-                        <button class="shop-cancel-btn"  @onclick="() => _confirmItemId = null">Cancel</button>
-                    </div>
+        @if (_tab == "sell")
+        {
+            <div class="shop-grid">
+                @{
+                    var sellItems = SellItems().ToList();
                 }
-                else
+                @if (sellItems.Count == 0)
                 {
-                    var reqUnmet = ReqUnmet(item);
-                    var reqLabel = item.AtkReq > 0 ? $"{item.AtkReq} Atk" : item.DefReq > 0 ? $"{item.DefReq} Def" : null;
-                    <button class="shop-cell @(reqUnmet ? "shop-cell-locked" : "")" @onclick="() => OnCellClick(itemLocal)"
-                            title="@item.Name — @item.Price.ToString("N0")g@(reqLabel is not null ? $" (needs {reqLabel})" : "")">
-                        <span class="shop-cell-icon">@item.Icon</span>
-                        <span class="shop-cell-name">@item.Name</span>
-                        <span class="shop-cell-price">@item.Price.ToString("N0")g</span>
-                        @if (reqLabel is not null)
-                        {
-                            <span class="shop-cell-req @(reqUnmet ? "shop-req-unmet" : "")">@reqLabel</span>
-                        }
-                    </button>
+                    <div class="shop-sell-empty">Your inventory is empty.</div>
                 }
-            }
-        </div>
+                @foreach (var (itemId, count) in sellItems)
+                {
+                    var idLocal = itemId;
+                    var sellPrice = ItemRepo.GetFenceValue(itemId);
+                    var name = ItemRepo.GetItemName(itemId) ?? itemId;
+                    @if (_confirmItemId == itemId)
+                    {
+                        <div class="shop-confirm-cell">
+                            <span class="shop-cell-name">@name</span>
+                            <span class="shop-cell-price">@sellPrice.ToString("N0")g</span>
+                            <button class="shop-confirm-btn" @onclick="() => ExecuteSell(idLocal)">Sell</button>
+                            <button class="shop-cancel-btn"  @onclick="() => _confirmItemId = null">Cancel</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="shop-cell" @onclick="() => _confirmItemId = idLocal"
+                                title="@name — sell for @sellPrice.ToString("N0")g">
+                            <span class="shop-cell-name">@name</span>
+                            <span class="shop-cell-price">@sellPrice.ToString("N0")g</span>
+                            @if (count > 1)
+                            {
+                                <span class="shop-cell-req">×@count</span>
+                            }
+                        </button>
+                    }
+                }
+            </div>
+        }
+        else
+        {
+            <div class="shop-grid">
+                @foreach (var item in CurrentItems())
+                {
+                    var itemLocal = item;
+                    @if (_confirmItemId == item.Id)
+                    {
+                        <div class="shop-confirm-cell">
+                            <span class="shop-cell-name">@item.Name</span>
+                            <span class="shop-cell-price">@((item.Price * _qty).ToString("N0"))g</span>
+                            <button class="shop-confirm-btn" @onclick="() => ExecuteBuy(itemLocal)">Buy</button>
+                            <button class="shop-cancel-btn"  @onclick="() => _confirmItemId = null">Cancel</button>
+                        </div>
+                    }
+                    else
+                    {
+                        var reqUnmet = ReqUnmet(item);
+                        var reqLabel = item.AtkReq > 0 ? $"{item.AtkReq} Atk" : item.DefReq > 0 ? $"{item.DefReq} Def" : null;
+                        <button class="shop-cell @(reqUnmet ? "shop-cell-locked" : "")" @onclick="() => OnCellClick(itemLocal)"
+                                title="@item.Name — @item.Price.ToString("N0")g@(reqLabel is not null ? $" (needs {reqLabel})" : "")">
+                            <span class="shop-cell-icon">@item.Icon</span>
+                            <span class="shop-cell-name">@item.Name</span>
+                            <span class="shop-cell-price">@item.Price.ToString("N0")g</span>
+                            @if (reqLabel is not null)
+                            {
+                                <span class="shop-cell-req @(reqUnmet ? "shop-req-unmet" : "")">@reqLabel</span>
+                            }
+                        </button>
+                    }
+                }
+            </div>
+        }
     </div>
 </div>
 
@@ -70,7 +118,7 @@
     private string? _confirmItemId = null;
     private static readonly int[] _quantities = [1, 5, 10];
 
-    private sealed record ShopItem(string Id, string Name, int Price, string Icon, bool NeedsConfirm = false, int AtkReq = 0, int DefReq = 0);
+    private sealed record ShopItem(string Id, string Name, int Price, string Icon, bool NeedsConfirm = true, int AtkReq = 0, int DefReq = 0);
 
     private static readonly ShopItem[] _weapons =
     [
@@ -87,9 +135,9 @@
         new("zamorak_godsword",   "ZGS",          40_000, "⚔", AtkReq: 80),
         new("ghrazi_rapier",      "Rapier",       45_000, "🗡", AtkReq: 80),
         new("saradomin_godsword", "SGS",          50_000, "⚔", AtkReq: 80),
-        new("armadyl_godsword",   "AGS",          65_000, "⚔", NeedsConfirm: true, AtkReq: 82),
-        new("elder_maul",         "E Maul",       90_000, "🔨", NeedsConfirm: true, AtkReq: 85),
-        new("scythe_of_vitur",    "Scythe",      150_000, "⚔", NeedsConfirm: true, AtkReq: 90),
+        new("armadyl_godsword",   "AGS",          65_000, "⚔", AtkReq: 82),
+        new("elder_maul",         "E Maul",       90_000, "🔨", AtkReq: 85),
+        new("scythe_of_vitur",    "Scythe",      150_000, "⚔", AtkReq: 90),
     ];
 
     private static readonly ShopItem[] _armor =
@@ -105,10 +153,10 @@
         new("barrows_gloves",     "Barrows Glvs", 6_000,  "🧤", DefReq: 70),
         new("dragon_platebody",   "D Body",      9_000,  "🎽", DefReq: 70),
         new("amulet_of_fury",     "Fury",       15_000,  "📿", DefReq: 70),
-        new("justiciar_faceguard", "Justiciar",  30_000, "⛑", DefReq: 82, NeedsConfirm: true),
-        new("dragonfire_shield",  "DFS",         35_000,  "🛡", DefReq: 82, NeedsConfirm: true),
-        new("bandos_tassets",     "Bandos Legs", 45_000,  "👖", DefReq: 82, NeedsConfirm: true),
-        new("bandos_chestplate", "Bandos Body", 60_000,  "🎽", DefReq: 82, NeedsConfirm: true),
+        new("justiciar_faceguard", "Justiciar",  30_000, "⛑", DefReq: 82),
+        new("dragonfire_shield",  "DFS",         35_000,  "🛡", DefReq: 82),
+        new("bandos_tassets",     "Bandos Legs", 45_000,  "👖", DefReq: 82),
+        new("bandos_chestplate", "Bandos Body", 60_000,  "🎽", DefReq: 82),
     ];
 
     private static readonly ShopItem[] _food =
@@ -132,7 +180,23 @@
         _         => _weapons,
     };
 
-    private void SetTab(string tab) { _tab = tab; _confirmItemId = null; }
+    private void SetTab(string tab) { _tab = tab; _confirmItemId = null; _qty = 1; }
+
+    private IEnumerable<(string ItemId, int Count)> SellItems() =>
+        (State?.Player?.Inventory ?? [])
+            .GroupBy(id => id)
+            .Select(g => (g.Key, g.Count()))
+            .OrderBy(x => x.Key);
+
+    private async Task ExecuteSell(string itemId)
+    {
+        if (_busy || GameSvc.PlayerId is null) return;
+        _confirmItemId = null;
+        _busy = true;
+        StateHasChanged();
+        try { await GameSvc.DispatchAsync(new SellItemCommand(GameSvc.PlayerId!, itemId)); }
+        finally { _busy = false; }
+    }
 
     private bool ReqUnmet(ShopItem item) =>
         (item.AtkReq > 0 && (State?.Player?.AttackLevel ?? 0) < item.AtkReq) ||

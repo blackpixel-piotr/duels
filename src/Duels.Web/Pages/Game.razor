@@ -15,6 +15,7 @@
 @using Duels.Web.Components.Shop
 @using Duels.Web.Components.Ladder
 @using Duels.Web.Components.Log
+@using Duels.Web.Components.Bank
 
 @if (!GameSvc.IsStarted)
 {
@@ -49,6 +50,11 @@ else
             <CharacterSheet State="@_state"
                             OnClose="@(() => { _charOpen = false; StateHasChanged(); })" />
         }
+        @if (_bankOpen)
+        {
+            <BankModal State="@_state"
+                       OnClose="@(() => { _bankOpen = false; StateHasChanged(); })" />
+        }
 
         <ToastHost LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
         <StatusStrip State="@_state" />
@@ -77,7 +83,8 @@ else
                    OnOpenLadder="@(() => { _ladderOpen = true; StateHasChanged(); })"
                    OnOpenLog="@(() => { _logOpen = true; StateHasChanged(); })"
                    OnOpenBag="@(() => { _bagOpen = true; StateHasChanged(); })"
-                   OnOpenCharacter="@(() => { _charOpen = true; StateHasChanged(); })" />
+                   OnOpenCharacter="@(() => { _charOpen = true; StateHasChanged(); })"
+                   OnOpenBank="@(() => { _bankOpen = true; StateHasChanged(); })" />
     </div>
 }
 
@@ -88,6 +95,7 @@ else
     private bool _logOpen    = false;
     private bool _bagOpen    = false;
     private bool _charOpen   = false;
+    private bool _bankOpen   = false;
     private bool _processing = false;
     private bool _wasDueling = false;
 

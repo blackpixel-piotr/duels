@@ -133,6 +133,9 @@
             <button class="quickslot nav-slot" title="Shop" @onclick="() => OnOpenShop.InvokeAsync()">
                 <span class="qs-icon">🏪</span><span class="qs-label">SHOP</span>
             </button>
+            <button class="quickslot nav-slot" title="Bank — store items" @onclick="() => OnOpenBank.InvokeAsync()">
+                <span class="qs-icon">🏦</span><span class="qs-label">BANK</span>
+            </button>
             <button class="quickslot nav-slot" title="Bag — inventory & equipment" @onclick="() => OnOpenBag.InvokeAsync()">
                 <span class="qs-icon">🎒</span><span class="qs-label">BAG</span>
             </button>
@@ -153,6 +156,7 @@
     [Parameter] public EventCallback OnOpenLog { get; set; }
     [Parameter] public EventCallback OnOpenBag { get; set; }
     [Parameter] public EventCallback OnOpenCharacter { get; set; }
+    [Parameter] public EventCallback OnOpenBank { get; set; }
 
     private bool _busy;
 
