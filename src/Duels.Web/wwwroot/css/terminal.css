@@ -129,19 +129,16 @@ html, body {
 }
 
 /* ─── Tick metronome (docked in ActionHud — prayer-flick timing aid) ───
-   JS sweeps the fill left→right over each 600ms tick, then snap-resets
-   with a .tick-fire flash marking the tick boundary = the flick moment. */
+   JS toggles scaleX between 0 and 1 every 600ms; CSS smooths each toggle
+   over 150ms so one full fill→empty cycle reads as a 1200ms beat. */
 .tick-metronome {
     height: 4px;
     background: linear-gradient(90deg, #1b5e20, var(--green));
     transform-origin: left;
     transform: scaleX(0);
+    transition: transform 150ms ease-in-out;
     box-shadow: 0 0 4px rgba(57, 211, 57, 0.35);
     margin-bottom: 5px;
-}
-.tick-metronome.tick-fire {
-    background: #b9ffb9;
-    box-shadow: 0 0 12px rgba(57, 211, 57, 0.95);
 }
 
 /* ─── Hitsplat zones (anchored to status panel HP bars) ─── */
