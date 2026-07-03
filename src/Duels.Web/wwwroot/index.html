@@ -38,9 +38,12 @@
             el.classList.add('shake-active');
             setTimeout(() => el.classList.remove('shake-active'), ms || 180);
         };
-        // Tick metronome: sweeps the fill left->right over each 600ms game tick,
-        // then snap-resets with a bright "tick-fire" flash marking the tick
-        // boundary — the prayer-flick moment.
+        // Tick metronome: a quick fill then a steady hold, once per 600ms game
+        // tick, snap-resetting with a bright "tick-fire" flash marking the
+        // tick boundary — the prayer-flick moment. Only the first third of
+        // the cycle actually moves; holding the rest gives a calm, distinct
+        // "beat" instead of ceaseless sweeping motion.
+        const METRONOME_FILL_MS = 200;
         let _metro = null;
         window.startMetronome = () => {
             clearInterval(_metro);
@@ -54,8 +57,8 @@
                 void b.offsetWidth;
                 b.classList.add('tick-fire');
                 setTimeout(() => b.classList.remove('tick-fire'), 120);
-                // sweep to full over the tick duration
-                b.style.transition = 'transform 600ms linear';
+                // quick fill, then hold steady until the next beat
+                b.style.transition = `transform ${METRONOME_FILL_MS}ms ease-out`;
                 b.style.transform = 'scaleX(1)';
             };
             sweep();

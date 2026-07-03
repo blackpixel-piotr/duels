@@ -1,19 +1,36 @@
 @using Duels.Application.GameSession
+@implements IDisposable
 
 <div class="toast-stack">
     @foreach (var t in _toasts)
     {
-        <div class="toast toast-@t.Entry.Kind.ToString().ToLower()">@t.Entry.Message</div>
+        <div @key="t.Id" class="toast toast-@t.Entry.Kind.ToString().ToLower()">
+            <span class="toast-msg">@t.Entry.Message</span>
+            <button class="toast-close" @onclick="() => Dismiss(t.Id)" title="Dismiss">✕</button>
+        </div>
     }
 </div>
 
 @code {
     [Parameter] public IReadOnlyList<CombatLogEntry> LogEntries { get; set; } = [];
 
-    private static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(4);
 
     private int _lastCount;
-    private readonly List<(CombatLogEntry Entry, DateTimeOffset ShownAt)> _toasts = [];
+    private int _nextId;
+    private readonly List<Toast> _toasts = [];
+    private System.Timers.Timer? _pruneTimer;
+
+    private sealed record Toast(int Id, CombatLogEntry Entry, DateTimeOffset ShownAt);
+
+    protected override void OnInitialized()
+    {
+        // Prune on our own clock so toasts vanish even when nothing else
+        // triggers a re-render (e.g. idle in the hub between duels).
+        _pruneTimer = new System.Timers.Timer(500) { AutoReset = true };
+        _pruneTimer.Elapsed += (_, _) => InvokeAsync(Prune);
+        _pruneTimer.Start();
+    }
 
     protected override void OnParametersSet()
     {
@@ -22,11 +39,28 @@
             var newEntries = LogEntries.Skip(_lastCount)
                 .Where(e => e.Kind is LogEntryKind.LevelUp or LogEntryKind.Loot);
             foreach (var entry in newEntries)
-                _toasts.Add((entry, DateTimeOffset.UtcNow));
+                _toasts.Add(new Toast(_nextId++, entry, DateTimeOffset.UtcNow));
         }
         _lastCount = LogEntries.Count;
+        PruneExpired();
+    }
 
+    private void Prune()
+    {
+        if (PruneExpired()) StateHasChanged();
+    }
+
+    private bool PruneExpired()
+    {
         var now = DateTimeOffset.UtcNow;
-        _toasts.RemoveAll(t => now - t.ShownAt > Lifetime);
+        return _toasts.RemoveAll(t => now - t.ShownAt > Lifetime) > 0;
+    }
+
+    private void Dismiss(int id) => _toasts.RemoveAll(t => t.Id == id);
+
+    public void Dispose()
+    {
+        _pruneTimer?.Stop();
+        _pruneTimer?.Dispose();
     }
 }
