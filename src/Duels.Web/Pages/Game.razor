@@ -8,7 +8,6 @@
 @using Duels.Application.GameSession
 @using Duels.Application.Commands
 @using Duels.Web.Components.Combat
-@using Duels.Web.Components.Terminal
 @using Duels.Web.Components.Hud
 @using Duels.Web.Components.Hub
 @using Duels.Web.Components.Bag
@@ -59,10 +58,22 @@ else
         <ToastHost LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
         <StatusStrip State="@_state" />
 
-        @if (_state?.InDuel == true)
+        @if (_state?.InDuel == true || _duelResult is not null)
         {
-            <CombatStage State="@_state" />
-            <EventLog LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
+            <div class="battle-wrap">
+                <BattleScene State="@_state"
+                             LogEntries="@(_state?.CombatLog.ToList() ?? [])"
+                             EnemyDead="@(_duelResult?.Won == true)"
+                             PlayerDead="@(_duelResult is { Won: false })" />
+                @if (_duelResult is not null)
+                {
+                    <DuelResultOverlay Summary="@_duelResult"
+                                       ShowRetry="@CanRetry"
+                                       RetryLabel="@RetryLabel"
+                                       OnContinue="@(() => { _duelResult = null; StateHasChanged(); })"
+                                       OnRetry="RetryDuel" />
+                }
+            </div>
         }
         else
         {
@@ -75,7 +86,6 @@ else
                      OnRetry="RetryDuel"
                      OnPrestige="Prestige"
                      OnBeg="Beg" />
-            <EventLog LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
         }
 
         <ActionHud State="@_state"
@@ -98,6 +108,7 @@ else
     private bool _bankOpen   = false;
     private bool _processing = false;
     private bool _wasDueling = false;
+    private DuelSummary? _duelResult;
 
     protected override async Task OnInitializedAsync()
     {
@@ -123,6 +134,7 @@ else
             {
                 TickService.Stop();
                 await JS.InvokeVoidAsync("stopMetronome");
+                _duelResult = _state?.LastDuelSummary;
             }
             _wasDueling = isDueling;
             StateHasChanged();
@@ -191,6 +203,7 @@ else
         if (!wasDueling && isDueling)
         {
             _wasDueling = true;
+            _duelResult = null; // new duel dismisses any lingering result screen
             TickService.Start(GameSvc.PlayerId!);
             await JS.InvokeVoidAsync("startMetronome");
         }
@@ -205,6 +218,10 @@ else
     private int RetryWager =>
         (_state?.LastWager ?? 0) > 0 && (_state?.Player?.Gold ?? 0) >= _state!.LastWager
             ? _state!.LastWager : 0;
+
+    // Endless waves use synthetic npc ids that can't be re-duelled directly.
+    private bool CanRetry =>
+        _state?.LastOpponentId is { } id && !id.StartsWith("endless_");
 
     private string RetryLabel =>
         RetryWager > 0 ? $"RETRY ({RetryWager:N0}g)" : "RETRY";

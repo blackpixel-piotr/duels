@@ -36,10 +36,15 @@
     {
         if (LogEntries.Count > _lastCount)
         {
+            // With the terminal log gone these kinds surface only as toasts;
+            // decorative ═══ banner lines stay internal.
             var newEntries = LogEntries.Skip(_lastCount)
-                .Where(e => e.Kind is LogEntryKind.LevelUp or LogEntryKind.Loot);
+                .Where(e => e.Kind is LogEntryKind.LevelUp or LogEntryKind.Loot or LogEntryKind.System
+                            && !e.Message.StartsWith("═══"));
             foreach (var entry in newEntries)
                 _toasts.Add(new Toast(_nextId++, entry, DateTimeOffset.UtcNow));
+            while (_toasts.Count > 4)
+                _toasts.RemoveAt(0);
         }
         _lastCount = LogEntries.Count;
         PruneExpired();

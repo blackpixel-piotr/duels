@@ -1,0 +1,210 @@
+@using Duels.Application.GameSession
+@using Duels.Domain.ValueObjects
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* Pokemon-style battle scene: voxel player close-up lower-left, enemy
+   upper-right. Stays mounted through the whole duel and the result overlay —
+   after a duel ends ActiveNpc is null, so enemy display fields are cached. *@
+<div class="battle-scene" id="battle-scene">
+    <canvas id="battle-canvas" width="260" height="200"></canvas>
+
+    <div id="zone-npc" class="hitsplat-zone battle-zone"></div>
+    <div id="zone-player" class="hitsplat-zone battle-zone"></div>
+
+    <div class="battle-box battle-box-enemy">
+        <div class="battle-box-name glow-red">
+            @if (State?.ActiveNpc is { } liveNpc)
+            {
+                var styleKey = liveNpc.CurrentAttackType;
+                <span @key="styleKey" class="style-badge style-badge-@StyleClass(styleKey)"
+                      title="Incoming: @StyleName(styleKey)">@StyleIcon(styleKey)</span>
+            }
+            @_enemyName
+        </div>
+        <div class="battle-box-bars">
+            <div class="hp-bar-wrap"><div class="hp-bar npc-hp-bar" style="width: @EnemyHpPct%"></div></div>
+            <span class="battle-box-val">@EnemyHp/@_enemyMaxHp</span>
+        </div>
+    </div>
+
+    <div class="battle-box battle-box-player">
+        <div class="battle-box-name glow-amber">@State?.Player?.Name</div>
+        <div class="battle-box-bars">
+            <div class="hp-bar-wrap"><div class="hp-bar" style="width: @PlayerHpPct%"></div></div>
+            <span class="battle-box-val">@State?.Player?.CurrentHp/@State?.Player?.MaxHp</span>
+        </div>
+        <div class="battle-box-bars">
+            <div class="mini-bar-wrap"><div class="prayer-bar" style="width: @PlayerPrayerPct%"></div></div>
+            <div class="mini-bar-wrap"><div class="spec-bar" style="width: @(State?.Player?.SpecialEnergy ?? 0)%"></div></div>
+        </div>
+    </div>
+
+    @if (BubbleText is { } bubble)
+    {
+        <div class="telegraph-bubble">@bubble</div>
+    }
+    @if (PlayerOverhead is { } po)
+    {
+        <div class="overhead overhead-player overhead-@po.Css">@po.Icon</div>
+    }
+    @if (NpcOverhead is { } no)
+    {
+        <div class="overhead overhead-npc overhead-@no.Css">@no.Icon</div>
+    }
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public IReadOnlyList<CombatLogEntry> LogEntries { get; set; } = [];
+    [Parameter] public bool EnemyDead { get; set; }
+    [Parameter] public bool PlayerDead { get; set; }
+
+    private int _lastCount;
+    private bool _inited;
+    private bool _lastTelegraph;
+    private bool _deathFired;
+    private string? _enemyId;
+    private string _enemyName = "";
+    private int _enemyMaxHp = 1;
+
+    private sealed record Overhead(string Icon, string Css);
+
+    protected override void OnParametersSet()
+    {
+        // Cache enemy identity so the death frame still renders after
+        // EndDuel() nulls ActiveNpc.
+        if (State?.ActiveNpc is { } npc)
+        {
+            _enemyId = npc.Template.Id;
+            _enemyName = npc.Template.Name;
+            _enemyMaxHp = npc.MaxHp;
+        }
+    }
+
+    private int EnemyHp => EnemyDead ? 0 : State?.ActiveNpc?.CurrentHp ?? 0;
+    private int EnemyHpPct => _enemyMaxHp > 0 ? EnemyHp * 100 / _enemyMaxHp : 0;
+
+    private int PlayerHpPct =>
+        State?.Player is { } p && p.MaxHp > 0 ? (int)(p.CurrentHp * 100.0 / p.MaxHp) : 0;
+
+    // PrayerPoints caps at 99, not 100 — normalize for the bar fill.
+    private int PlayerPrayerPct => (int)((State?.Player?.PrayerPoints ?? 0) * 100.0 / 99);
+
+    // Armed special persists until it fires; style-rotation and other warnings
+    // fall back to the newest BossSpecial log line for a short window.
+    private string? BubbleText =>
+        State?.ActiveNpc?.PendingSpecial?.WarningText
+        ?? State?.CombatLog.LastOrDefault(e =>
+            e.Kind == LogEntryKind.BossSpecial &&
+            (DateTimeOffset.UtcNow - e.Timestamp) < TimeSpan.FromSeconds(2.4))?.Message;
+
+    private Overhead? PlayerOverhead => State?.Player switch
+    {
+        { ActiveProtection: ProtectionPrayer.Melee } => new("⛉⚔", "melee"),
+        { ActiveProtection: ProtectionPrayer.Range } => new("⛉➶", "ranged"),
+        { ActiveProtection: ProtectionPrayer.Magic } => new("⛉✦", "magic"),
+        { PietyActive: true }                        => new("⚡", "piety"),
+        _ => null,
+    };
+
+    private Overhead? NpcOverhead =>
+        State?.ActiveNpc is { WarlordPrayerActive: true } ? new("⛉", "melee") : null;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Seed the log cursor first: entries that existed before the scene
+            // mounted must not fire splats/animations.
+            _lastCount = LogEntries.Count;
+            await JS.InvokeVoidAsync("voxel.initBattle", "battle-canvas", new
+            {
+                playerUrl = "assets/player.vox",
+                enemyId = _enemyId,
+                zonePlayerId = "zone-player",
+                zoneNpcId = "zone-npc",
+            });
+            _inited = true;
+            return;
+        }
+        if (!_inited) return;
+
+        // Endless waves swap the enemy without remounting the scene.
+        if (State?.ActiveNpc is { } npc && npc.Template.Id != _enemyId)
+        {
+            _enemyId = npc.Template.Id;
+            await JS.InvokeVoidAsync("voxel.setBattleEnemy", "battle-canvas", _enemyId);
+        }
+
+        var newEntries = LogEntries.Count > _lastCount ? LogEntries.Skip(_lastCount).ToList() : [];
+        _lastCount = LogEntries.Count;
+
+        foreach (var e in newEntries)
+        {
+            if (e.Kind is not (LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)) continue;
+            var parts = e.Message.Split(':');
+            int dmg = int.TryParse(parts[0], out var d) ? d : 0;
+            string tier = parts.Length > 1 ? parts[1] : "normal";
+
+            // HitsplatPlayer = damage dealt BY the player → lands on the enemy;
+            // HitsplatNpc = damage dealt BY the NPC → lands on the player.
+            bool onEnemy = e.Kind == LogEntryKind.HitsplatPlayer;
+            string zone = onEnemy ? "zone-npc" : "zone-player";
+            await JS.InvokeVoidAsync("spawnHitsplats",
+                (object)new[] { new { zoneId = zone, damage = dmg, tier } });
+
+            // DoT ticks aren't attacks — no lunge, just the victim's flash.
+            if (tier != "poison")
+                await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
+                    new { type = onEnemy ? "playerAttack" : "enemyAttack" });
+            await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
+                new { type = onEnemy ? "enemyHit" : "playerHit", tier });
+        }
+
+        if (newEntries.Any(e => e.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit
+                                       or LogEntryKind.Vengeance or LogEntryKind.BossSpecial))
+            await JS.InvokeVoidAsync("triggerShake", "battle-scene", 180);
+
+        bool telegraph = State?.ActiveNpc?.PendingSpecial is not null;
+        if (telegraph != _lastTelegraph)
+        {
+            _lastTelegraph = telegraph;
+            await JS.InvokeVoidAsync("voxel.setBattleFlags", "battle-canvas", new { telegraph });
+        }
+
+        if ((EnemyDead || PlayerDead) && !_deathFired)
+        {
+            _deathFired = true;
+            await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
+                new { type = EnemyDead ? "enemyDeath" : "playerDeath" });
+        }
+    }
+
+    private static string StyleClass(AttackType t) => t switch
+    {
+        AttackType.Ranged => "ranged",
+        AttackType.Magic  => "magic",
+        _                 => "melee",
+    };
+
+    private static string StyleIcon(AttackType t) => t switch
+    {
+        AttackType.Ranged => "➶",
+        AttackType.Magic  => "✦",
+        _                 => "⚔",
+    };
+
+    private static string StyleName(AttackType t) => t switch
+    {
+        AttackType.Ranged => "Ranged — pray ⛉R",
+        AttackType.Magic  => "Magic — pray ⛉MG",
+        _                 => "Melee — pray ⛉M",
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("voxel.destroyBattle", "battle-canvas"); }
+        catch { /* JS runtime tearing down */ }
+    }
+}

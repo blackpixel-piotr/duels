@@ -137,16 +137,8 @@
 
     // ── Rendering ─────────────────────────────────────────────────────────────
 
-    function render(ctx, W, H, model, angle) {
-        ctx.clearRect(0, 0, W, H);
-        // Auto-fit: horizontal must clear the rotation-swept diameter, vertical
-        // the model height plus the tilt swing at top and bottom.
-        const S = Math.max(1, Math.floor(Math.min(
-            (W - 2) / (model.radius * 2 + 1),
-            (H - 2) / (model.height + 1 + model.radius * 2 * TILT))));
-        const cx = W / 2;
-        const baseY = (H + model.height * S) / 2;
-
+    // Draw one model at voxel size S with its ground-center at (cx, baseY).
+    function renderModel(ctx, model, angle, S, cx, baseY) {
         const c = Math.cos(angle), sn = Math.sin(angle);
         const vs = model.voxels, out = model.scratch;
         for (let i = 0; i < vs.length; i++) {
@@ -165,6 +157,16 @@
             ctx.fillStyle = model.shadeTable[v.ci][lvl];
             ctx.fillRect((cx + v.rx * S) | 0, (baseY - v.y * S + v.rz * S * TILT) | 0, S + 1, S + 1);
         }
+    }
+
+    function render(ctx, W, H, model, angle) {
+        ctx.clearRect(0, 0, W, H);
+        // Auto-fit: horizontal must clear the rotation-swept diameter, vertical
+        // the model height plus the tilt swing at top and bottom.
+        const S = Math.max(1, Math.floor(Math.min(
+            (W - 2) / (model.radius * 2 + 1),
+            (H - 2) / (model.height + 1 + model.radius * 2 * TILT))));
+        renderModel(ctx, model, angle, S, W / 2, (H + model.height * S) / 2);
     }
 
     // ── Interactive previews ──────────────────────────────────────────────────
@@ -270,5 +272,258 @@
         });
     }
 
-    window.voxel = { initPreview, destroyPreview, renderIcon, itemIcon };
+    // ── Battle scene ──────────────────────────────────────────────────────────
+    // Pokemon-style duel view: player close-up lower-left (back 3/4), enemy
+    // upper-right (front 3/4). One rAF loop per canvas; actors render to
+    // per-actor offscreen canvases (tint/flash applied there) then blit onto
+    // the main canvas at their animated positions.
+
+    // NPC ids with a model at assets/npcs/<id>.vox (free chr_* characters from
+    // ephtracy's MagicaVoxel sample repo, mapped/recolored per opponent).
+    const NPC_ASSETS = new Set([
+        'goblin', 'swashbuckler', 'barbarian', 'desert_bandit', 'gladiator',
+        'corsair', 'berserker', 'warlord', 'champion', 'rare_tourist', 'rare_gladiator',
+    ]);
+
+    // Single source of truth for scene geometry. x/y are fractional anchors of
+    // the actor's feet on the logical canvas; zoneY is where hitsplats stack.
+    // The logical canvas is the CSS box divided by PX (chunky pixels without
+    // aspect distortion); scaleFrac scales off the smaller canvas dimension.
+    const BATTLE_PX = 3;
+    const LAYOUT = {
+        player: { x: 0.30, y: 0.92, scaleFrac: 1.12, angle: Math.PI + Math.PI / 5, zoneY: 0.62 },
+        enemy:  { x: 0.72, y: 0.42, scaleFrac: 0.72, angle: -Math.PI / 5,          zoneY: 0.20 },
+    };
+
+    const battles = new Map(); // canvasId → state
+
+    function makeActor(model, base, tint) {
+        return { model, base, tint: tint ?? null, anims: [], bobPhase: Math.random() * 6.28, off: document.createElement('canvas') };
+    }
+
+    // Render an actor to its offscreen canvas; returns {S, w, h, feetX, feetY}
+    // where feet* locate the model's ground-center inside the offscreen.
+    function renderActorOffscreen(actor, flashTint, minDim) {
+        const m = actor.model;
+        const S = Math.max(1, Math.floor(minDim * actor.base.scaleFrac / (m.height + 1 + m.radius * 2 * TILT)));
+        const w = Math.ceil((m.radius * 2 + 1) * S) + 2;
+        const h = Math.ceil((m.height + 1 + m.radius * 2 * TILT) * S) + 2;
+        const off = actor.off;
+        if (off.width !== w || off.height !== h) { off.width = w; off.height = h; }
+        const ctx = off.getContext('2d');
+        ctx.clearRect(0, 0, w, h);
+        renderModel(ctx, m, actor.base.angle, S, w / 2, h - m.radius * TILT * S - S - 1);
+        const tint = flashTint ?? actor.tint;
+        if (tint) {
+            ctx.globalCompositeOperation = 'source-atop';
+            ctx.fillStyle = tint;
+            ctx.fillRect(0, 0, w, h);
+            ctx.globalCompositeOperation = 'source-over';
+        }
+        return { S, w, h, feetX: w / 2, feetY: h - m.radius * TILT * S - 1 };
+    }
+
+    // Active animation offsets for an actor at time `now`.
+    function animState(actor, now, towardX, towardY) {
+        const st = { dx: 0, dy: 0, flash: null, squash: 0, alpha: 1, scale: 1 };
+        actor.anims = actor.anims.filter(a => a.type === 'death' || now - a.t0 < a.dur);
+        for (const a of actor.anims) {
+            const p = Math.min(1, (now - a.t0) / a.dur);
+            switch (a.type) {
+                case 'lunge': { // out-and-back toward the opponent
+                    const e = Math.sin(Math.PI * p);
+                    st.dx += towardX * 0.20 * e;
+                    st.dy += towardY * 0.20 * e;
+                    break;
+                }
+                case 'hit': { // white → red flash + recoil away from attacker
+                    st.flash = p < 0.3 ? 'rgba(255,255,255,0.85)' : `rgba(224,32,16,${0.6 * (1 - p)})`;
+                    const e = Math.sin(Math.PI * Math.min(1, p * 1.4));
+                    st.dx -= towardX * 0.06 * e;
+                    st.dy -= towardY * 0.06 * e;
+                    break;
+                }
+                case 'dodge': { // sidestep, no flash (miss)
+                    st.dx += Math.sin(Math.PI * p) * 8;
+                    break;
+                }
+                case 'death': {
+                    st.squash = Math.max(st.squash, p * 0.65);
+                    st.alpha = Math.min(st.alpha, 1 - p * 0.75);
+                    break;
+                }
+                case 'spawn': { // pop-in for endless wave swaps
+                    st.scale = Math.min(st.scale, 0.2 + 0.8 * p);
+                    st.alpha = Math.min(st.alpha, p);
+                    break;
+                }
+            }
+        }
+        const dying = actor.anims.some(a => a.type === 'death');
+        if (!dying) st.dy += Math.sin(now * 0.0025 + actor.bobPhase) * 1.5;
+        return st;
+    }
+
+    function drawActor(ctx, W, H, actor, other, now) {
+        const ax = actor.base.x * W, ay = actor.base.y * H;
+        const a = animState(actor, now, (other.base.x - actor.base.x) * W, (other.base.y - actor.base.y) * H);
+        const r = renderActorOffscreen(actor, a.flash, Math.min(W, H));
+
+        // Ground shadow (fades out with the actor)
+        ctx.fillStyle = `rgba(0,0,0,${0.30 * a.alpha})`;
+        ctx.beginPath();
+        ctx.ellipse(ax + a.dx * 0.4, ay, actor.model.radius * r.S * 0.9, actor.model.radius * r.S * 0.32, 0, 0, 6.2832);
+        ctx.fill();
+
+        const w = r.w * a.scale, h = r.h * a.scale * (1 - a.squash);
+        ctx.globalAlpha = a.alpha;
+        ctx.drawImage(actor.off, ax + a.dx - w / 2, ay + a.dy - h, w, h);
+        ctx.globalAlpha = 1;
+    }
+
+    function drawTelegraphGlow(ctx, W, H, actor, now) {
+        const minDim = Math.min(W, H);
+        const cx = actor.base.x * W;
+        const cy = actor.base.y * H - minDim * actor.base.scaleFrac * 0.30;
+        const rad = minDim * actor.base.scaleFrac * 0.55;
+        const pulse = 0.22 + 0.14 * Math.sin(now * 0.006);
+        const g = ctx.createRadialGradient(cx, cy, rad * 0.15, cx, cy, rad);
+        g.addColorStop(0, `rgba(204,68,255,${pulse})`);
+        g.addColorStop(1, 'rgba(204,68,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(cx - rad, cy - rad, rad * 2, rad * 2);
+    }
+
+    function npcModelUrl(enemyId) {
+        return NPC_ASSETS.has(enemyId) ? `assets/npcs/${enemyId}.vox` : 'assets/player.vox';
+    }
+
+    // Unmodeled enemies reuse the player model with a permanent red wash so a
+    // fight never looks like a mirror match.
+    function npcFallbackTint(enemyId) {
+        return NPC_ASSETS.has(enemyId) ? null : 'rgba(224,48,16,0.28)';
+    }
+
+    async function initBattle(canvasId, opts) {
+        destroyBattle(canvasId);
+
+        const playerModel = await loadModel(opts.playerUrl).catch(e => {
+            console.warn('voxel: battle player model failed', e);
+            return null;
+        });
+        const enemyModel = await loadModel(npcModelUrl(opts.enemyId)).catch(() => null)
+            ?? await loadModel('assets/player.vox').catch(e => {
+                console.warn('voxel: battle enemy model failed', e);
+                return null;
+            });
+        if (!playerModel || !enemyModel) return;
+
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || battles.has(canvasId)) return; // unmounted or re-init raced ahead
+
+        const st = {
+            canvas,
+            ctx: canvas.getContext('2d'),
+            player: makeActor(playerModel, LAYOUT.player, null),
+            enemy: makeActor(enemyModel, LAYOUT.enemy, npcFallbackTint(opts.enemyId)),
+            enemySwapToken: 0,
+            flags: { telegraph: false },
+            raf: 0,
+            ro: null,
+        };
+
+        // Logical resolution follows the CSS box (÷BATTLE_PX) so chunky pixels
+        // upscale without aspect distortion; fractional anchors adapt free.
+        const fit = () => {
+            const w = Math.max(60, Math.round(canvas.clientWidth / BATTLE_PX));
+            const h = Math.max(60, Math.round(canvas.clientHeight / BATTLE_PX));
+            if (canvas.width !== w) canvas.width = w;
+            if (canvas.height !== h) canvas.height = h;
+        };
+        fit();
+        st.ro = new ResizeObserver(fit);
+        st.ro.observe(canvas);
+
+        // Anchor the hitsplat zones from the same LAYOUT the actors use.
+        for (const [zoneId, base] of [[opts.zonePlayerId, LAYOUT.player], [opts.zoneNpcId, LAYOUT.enemy]]) {
+            const zone = document.getElementById(zoneId);
+            if (zone) {
+                zone.style.left = (base.x * 100) + '%';
+                zone.style.top = (base.zoneY * 100) + '%';
+            }
+        }
+
+        const loop = () => {
+            const now = performance.now();
+            const W = canvas.width, H = canvas.height;
+            st.ctx.clearRect(0, 0, W, H);
+            if (st.flags.telegraph) drawTelegraphGlow(st.ctx, W, H, st.enemy, now);
+            drawActor(st.ctx, W, H, st.enemy, st.player, now);  // far actor first
+            drawActor(st.ctx, W, H, st.player, st.enemy, now);
+            st.raf = requestAnimationFrame(loop);
+        };
+        st.raf = requestAnimationFrame(loop);
+        battles.set(canvasId, st);
+    }
+
+    function destroyBattle(canvasId) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        cancelAnimationFrame(st.raf);
+        st.ro?.disconnect();
+        battles.delete(canvasId);
+    }
+
+    // Swap the enemy actor in place (endless waves) with a pop-in.
+    async function setBattleEnemy(canvasId, enemyId) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const token = ++st.enemySwapToken;
+        const model = await loadModel(npcModelUrl(enemyId)).catch(() => null)
+            ?? await loadModel('assets/player.vox').catch(() => null);
+        const live = battles.get(canvasId);
+        if (!model || !live || live.enemySwapToken !== token) return; // stale swap or destroyed
+        live.enemy = makeActor(model, LAYOUT.enemy, npcFallbackTint(enemyId));
+        live.enemy.anims.push({ type: 'spawn', t0: performance.now(), dur: 300 });
+    }
+
+    function setBattleFlags(canvasId, flags) {
+        const st = battles.get(canvasId);
+        if (st) Object.assign(st.flags, flags);
+    }
+
+    // evt = { type, tier? }; types: playerAttack | enemyAttack | playerHit |
+    // enemyHit | enemyDeath | playerDeath. No-op when the battle is gone.
+    function battleEvent(canvasId, evt) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const now = performance.now();
+        switch (evt.type) {
+            case 'playerAttack': st.player.anims.push({ type: 'lunge', t0: now, dur: 320 }); break;
+            case 'enemyAttack':  st.enemy.anims.push({ type: 'lunge', t0: now, dur: 320 }); break;
+            case 'playerHit':
+                st.player.anims.push(evt.tier === 'miss'
+                    ? { type: 'dodge', t0: now, dur: 260 }
+                    : { type: 'hit', t0: now, dur: 260 });
+                break;
+            case 'enemyHit':
+                st.enemy.anims.push(evt.tier === 'miss'
+                    ? { type: 'dodge', t0: now, dur: 260 }
+                    : { type: 'hit', t0: now, dur: 260 });
+                break;
+            case 'enemyDeath':
+                st.flags.telegraph = false;
+                st.enemy.anims = [{ type: 'death', t0: now, dur: 900 }];
+                break;
+            case 'playerDeath':
+                st.flags.telegraph = false;
+                st.player.anims = [{ type: 'death', t0: now, dur: 900 }];
+                break;
+        }
+    }
+
+    window.voxel = {
+        initPreview, destroyPreview, renderIcon, itemIcon,
+        initBattle, destroyBattle, setBattleEnemy, setBattleFlags, battleEvent,
+    };
 })();
