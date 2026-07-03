@@ -236,7 +236,7 @@
         previews.delete(canvasId);
     }
 
-    // ── Static icons (item/enemy assets — pipeline ready, no consumers yet) ──
+    // ── Static icons ──────────────────────────────────────────────────────────
 
     const iconCache = new Map(); // url|size → Promise<dataURL>
 
@@ -253,5 +253,22 @@
         return iconCache.get(key);
     }
 
-    window.voxel = { initPreview, destroyPreview, renderIcon };
+    // Item ids that have a model at assets/items/<id>.vox. Add ids here as
+    // assets are added — the manifest avoids a 404 fetch per unmodeled item.
+    const ITEM_ASSETS = new Set([
+        'abyssal_whip',
+        'dragon_dagger',
+    ]);
+
+    // dataURL for an item's icon, or null when the item has no model yet
+    // (callers fall back to their text rendering).
+    function itemIcon(itemId, size) {
+        if (!ITEM_ASSETS.has(itemId)) return Promise.resolve(null);
+        return renderIcon(`assets/items/${itemId}.vox`, size).catch(e => {
+            console.warn('voxel: item icon failed', itemId, e);
+            return null;
+        });
+    }
+
+    window.voxel = { initPreview, destroyPreview, renderIcon, itemIcon };
 })();
