@@ -1,12 +1,13 @@
-name: Deploy to GitHub Pages
+name: Deploy dev preview
 
 on:
   push:
-    branches: [main]
+    branches: [claude/text-duel-game-3t4vkf]
   workflow_dispatch:
 
+# Separate concurrency group so main and dev never race each other.
 concurrency:
-  group: gh-pages-main
+  group: gh-pages-dev
   cancel-in-progress: true
 
 jobs:
@@ -25,8 +26,8 @@ jobs:
       - name: Publish
         run: dotnet publish src/Duels.Web/Duels.Web.csproj -c Release -o release --nologo
 
-      - name: Fix base href for GitHub Pages sub-path
-        run: sed -i 's|<base href="/" />|<base href="/duels/" />|' release/wwwroot/index.html
+      - name: Fix base href for /duels/dev/ sub-path
+        run: sed -i 's|<base href="/" />|<base href="/duels/dev/" />|' release/wwwroot/index.html
 
       - name: Add SPA 404 fallback
         run: cp release/wwwroot/index.html release/wwwroot/404.html
@@ -34,9 +35,10 @@ jobs:
       - name: Disable Jekyll
         run: touch release/wwwroot/.nojekyll
 
-      - name: Deploy to gh-pages branch (root)
+      - name: Deploy to gh-pages branch (/dev sub-directory)
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: release/wwwroot
+          destination_dir: dev
           keep_files: true

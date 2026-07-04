@@ -81,6 +81,7 @@ else
             <HubMenu State="@_state"
                      Processing="@_processing"
                      RetryLabel="@RetryLabel"
+                     OnTestFight="StartTestFight"
                      OnArena="@(() => { _ladderOpen = true; StateHasChanged(); })"
                      OnEndless="StartEndless"
                      OnShop="@(() => { _shopOpen = true; StateHasChanged(); })"
@@ -154,6 +155,13 @@ else
         if (_processing || GameSvc.PlayerId is null || _state?.LastOpponentId is null) return;
         await RunDuelAction(() =>
             GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, _state!.LastOpponentId!, RetryWager)));
+    }
+
+    private async Task StartTestFight()
+    {
+        if (_processing || GameSvc.PlayerId is null) return;
+        await RunDuelAction(() =>
+            GameSvc.DispatchAsync(new StartTestFightCommand(GameSvc.PlayerId!)));
     }
 
     private async Task StartEndless()

@@ -570,6 +570,8 @@ html, body {
 }
 .hub-card-beg { border-color: #3a3a3a; }
 .hub-card-beg .hub-card-title { color: var(--text-dim); }
+.hub-card-test { border-color: #1a3a4a; border-style: dashed; }
+.hub-card-test .hub-card-title { color: #4fc3f7; }
 
 /* ─── Stats panel ─── */
 .stats-panel, .inventory-panel, .equipment-panel {
