@@ -13,6 +13,10 @@ public sealed class Weapon
     public SpecialAttack? Special { get; }
     public int AttackLevelRequired { get; }
 
+    /// <summary>Attack range in arena tiles (Chebyshev). 1 = melee adjacency;
+    /// future bows/halberds set it higher.</summary>
+    public int Range { get; }
+
     public Weapon(
         string id,
         string name,
@@ -21,7 +25,8 @@ public sealed class Weapon
         int attackSpeed = 4,
         string examineText = "",
         SpecialAttack? special = null,
-        int attackLevelRequired = 60)
+        int attackLevelRequired = 60,
+        int range = 1)
     {
         Id = id;
         Name = name;
@@ -31,6 +36,7 @@ public sealed class Weapon
         ExamineText = examineText;
         Special = special;
         AttackLevelRequired = attackLevelRequired;
+        Range = range;
     }
 
     public GearPiece AsGearPiece() =>

@@ -64,6 +64,10 @@ public sealed class GameTickServiceLootTests
         state.StartDuel(new NpcInstance(template));
         state.SetQueuedAction("attack");
 
+        // These tests exercise loot, not movement — start in melee range.
+        state.SetPlayerTile(0, 0);
+        state.SetNpcTile(1, 0);
+
         var combat = new CombatCalculator(new AlwaysHitMaxRandom());
         var svc = new GameTickService(
             new InMemoryStateRepo(state), combat, new AlwaysSucceedRandom(),

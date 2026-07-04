@@ -26,6 +26,24 @@ public sealed class GameState
     public string? RevertWeaponId { get; private set; }
     public ProtectionPrayer TickStartProtection { get; set; }
 
+    // Arena positions (duel-scoped). Tile grid centered on the arena; melee
+    // combatants must close to adjacency before they can hit.
+    public const int ArenaRadius = 5;
+    public (int X, int Z) PlayerTile { get; private set; }
+    public (int X, int Z) NpcTile { get; private set; }
+
+    /// <summary>Chebyshev distance between the combatants (diagonals count 1).</summary>
+    public int DistanceToNpc =>
+        Math.Max(Math.Abs(PlayerTile.X - NpcTile.X), Math.Abs(PlayerTile.Z - NpcTile.Z));
+
+    /// <summary>True when the NPC can reach the player with its current style —
+    /// the wind-up cue keys off this so it doesn't fire mid-approach.</summary>
+    public bool NpcInRange =>
+        ActiveNpc is { } npc && DistanceToNpc <= AttackRange.ForStyle(npc.CurrentAttackType);
+
+    public void SetPlayerTile(int x, int z) => PlayerTile = (x, z);
+    public void SetNpcTile(int x, int z) => NpcTile = (x, z);
+
     public bool HasBegged { get; private set; }
 
     // Prestige
@@ -74,6 +92,9 @@ public sealed class GameState
         ClearDots();
         DamageTakenThisDuel = 0;
         XpGainedThisDuel = 0;
+        // Opposite ends of the arena; melee walks in from here.
+        PlayerTile = (0, 3);
+        NpcTile = (1, -3);
     }
 
     public void RecordDamageTaken(int amount) { if (amount > 0) DamageTakenThisDuel += amount; }
