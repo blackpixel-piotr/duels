@@ -48,11 +48,11 @@
     }
     @if (PlayerOverhead is { } po)
     {
-        <div class="overhead overhead-player overhead-@po.Css">@po.Icon</div>
+        <div id="overhead-player" class="overhead overhead-player overhead-@po.Css">@po.Icon</div>
     }
     @if (NpcOverhead is { } no)
     {
-        <div class="overhead overhead-npc overhead-@no.Css">@no.Icon</div>
+        <div id="overhead-npc" class="overhead overhead-npc overhead-@no.Css">@no.Icon</div>
     }
 </div>
 
@@ -165,6 +165,14 @@
             enemy = _enemyMaxHp > 0 ? EnemyHp / (double)_enemyMaxHp : 1.0,
         });
 
+        // Sim tile positions — the scene walks the actors toward these.
+        if (State is { } s)
+            await JS.InvokeVoidAsync("voxel.setBattlePositions", "battle-canvas", new
+            {
+                player = new { x = s.PlayerTile.X, z = s.PlayerTile.Z },
+                enemy = new { x = s.NpcTile.X, z = s.NpcTile.Z },
+            });
+
         var newEntries = LogEntries.Count > _lastCount ? LogEntries.Skip(_lastCount).ToList() : [];
         _lastCount = LogEntries.Count;
 
@@ -185,7 +193,12 @@
             // DoT ticks aren't attacks — no swing, just the victim's flash.
             if (tier != "poison")
                 await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
-                    new { type = onEnemy ? "playerAttack" : "enemyAttack", style = onEnemy ? PlayerStyle() : null });
+                    new
+                    {
+                        type = onEnemy ? "playerAttack" : "enemyAttack",
+                        style = onEnemy ? PlayerStyle() : null,
+                        kind = onEnemy ? PlayerKind() : null,
+                    });
             await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
                 new { type = onEnemy ? "enemyHit" : "playerHit", tier, dmg });
         }
@@ -203,8 +216,9 @@
 
         // NpcCooldown == 1 after a tick means the enemy attacks on the next
         // tick (~600ms) — the reaction window prayer flicking will key off.
+        // No cue while the NPC is still walking into melee range.
         string? windup =
-            State is { InDuel: true, NpcCooldown: 1, ActiveNpc: { } wn } && !EnemyDead && !PlayerDead
+            State is { InDuel: true, NpcCooldown: 1, NpcInRange: true, ActiveNpc: { } wn } && !EnemyDead && !PlayerDead
                 ? StyleClass(wn.CurrentAttackType) : null;
         if (windup != _lastWindup)
         {
@@ -223,6 +237,12 @@
     // The player's projectile/effect style comes from the equipped weapon.
     private string PlayerStyle() =>
         WeaponId is { } id && ItemRepo.GetWeapon(id) is { } w ? StyleClass(w.AttackType) : "melee";
+
+    // Swing choreography kind: the weapon's AttackType (stab/slash/crush);
+    // bare fists punch like a crush. voxel.js applies per-weapon overrides.
+    private string PlayerKind() =>
+        WeaponId is { } id && ItemRepo.GetWeapon(id) is { } w
+            ? w.AttackType.ToString().ToLowerInvariant() : "crush";
 
     private static string StyleClass(AttackType t) => t switch
     {

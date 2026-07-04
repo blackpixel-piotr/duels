@@ -81,8 +81,25 @@ public sealed class GameTickService : IDisposable
 
         state.DecrementCooldowns();
 
-        // Player's attack
-        if (state.PlayerCooldown == 0)
+        // Movement: whoever can't reach with their own attack range steps one
+        // tile toward a flanking slot beside the other (diagonals allowed).
+        // Melee closes to adjacency; ranged/magic already covers the arena
+        // and stands its ground.
+        int playerRange = GetPlayerWeaponRange(player);
+        if (state.DistanceToNpc > playerRange)
+        {
+            var step = StepToward(state.PlayerTile, ApproachSlot(state.PlayerTile, state.NpcTile), state.NpcTile);
+            state.SetPlayerTile(step.X, step.Z);
+        }
+        if (state.DistanceToNpc > AttackRange.ForStyle(npc.CurrentAttackType))
+        {
+            var step = StepToward(state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
+            state.SetNpcTile(step.X, step.Z);
+        }
+
+        // Player's attack — held (cooldown stays ready, queued spec kept) while
+        // out of range so it fires the moment the walk-in completes.
+        if (state.PlayerCooldown == 0 && state.DistanceToNpc <= playerRange)
         {
             var action = state.QueuedAction ?? "attack";
             await ExecutePlayerAction(state, player, npc, action);
@@ -111,8 +128,8 @@ public sealed class GameTickService : IDisposable
             return;
         }
 
-        // NPC's attack
-        if (state.NpcCooldown == 0)
+        // NPC's attack — also held until its style's range covers the player
+        if (state.NpcCooldown == 0 && state.NpcInRange)
         {
             await NpcRetaliate(state, player, npc);
             state.ResetNpcCooldown(npc.Template.AttackSpeedTicks);
@@ -694,6 +711,30 @@ public sealed class GameTickService : IDisposable
         if (weaponId is null) return 4;
         var weapon = _items.GetWeapon(weaponId);
         return weapon?.AttackSpeed ?? 4;
+    }
+
+    private int GetPlayerWeaponRange(Player player)
+    {
+        var weaponId = player.GetEquippedWeaponId();
+        if (weaponId is null) return AttackRange.Melee; // fists
+        return _items.GetWeapon(weaponId)?.Range ?? AttackRange.Melee;
+    }
+
+    // The diagonal tile beside the target on the approacher's side — melee
+    // pairs end up shoulder-to-shoulder instead of stacked on one axis.
+    private static (int X, int Z) ApproachSlot((int X, int Z) from, (int X, int Z) to) =>
+        (to.X + (Math.Sign(from.X - to.X) is 0 ? 1 : Math.Sign(from.X - to.X)),
+         to.Z + (Math.Sign(from.Z - to.Z) is 0 ? 1 : Math.Sign(from.Z - to.Z)));
+
+    // One tile toward the goal, never onto the avoided (opponent's) tile.
+    private static (int X, int Z) StepToward((int X, int Z) from, (int X, int Z) goal, (int X, int Z) avoid)
+    {
+        int dx = Math.Sign(goal.X - from.X), dz = Math.Sign(goal.Z - from.Z);
+        var next = (X: from.X + dx, Z: from.Z + dz);
+        if (next != avoid) return next;
+        if (dx != 0 && (from.X + dx, from.Z) != avoid) return (from.X + dx, from.Z);
+        if (dz != 0 && (from.X, from.Z + dz) != avoid) return (from.X, from.Z + dz);
+        return from;
     }
 
     private CombatantSnapshot BuildPlayerSnapshot(GameState state, AttackStyle style)
