@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Duels</title>
+    <base href="/duels/dev/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/terminal.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link href="Duels.Web.styles.css" rel="stylesheet" />
+</head>
+<body>
+    <div id="app">
+        <div class="loading-screen">
+            <pre class="loading-art">Loading...</pre>
+        </div>
+    </div>
+    <div id="blazor-error-ui">
+        An unhandled error has occurred. <a href="" class="reload">Reload</a>
+    </div>
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        window.saveGame  = (json) => localStorage.setItem('duels_save', json);
+        window.loadGame  = ()     => localStorage.getItem('duels_save');
+        window.clearGame = ()     => localStorage.removeItem('duels_save');
+        window.triggerShake = (id, ms) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.classList.remove('shake-active');
+            void el.offsetWidth;
+            el.classList.add('shake-active');
+            setTimeout(() => el.classList.remove('shake-active'), ms || 180);
+        };
+        // Tick metronome: pendulum toggle every 600ms game tick.
+        // CSS transition smooths each toggle over 150ms; one full fill→empty
+        // cycle spans two ticks (1200ms), giving a calm, readable beat.
+        let _metro = null;
+        let _metroP = 0;
+        window.startMetronome = () => {
+            clearInterval(_metro);
+            _metroP = 0;
+            _metro = setInterval(() => {
+                _metroP = 1 - _metroP;
+                const b = document.getElementById('tick-bar');
+                if (b) b.style.transform = `scaleX(${_metroP})`;
+            }, 600);
+        };
+        window.stopMetronome = () => {
+            clearInterval(_metro);
+            _metro = null;
+            const b = document.getElementById('tick-bar');
+            if (b) b.style.transform = 'scaleX(0)';
+        };
+        window.spawnHitsplats = (splats) => {
+            for (const s of splats) {
+                const zone = document.getElementById(s.zoneId);
+                if (!zone) continue;
+                const existing = zone.querySelectorAll('.hitsplat').length;
+                const el = document.createElement('span');
+                el.className = 'hitsplat hitsplat-' + s.tier;
+                el.textContent = s.tier === 'miss' ? '[-]' : '[' + s.damage + ']';
+                el.style.bottom = (2 + existing * 22) + 'px';
+                zone.appendChild(el);
+                el.addEventListener('animationend', () => el.remove(), { once: true });
+            }
+        };
+    </script>
+    <script src="js/voxel.js"></script>
+</body>
+</html>
