@@ -18,22 +18,31 @@ ASSETS = os.path.join(os.path.dirname(__file__), '..', 'src', 'Duels.Web', 'wwwr
 PARTS = ['torso', 'head', 'rArm', 'lArm', 'rLeg', 'lLeg']
 BAND = 40
 
+# v2 hierarchical rig (player): limbs split at elbow/knee/ankle so the
+# renderer can chain rotations (FK) and solve leg IK. Part indices 0-5 keep
+# the legacy meaning (torso/head/right arm/left arm/right leg/left leg) so
+# attack poses that target part 2 still swing the (upper) weapon arm.
+PARTS_V2 = ['torso', 'head', 'rArmU', 'lArmU', 'rThigh', 'lThigh',
+            'rArmL', 'lArmL', 'rShin', 'lShin', 'rFoot', 'lFoot']
+BAND_V2 = 16  # 12 parts × 16 ≤ 255 palette slots; ≤15 colors per model
 
-def write_vox(path, voxels, palette, banded):
+
+def write_vox(path, voxels, palette, banded, band=BAND):
     """voxels: {(x,y,z): (color0, part)} renderer coords; color0 is 0-based."""
     mn = [min(v[i] for v in voxels) for i in range(3)]
     xyzi = b''
     for (x, y, z), (c0, part) in voxels.items():
         fx, fy, fz = x - mn[0], z - mn[2], y - mn[1]
         assert 0 <= fx < 256 and 0 <= fy < 256 and 0 <= fz < 256
-        ci = (part * BAND + c0 + 1) if banded else (c0 + 1)
+        ci = (part * band + c0 + 1) if banded else (c0 + 1)
+        assert ci <= 255, 'color index overflow'
         xyzi += struct.pack('<4B', fx, fy, fz, ci)
     size = struct.pack('<3i', max(v[0] for v in voxels) - mn[0] + 1,
                        max(v[2] for v in voxels) - mn[2] + 1,
                        max(v[1] for v in voxels) - mn[1] + 1)
     rgba = b''
     for i in range(255):
-        src = i % BAND if banded else i
+        src = i % band if banded else i
         r, g, b = palette[src] if src < len(palette) else (0, 0, 0)
         rgba += struct.pack('<4B', r, g, b, 255)
     rgba += struct.pack('<4B', 0, 0, 0, 255)
@@ -53,30 +62,33 @@ class Rig:
     """Voxel painter that records the body part of every voxel plus joint
     pivots / hand anchor for the rig manifest."""
 
-    def __init__(self):
+    def __init__(self, parts=PARTS, band=BAND):
         self.v = {}      # (x,y,z) -> (color0, part_idx)
         self.pal = []
         self.ci = {}
         self.pivots = {}
         self.hand = None
+        self.parts = parts
+        self.band = band
+        self.v2 = None   # v2 rigs emit their own manifest (see m_player)
 
     def C(self, rgb):
         if rgb not in self.ci:
-            assert len(self.pal) < BAND, 'palette band overflow'
+            assert len(self.pal) < self.band, 'palette band overflow'
             self.pal.append(rgb)
             self.ci[rgb] = len(self.pal) - 1
         return self.ci[rgb]
 
     def box(self, x0, x1, y0, y1, z0, z1, rgb, part='torso'):
         c = self.C(rgb)
-        p = PARTS.index(part)
+        p = self.parts.index(part)
         for x in range(x0, x1 + 1):
             for y in range(y0, y1 + 1):
                 for z in range(z0, z1 + 1):
                     self.v[(x, y, z)] = (c, p)
 
     def dot(self, x, y, z, rgb, part='torso'):
-        self.v[(x, y, z)] = (self.C(rgb), PARTS.index(part))
+        self.v[(x, y, z)] = (self.C(rgb), self.parts.index(part))
 
     def mirror_box(self, x0, x1, y0, y1, z0, z1, rgb, parts=('torso', 'torso')):
         self.box(x0, x1, y0, y1, z0, z1, rgb, parts[0])
@@ -90,6 +102,8 @@ class Rig:
         return [pt[0] - cx, pt[1] - my, pt[2] - cz]
 
     def rig_json(self):
+        if self.v2:
+            return self.v2()
         out = {'pivots': {k: self.center_of(p) for k, p in self.pivots.items()}}
         if self.hand:
             out['hand'] = self.center_of(self.hand)
@@ -165,21 +179,118 @@ SKIN_GREEN = (110, 158, 66)
 DARK = (24, 20, 18)
 
 
+# ── HD player (v2 hierarchical rig, ~56 tall) ──────────────────────────────
+# Anime-asset level of detail: visible face with 2×2 eyes, layered silver
+# spike hair, steel cuirass with highlight/seam shading, bare muscled arms
+# with leather bracers, belted red trousers tucked into boots. Limbs split
+# at elbow / knee / ankle so voxel.js can chain FK rotations and run leg IK.
 def m_player():
-    r = Rig()
-    steel = (96, 128, 158); steel_d = (72, 98, 124); trim = (204, 170, 84)
-    humanoid(r, SKIN, steel_d, (58, 52, 48), steel, steel, hands_c=(84, 72, 58))
-    # full helm covering head, face slit open
-    r.box(-4, 4, 27, 34, -4, 2, steel, 'head')
-    r.box(-2, 2, 30, 31, 2, 3, SKIN, 'head')          # visor opening
-    eyes(r, 30, 1, DARK, 3)
-    r.box(-4, 4, 34, 34, -4, 1, steel_d, 'head')
-    r.box(0, 0, 34, 36, -1, 0, trim, 'head')          # crest stub
-    # chest trim + belt buckle
-    r.box(-4, 4, 20, 20, 2, 2, steel_d)
-    r.box(-1, 1, 14, 15, 2, 2, trim)
-    # cape (back)
-    r.box(-5, 5, 6, 25, -4, -3, (140, 34, 34))
+    r = Rig(parts=PARTS_V2, band=BAND_V2)
+    SK = (222, 178, 138); SK_D = (184, 138, 98)
+    HAIR = (226, 222, 214); HAIR_D = (162, 158, 152)
+    STEEL = (96, 128, 158); STEEL_D = (66, 92, 118); STEEL_L = (138, 172, 202)
+    GOLD = (206, 172, 86); LEATH = (94, 70, 46); LEATH_D = (62, 46, 32)
+    RED = (152, 40, 40); RED_D = (110, 28, 30)
+    BOOT = (52, 44, 38); WHITE = (236, 236, 232)
+
+    RA, LA = ('rArmU', 'lArmU'), ('rArmL', 'lArmL')
+    RT, RS, RF = ('rThigh', 'lThigh'), ('rShin', 'lShin'), ('rFoot', 'lFoot')
+
+    # feet y0-2: boots with dark soles and a toe cap
+    r.mirror_box(1, 4, 0, 0, -2, 3, LEATH_D, RF)          # sole
+    r.mirror_box(1, 4, 1, 2, -2, 2, BOOT, RF)             # boot body
+    r.mirror_box(1, 4, 1, 1, 3, 3, BOOT, RF)              # toe cap
+    # shins y3-11: boot shaft, then trouser tucked in
+    r.mirror_box(1, 4, 3, 5, -1, 2, BOOT, RS)
+    r.mirror_box(1, 4, 5, 5, 2, 2, LEATH_D, RS)           # shaft rim
+    r.mirror_box(1, 3, 6, 11, -1, 1, RED, RS)
+    r.mirror_box(2, 3, 7, 9, -2, -2, RED_D, RS)           # calf shadow
+    # thighs y12-21: red trousers with fold shading + knee pads
+    r.mirror_box(1, 4, 12, 21, -2, 2, RED, RT)
+    r.mirror_box(1, 4, 12, 13, 2, 2, LEATH, RT)           # knee pad
+    r.mirror_box(4, 4, 16, 18, -1, 2, RED_D, RT)          # outer fold
+    r.mirror_box(1, 4, 20, 21, 2, 2, RED_D, RT)           # hip crease
+    # pelvis y22-25 (torso root): hip cloth + belt with gold buckle
+    r.box(-4, 4, 22, 23, -2, 2, RED_D)
+    r.box(-4, 4, 24, 25, -2, 2, LEATH)
+    r.box(-1, 1, 24, 25, 2, 2, GOLD)                      # buckle
+    r.box(-4, -3, 22, 23, 2, 2, LEATH_D)                  # side pouch
+    # torso y26-38: steel cuirass — waist, chest, shading, gold collar line
+    r.box(-4, 4, 26, 29, -2, 2, STEEL_D)
+    r.box(-2, 2, 26, 29, 2, 2, STEEL)                     # abdomen panel
+    r.box(-5, 5, 30, 36, -3, 3, STEEL)
+    r.box(-5, 5, 30, 36, -3, -3, STEEL_D)                 # back plate shade
+    r.box(-4, 4, 33, 35, 3, 3, STEEL_L)                   # chest highlight
+    r.box(0, 0, 30, 36, 3, 3, STEEL_D)                    # center seam
+    r.box(-5, 5, 36, 36, -3, 3, GOLD)                     # collar trim
+    r.box(-2, 2, 37, 38, -2, 2, STEEL_D)                  # neck guard
+    # shoulders + bare upper arms y28-37
+    r.mirror_box(5, 8, 34, 37, -3, 3, STEEL_D, RA)        # pauldron
+    r.mirror_box(5, 8, 37, 37, -2, 2, GOLD, RA)           # pauldron rim
+    r.mirror_box(6, 7, 28, 33, -1, 1, SK, RA)             # bare arm
+    r.mirror_box(6, 7, 28, 31, -1, -1, SK_D, RA)          # tricep shade
+    # forearms + hands y20-27: leather bracers, gold band, bare fists
+    r.mirror_box(6, 7, 22, 27, -1, 1, LEATH, LA)
+    r.mirror_box(6, 7, 26, 26, -1, 1, GOLD, LA)           # bracer band
+    r.mirror_box(6, 7, 22, 22, -1, 1, LEATH_D, LA)
+    r.mirror_box(6, 7, 20, 21, -1, 1, SK, LA)             # hand
+    r.mirror_box(6, 7, 21, 21, 1, 1, SK_D, LA)            # knuckle shade
+    # neck y39
+    r.box(-1, 1, 39, 39, -1, 1, SK)
+    r.box(-1, 1, 39, 39, -1, -1, SK_D)
+    # head y40-50: face on the +z plane
+    r.box(-3, 3, 40, 50, -3, 3, SK, 'head')
+    r.dot(0, 40, 3, SK_D, 'head')                         # chin shade
+    r.box(-1, 0, 42, 42, 3, 3, DARK, 'head')              # mouth
+    r.box(0, 0, 43, 44, 3, 3, SK_D, 'head')               # nose shadow
+    r.dot(0, 44, 4, SK, 'head')                           # nose tip
+    for sx in (1, -1):                                    # 2×2 anime eyes
+        r.box(sx * 1, sx * 2, 45, 46, 3, 3, WHITE, 'head')
+        r.box(sx * 1, sx * 1, 45, 46, 3, 3, DARK, 'head') # iris (inner)
+        r.box(sx * 1, sx * 2, 47, 47, 3, 3, DARK, 'head') # brow
+    r.mirror_box(4, 4, 44, 45, 0, 1, SK, ('head', 'head'))       # ears
+    r.mirror_box(4, 4, 44, 44, 0, 0, SK_D, ('head', 'head'))
+    # hair: back/side shell, cap with jagged fringe, chunky top spikes
+    r.box(-4, 4, 44, 47, -4, -1, HAIR_D, 'head')          # sides/back
+    r.box(-3, 3, 41, 43, -4, -4, HAIR_D, 'head')          # back spill
+    r.box(-4, 4, 48, 51, -4, 3, HAIR, 'head')             # cap
+    r.box(-4, 4, 48, 48, -4, 3, HAIR_D, 'head')           # cap underside
+    for fx, fy in [(-3, 47), (-2, 48), (-1, 47), (0, 48), (1, 47), (2, 48), (3, 47)]:
+        r.box(fx, fx, fy, 49, 4, 4, HAIR if fy == 48 else HAIR_D, 'head')  # fringe
+    r.mirror_box(5, 5, 49, 51, -1, 1, HAIR, ('head', 'head'))    # side flicks
+    r.mirror_box(5, 5, 51, 52, 0, 0, HAIR_D, ('head', 'head'))
+    for sx0, sx1, sz0, sz1, top in [(-4, -3, -2, -1, 54), (-1, 0, -1, 0, 56),
+                                    (2, 3, -3, -2, 54), (-2, -1, 1, 2, 53),
+                                    (1, 2, 1, 2, 53), (3, 4, 0, 1, 52)]:
+        r.box(sx0, sx1, 52, min(top, 53), sz0, sz1, HAIR, 'head')
+        if top > 53:
+            r.box(sx0, sx0, 54, top, sz0, sz0, HAIR, 'head')     # spike tip
+    r.dot(-2, 43, 3, SK_D, 'head'); r.dot(2, 43, 3, SK_D, 'head')  # cheeks
+
+    # joints (pre-centering coords; rig_json centers them)
+    r.pivots = {
+        'neck': (0, 39.5, 0),
+        'rShoulder': (6.5, 34, 0), 'lShoulder': (-6.5, 34, 0),
+        'rElbow': (6.5, 27.5, 0), 'lElbow': (-6.5, 27.5, 0),
+        'rHip': (2.5, 22, 0), 'lHip': (-2.5, 22, 0),
+        'rKnee': (2.5, 12, 0), 'lKnee': (-2.5, 12, 0),
+        'rAnkle': (2.5, 3, 0), 'lAnkle': (-2.5, 3, 0),
+    }
+    r.hand = (6.5, 20.5, 0)
+
+    PARENT = [None, 0, 0, 0, 0, 0, 2, 3, 4, 5, 8, 9]
+    PIV = [None, 'neck', 'rShoulder', 'lShoulder', 'rHip', 'lHip',
+           'rElbow', 'lElbow', 'rKnee', 'lKnee', 'rAnkle', 'lAnkle']
+    r.v2 = lambda: {
+        'band': BAND_V2,
+        'handPart': PARTS_V2.index('rArmL'),
+        'hand': r.center_of(r.hand),
+        'parts': [{'parent': PARENT[i],
+                   'pivot': r.center_of(r.pivots[PIV[i]]) if PIV[i] else None}
+                  for i in range(len(PARTS_V2))],
+        'ik': {'legs': [{'hip': 4, 'knee': 8, 'foot': 10},
+                        {'hip': 5, 'knee': 9, 'foot': 11}]},
+    }
     return r, 'player'
 
 
@@ -563,7 +674,7 @@ if __name__ == '__main__':
         r, name = fn()
         path = os.path.join(ASSETS, name + '.vox') if name == 'player' \
             else os.path.join(ASSETS, 'npcs', name + '.vox')
-        write_vox(path, r.v, r.pal, banded=True)
+        write_vox(path, r.v, r.pal, banded=True, band=r.band)
         rigs['characters'][name] = r.rig_json()
         ys = [k[1] for k in r.v]
         print(f'{name:16s} {len(r.v):5d} voxels, height {max(ys) - min(ys) + 1}')
