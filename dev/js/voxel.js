@@ -570,9 +570,13 @@
     // the definition of a foot that does not skate. The swing leg arcs
     // forward with knee lift; the pelvis dips so knees stay bent; the foot
     // counter-rotates to stay flat through the whole stride.
-    const IK_STEP = 8;      // stance half-sweep, voxels
-    const IK_LIFT = 4;      // swing foot lift, voxels
-    const IK_CROUCH = 1.4;  // moving pelvis drop, voxels (+ dip at passing)
+    const IK_STEP = 8;         // stance half-sweep, voxels
+    const IK_LIFT = 4;         // swing foot lift, voxels
+    const IK_CROUCH = 1.4;     // moving pelvis drop base, voxels
+    const IK_SWING_BOB = 1.2;  // pelvis bob amplitude (sine wave engine)
+    const IK_HIP_SWAY = 0.15;  // hip yaw amplitude (radians)
+    const IK_HIP_ROLL = 0.08;  // hip roll tilt (radians)
+    const IK_TORSO_LEAN = 0.12; // torso forward lean on acceleration
 
     // 2-bone solve in the sagittal plane: hip at (0, hipY) reaching an ankle
     // at (tz forward, ty up). Returns forward-positive thigh/shin/foot
@@ -603,12 +607,28 @@
         actor.gaitBlend = Math.max(0, Math.min(1,
             (actor.gaitBlend ?? 0) + (actor.moving ? 1 : -1) * dt / 120));
         const g = actor.gaitBlend;
+        const phase = ((actor.walkPhase % 6.2832) + 6.2832) % 6.2832;
 
         // Legs: IK gait while moving/blending, authored pose at rest.
         if (g > 0.001) {
-            const phase = ((actor.walkPhase % 6.2832) + 6.2832) % 6.2832;
-            const crouch = (IK_CROUCH + (1 - Math.abs(Math.cos(phase))) * 0.9) * g;
-            ensure(0).dy = -crouch; // root: pelvis + everything above drops
+            
+            // 1. PELVIS ENGINE: Sine wave vertical motion (not cosine crouch)
+            // Lowest at passing structure (phase 0, π) when feet spread wide
+            // Highest at single-leg support (phase π/2, 3π/2)
+            const passingStructurePhase = Math.abs(Math.sin(phase)); // 0 at passing, 1 at single support
+            const pelvisY = -(IK_CROUCH + (1 - passingStructurePhase) * IK_SWING_BOB) * g;
+            ensure(0).dy = pelvisY;
+            
+            // 2. HIP SWAYING & ROTATION: Counter-phase rotation + roll tilt
+            // Yaw sways opposite to leg swing (left leg forward = right hip rotates forward)
+            const hipYaw = Math.sin(phase) * IK_HIP_SWAY * g;
+            ensure(0).yaw = hipYaw;
+            
+            // Hip roll: when foot leaves ground, that side's pelvis drops slightly
+            // Phase crossover at π marks right foot takeoff
+            const hipRoll = Math.sin(phase + Math.PI * 0.5) * IK_HIP_ROLL * g;
+            ensure(0).dz = hipRoll;  // roll tilt around forward axis
+            
             for (let li = 0; li < 2; li++) {
                 const leg = rig.ik.legs[li];
                 const hipPiv = parts[leg.hip].pivot, kneePiv = parts[leg.knee].pivot,
@@ -616,29 +636,63 @@
                 const L1 = hipPiv[1] - kneePiv[1], L2 = kneePiv[1] - ankPiv[1];
                 // this leg's phase: left leads by half a cycle
                 const ph = li === 0 ? phase : (phase + Math.PI) % 6.2832;
-                let relZ, lift = 0, droop = 0;
-                if (ph < Math.PI) {          // stance: planted, sweeps back
-                    relZ = IK_STEP * (1 - 2 * ph / Math.PI);
-                } else {                     // swing: arc forward
+                let relZ, lift = 0, droop = 0, hipYawLeg = 0;
+                
+                if (ph < Math.PI) {
+                    // STANCE: Smooth backward sweep (not sharp linear)
+                    // Use ease-out for natural weight transfer
+                    const stance = ph / Math.PI;
+                    const easeOut = 1 - (1 - stance) * (1 - stance);
+                    relZ = IK_STEP * (1 - 2 * easeOut);
+                } else {
+                    // SWING: Parabolic arc (quick lift, glide, gentle landing)
                     const p = (ph - Math.PI) / Math.PI;
-                    const e = p * p * (3 - 2 * p);
-                    relZ = -IK_STEP + 2 * IK_STEP * e;
-                    lift = Math.sin(p * Math.PI) * IK_LIFT;
+                    // Lift: sharp parabola upward then gentle ease down
+                    lift = (4 * p * (1 - p)) * IK_LIFT;
+                    // Forward motion: smooth ease-in-out along horizontal
+                    const easeIO = p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) * (-2 * p + 2) / 2;
+                    relZ = -IK_STEP + 2 * IK_STEP * easeIO;
+                    // Subtle knee droop during swing for ground clearance
                     droop = Math.sin(p * Math.PI) * 0.3;
+                    // Hip internal rotation during swing leg (adds realism)
+                    hipYawLeg = (li === 1 ? -1 : 1) * Math.sin(p * Math.PI) * 0.1;
                 }
+                
                 // solve pre-root-offset: ankle target rises by crouch so the
                 // root drop lands the foot exactly on the ground
                 const s = solveLeg(hipPiv[1], L1, L2, relZ * g,
-                                   ankPiv[1] + lift * g + crouch);
+                                   ankPiv[1] + lift * g - pelvisY);
                 ensure(leg.hip).pitch = -s.thigh;
                 ensure(leg.knee).pitch = -s.shin;
                 ensure(leg.foot).pitch = -(s.foot + droop * g);
+                
+                // Hip internal rotation during swing for natural gait
+                if (hipYawLeg !== 0) {
+                    ensure(leg.hip).yaw = (ensure(leg.hip).yaw || 0) + hipYawLeg * g;
+                }
             }
         }
 
         // Arms: attack/windup choreography wins; otherwise the run pump.
         const atk = actor.anims.find(a => a.type === 'attack');
         const RU = 2, LU = 3, RL = rig.handPart ?? 6, LL = 7;
+        
+        // 5. TORSO LAG & SECONDARY MOTION
+        // Torso forward lean on acceleration (makes character feel responsive)
+        if (g > 0.001 && actor.moving) {
+           ensure(0).pitch = IK_TORSO_LEAN * g;  // lean forward slightly
+        }
+        
+        // Impact jerks: when foot transitions from swing to stance (phase = π, 2π)
+        // This simulates weight impact and removes floaty feeling
+        const nextFootImpactL = (phase < Math.PI) ? false : (phase - Math.PI < 0.3); // right foot just landed
+        const nextFootImpactR = (phase >= Math.PI) ? false : (phase < 0.3); // left foot just landed
+        if ((nextFootImpactL || nextFootImpactR) && g > 0.001) {
+           // Sharp downward impulse on pelvis and chest on landing
+           const impactStrength = Math.max(0, 1 - (nextFootImpactL ? (phase - Math.PI) : phase) * 5);
+           ensure(0).dy = (ensure(0).dy || 0) - impactStrength * 0.15 * g;
+        }
+        
         if (atk) {
             const p = (now - atk.t0) / atk.dur;
             if (p >= 0 && p <= 1) {
