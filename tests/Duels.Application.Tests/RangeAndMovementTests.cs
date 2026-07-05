@@ -135,6 +135,69 @@ public sealed class RangeAndMovementTests
     }
 
     [Fact]
+    public async Task MoveOrder_WalksThere_WithoutAttacking_ThenHoldsPosition()
+    {
+        var (svc, state) = Build(Tank(AttackType.Crush));
+
+        // Walk-in first: get adjacent, then order a retreat to a far corner.
+        for (int i = 0; i < 4; i++) await Tick(svc);
+        Assert.Equal(1, state.DistanceToNpc);
+        int hitsBefore = Hitsplats(state, LogEntryKind.HitsplatPlayer);
+
+        state.OrderMove(-4, 4);
+        while (state.PlayerMoveTarget is not null)
+        {
+            await Tick(svc);
+            // Mid-walk ticks never attack; the arrival tick may retaliate
+            // (the chasing NPC stays adjacent the whole retreat).
+            if (state.PlayerMoveTarget is not null)
+                Assert.Equal(hitsBefore, Hitsplats(state, LogEntryKind.HitsplatPlayer));
+        }
+        // Arrived — or stopped adjacent when the chasing NPC sits on the tile.
+        Assert.True(Math.Max(Math.Abs(state.PlayerTile.X - -4), Math.Abs(state.PlayerTile.Z - 4)) <= 1);
+        Assert.True(state.HoldPosition);
+        var held = state.PlayerTile;
+        await Tick(svc);
+        Assert.Equal(held, state.PlayerTile); // no auto-chase while holding
+
+        // NPC keeps chasing; once it arrives, the held player retaliates.
+        for (int i = 0; i < 8 && state.DistanceToNpc > 1; i++) await Tick(svc);
+        Assert.Equal(1, state.DistanceToNpc);
+        await Tick(svc);
+        Assert.True(Hitsplats(state, LogEntryKind.HitsplatPlayer) > hitsBefore);
+        Assert.Equal(held, state.PlayerTile); // retaliation never moves the holder
+    }
+
+    [Fact]
+    public async Task Engage_ResumesChase()
+    {
+        var (svc, state) = Build(Tank(AttackType.Ranged)); // NPC stands off at spawn
+
+        state.OrderMove(-4, 4);
+        while (state.PlayerMoveTarget is not null) await Tick(svc);
+        Assert.True(state.HoldPosition);
+
+        state.Engage();
+        Assert.False(state.HoldPosition);
+        var before = state.DistanceToNpc;
+        await Tick(svc);
+        Assert.True(state.DistanceToNpc < before); // walking back in
+    }
+
+    [Fact]
+    public void OrderMove_ClampsToArena()
+    {
+        var state = new GameState("p1", new Player("p1", "Hero"));
+        state.StartDuel(new NpcInstance(Tank(AttackType.Crush)));
+
+        state.OrderMove(99, -99);
+        var t = state.PlayerMoveTarget!.Value;
+        Assert.True(Math.Abs(t.X) <= GameState.ArenaRadius);
+        Assert.True(Math.Abs(t.Z) <= GameState.ArenaRadius);
+        Assert.True(t.X * t.X + t.Z * t.Z <= GameState.ArenaRadius * GameState.ArenaRadius);
+    }
+
+    [Fact]
     public void NpcInRange_TracksStyle()
     {
         var state = new GameState("p1", new Player("p1", "Hero"));

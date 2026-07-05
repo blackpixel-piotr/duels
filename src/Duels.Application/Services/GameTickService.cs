@@ -85,8 +85,19 @@ public sealed class GameTickService : IDisposable
         // tile toward a flanking slot beside the other (diagonals allowed).
         // Melee closes to adjacency; ranged/magic already covers the arena
         // and stands its ground.
+        // A click-to-move order overrides the chase: walk to the clicked tile
+        // (attacking suspended), then hold position until the enemy is
+        // clicked again (Engage) — OSRS-style disengage.
         int playerRange = GetPlayerWeaponRange(player);
-        if (state.DistanceToNpc > playerRange)
+        if (state.PlayerMoveTarget is { } moveTarget)
+        {
+            var step = StepToward(state.PlayerTile, moveTarget, state.NpcTile);
+            bool blocked = step == state.PlayerTile;
+            state.SetPlayerTile(step.X, step.Z);
+            if (state.PlayerTile == moveTarget || blocked)
+                state.ClearMoveOrder();
+        }
+        else if (!state.HoldPosition && state.DistanceToNpc > playerRange)
         {
             var step = StepToward(state.PlayerTile, ApproachSlot(state.PlayerTile, state.NpcTile), state.NpcTile);
             state.SetPlayerTile(step.X, step.Z);
@@ -98,8 +109,10 @@ public sealed class GameTickService : IDisposable
         }
 
         // Player's attack — held (cooldown stays ready, queued spec kept) while
-        // out of range so it fires the moment the walk-in completes.
-        if (state.PlayerCooldown == 0 && state.DistanceToNpc <= playerRange)
+        // out of range so it fires the moment the walk-in completes. Walking
+        // under a move order suspends attacking entirely (OSRS disengage).
+        if (state.PlayerCooldown == 0 && state.PlayerMoveTarget is null
+            && state.DistanceToNpc <= playerRange)
         {
             var action = state.QueuedAction ?? "attack";
             await ExecutePlayerAction(state, player, npc, action);

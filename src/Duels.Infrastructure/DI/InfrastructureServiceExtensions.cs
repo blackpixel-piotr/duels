@@ -54,6 +54,9 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ICommandHandler<SellItemCommand>, SellItemHandler>();
         services.AddSingleton<ICommandHandler<DepositItemCommand>, DepositItemHandler>();
         services.AddSingleton<ICommandHandler<WithdrawItemCommand>, WithdrawItemHandler>();
+        services.AddSingleton<ICommandHandler<StartTestFightCommand>, StartTestFightHandler>();
+        services.AddSingleton<ICommandHandler<MoveToCommand>, MoveToHandler>();
+        services.AddSingleton<ICommandHandler<EngageCommand>, EngageHandler>();
 
         return services;
     }

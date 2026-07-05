@@ -44,6 +44,37 @@ public sealed class GameState
     public void SetPlayerTile(int x, int z) => PlayerTile = (x, z);
     public void SetNpcTile(int x, int z) => NpcTile = (x, z);
 
+    // Click-to-move: a ground click sets a move order (walking cancels
+    // attacking); on arrival the player holds position — auto-retaliate
+    // in range, but no chasing — until the enemy is clicked (Engage).
+    public (int X, int Z)? PlayerMoveTarget { get; private set; }
+    public bool HoldPosition { get; private set; }
+
+    public void OrderMove(int x, int z)
+    {
+        // Clamp to the arena circle so orders can't walk out of the scene.
+        x = Math.Clamp(x, -ArenaRadius, ArenaRadius);
+        z = Math.Clamp(z, -ArenaRadius, ArenaRadius);
+        while (x * x + z * z > ArenaRadius * ArenaRadius)
+        {
+            if (Math.Abs(x) >= Math.Abs(z)) x -= Math.Sign(x); else z -= Math.Sign(z);
+        }
+        PlayerMoveTarget = (x, z);
+        HoldPosition = true;
+    }
+
+    public void ClearMoveOrder() => PlayerMoveTarget = null;
+
+    public void Engage()
+    {
+        PlayerMoveTarget = null;
+        HoldPosition = false;
+    }
+
+    // Test-fight duels render the open-field scene instead of the arena ring.
+    public bool TestScene { get; private set; }
+    public void SetTestScene(bool on) => TestScene = on;
+
     public bool HasBegged { get; private set; }
 
     // Prestige
@@ -95,6 +126,9 @@ public sealed class GameState
         // Opposite ends of the arena; melee walks in from here.
         PlayerTile = (0, 3);
         NpcTile = (1, -3);
+        PlayerMoveTarget = null;
+        HoldPosition = false;
+        TestScene = false;
     }
 
     public void RecordDamageTaken(int amount) { if (amount > 0) DamageTakenThisDuel += amount; }

@@ -507,6 +507,51 @@ WEAPONS = {
     'scythe_of_vitur':    w_scythe,
 }
 
+# ── Scene props (field scene set dressing; unbanded, unrigged) ─────────────
+
+def disc(r, cx, cy, cz, rad, rgb, squash=1.0):
+    for x in range(cx - rad, cx + rad + 1):
+        for z in range(cz - rad, cz + rad + 1):
+            if math.hypot(x - cx, (z - cz) * squash) <= rad + 0.3:
+                r.dot(x, cy, z, rgb)
+
+
+def p_tree():
+    r = Rig()
+    bark = (96, 68, 40); bark_d = (74, 52, 30)
+    leaf = (64, 112, 48); leaf_d = (48, 88, 38); leaf_l = (86, 134, 58)
+    r.box(-1, 1, 0, 11, -1, 1, bark)
+    r.box(0, 0, 0, 11, 0, 0, bark_d)               # core shade line
+    r.box(-3, -2, 0, 1, -1, 0, bark_d)              # root flares
+    r.box(2, 3, 0, 1, 0, 1, bark_d)
+    # canopy: stacked discs, widest mid, lighter crown
+    for y, rad, c in [(9, 4, leaf_d), (10, 5, leaf), (11, 6, leaf), (12, 6, leaf),
+                      (13, 5, leaf), (14, 4, leaf_l), (15, 3, leaf_l), (16, 2, leaf_l)]:
+        disc(r, 0, y, 0, rad, c)
+    return r, 'tree'
+
+
+def p_rock():
+    r = Rig()
+    gray = (126, 124, 120); gray_d = (96, 94, 92); moss = (80, 110, 60)
+    r.box(-3, 3, 0, 1, -2, 2, gray)
+    r.box(-2, 2, 2, 3, -1, 2, gray)
+    r.box(-1, 1, 4, 4, 0, 1, gray_d)
+    r.box(-3, -1, 0, 2, 2, 2, gray_d)               # shaded face
+    r.box(0, 2, 4, 4, -1, 0, moss)                  # moss cap
+    return r, 'rock'
+
+
+def p_bush():
+    r = Rig()
+    leaf = (70, 118, 52); leaf_d = (52, 92, 40)
+    for y, rad in [(0, 3), (1, 3), (2, 2), (3, 1)]:
+        disc(r, 0, y, 0, rad, leaf if y % 2 else leaf_d)
+    return r, 'bush'
+
+
+PROPS = [p_tree, p_rock, p_bush]
+
 MODELS = [m_player, m_goblin, m_swashbuckler, m_barbarian, m_desert_bandit,
           m_gladiator, m_corsair, m_berserker, m_warlord, m_champion,
           m_rare_tourist, m_rare_gladiator]
@@ -528,6 +573,11 @@ if __name__ == '__main__':
         write_vox(os.path.join(ASSETS, 'items', wid + '.vox'), w.v, w.pal, banded=False)
         rigs['weapons'][wid] = w.rig_json()
         print(f'  item {wid:20s} {len(w.v):4d} voxels')
+
+    for fn in PROPS:
+        r, name = fn()
+        write_vox(os.path.join(ASSETS, 'props', name + '.vox'), r.v, r.pal, banded=False)
+        print(f'  prop {name:20s} {len(r.v):4d} voxels')
 
     with open(os.path.join(ASSETS, 'rigs.json'), 'w') as f:
         json.dump(rigs, f, indent=1)
