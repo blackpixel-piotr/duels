@@ -35,6 +35,7 @@ public sealed class StartTestFightHandler : ICommandHandler<StartTestFightComman
         var template = _npcRepo.GetTemplate("barbarian")
             ?? throw new InvalidOperationException("barbarian template missing");
         state.StartDuel(new NpcInstance(template));
+        state.SetTestScene(true); // open-field scene instead of the arena ring
 
         state.AppendLog("[TEST] Whip + DDS loaded. Fight!", LogEntryKind.System);
 

@@ -1,13 +1,16 @@
 @using Duels.Application.GameSession
 @using Duels.Application.Abstractions
+@using Duels.Application.Commands
 @using Duels.Domain.ValueObjects
 @inject IJSRuntime JS
 @inject IItemRepository ItemRepo
+@inject Duels.Web.Services.GameService GameSvc
 @implements IAsyncDisposable
 
-@* Pokemon-style battle scene: voxel player close-up lower-left, enemy
-   upper-right. Stays mounted through the whole duel and the result overlay —
-   after a duel ends ActiveNpc is null, so enemy display fields are cached. *@
+@* Three-quarter battle scene with a player-centered, drag-to-rotate camera.
+   Taps click through to the sim (ground = walk order, enemy = engage).
+   Stays mounted through the whole duel and the result overlay — after a duel
+   ends ActiveNpc is null, so enemy display fields are cached. *@
 <div class="battle-scene" id="battle-scene">
     <canvas id="battle-canvas" width="260" height="200"></canvas>
 
@@ -65,6 +68,7 @@
 
     private int _lastCount;
     private bool _inited;
+    private DotNetObjectReference<BattleScene>? _selfRef;
     private bool _lastTelegraph;
     private string? _lastWindup;
     private string? _lastWeapon;
@@ -123,12 +127,15 @@
             // Seed the log cursor first: entries that existed before the scene
             // mounted must not fire splats/animations.
             _lastCount = LogEntries.Count;
+            _selfRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("voxel.initBattle", "battle-canvas", new
             {
                 playerUrl = "assets/player.vox",
                 enemyId = _enemyId,
                 zonePlayerId = "zone-player",
                 zoneNpcId = "zone-npc",
+                scene = State?.TestScene == true ? "field" : "arena",
+                dotnetRef = _selfRef,
             });
             _lastWeapon = WeaponId;
             await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId);
@@ -234,6 +241,22 @@
         }
     }
 
+    // Scene taps, forwarded from voxel.js: a ground tap orders a walk
+    // (disengaging), an enemy tap re-engages the chase.
+    [JSInvokable]
+    public async Task OnGroundClick(int x, int z)
+    {
+        if (GameSvc.PlayerId is { } pid)
+            await GameSvc.DispatchAsync(new MoveToCommand(pid, x, z));
+    }
+
+    [JSInvokable]
+    public async Task OnEnemyClick()
+    {
+        if (GameSvc.PlayerId is { } pid)
+            await GameSvc.DispatchAsync(new EngageCommand(pid));
+    }
+
     // The player's projectile/effect style comes from the equipped weapon.
     private string PlayerStyle() =>
         WeaponId is { } id && ItemRepo.GetWeapon(id) is { } w ? StyleClass(w.AttackType) : "melee";
@@ -269,5 +292,6 @@
     {
         try { await JS.InvokeVoidAsync("voxel.destroyBattle", "battle-canvas"); }
         catch { /* JS runtime tearing down */ }
+        _selfRef?.Dispose();
     }
 }
