@@ -19,3 +19,6 @@ dist/
 
 ## dotnet local tools
 .config/dotnet-tools.json
+
+## Python
+__pycache__/
