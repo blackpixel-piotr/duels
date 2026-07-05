@@ -81,26 +81,34 @@ public sealed class GameTickService : IDisposable
 
         state.DecrementCooldowns();
 
-        // Movement: whoever can't reach with their own attack range steps one
-        // tile toward a flanking slot beside the other (diagonals allowed).
-        // Melee closes to adjacency; ranged/magic already covers the arena
-        // and stands its ground.
-        // A click-to-move order overrides the chase: walk to the clicked tile
+        // Movement: whoever can't reach with their own attack range steps
+        // toward a flanking slot beside the other (diagonals allowed). The
+        // player RUNS — two tiles per tick, like OSRS with run on — while
+        // NPCs walk one; melee closes to adjacency, ranged/magic already
+        // covers the arena and stands its ground.
+        // A click-to-move order overrides the chase: run to the clicked tile
         // (attacking suspended), then hold position until the enemy is
         // clicked again (Engage) — OSRS-style disengage.
         int playerRange = GetPlayerWeaponRange(player);
         if (state.PlayerMoveTarget is { } moveTarget)
         {
-            var step = StepToward(state.PlayerTile, moveTarget, state.NpcTile);
-            bool blocked = step == state.PlayerTile;
-            state.SetPlayerTile(step.X, step.Z);
-            if (state.PlayerTile == moveTarget || blocked)
-                state.ClearMoveOrder();
+            for (int i = 0; i < 2 && state.PlayerMoveTarget is not null; i++)
+            {
+                var step = StepToward(state.PlayerTile, moveTarget, state.NpcTile);
+                bool blocked = step == state.PlayerTile;
+                state.SetPlayerTile(step.X, step.Z);
+                if (state.PlayerTile == moveTarget || blocked)
+                    state.ClearMoveOrder();
+            }
         }
-        else if (!state.HoldPosition && state.DistanceToNpc > playerRange)
+        else if (!state.HoldPosition)
         {
-            var step = StepToward(state.PlayerTile, ApproachSlot(state.PlayerTile, state.NpcTile), state.NpcTile);
-            state.SetPlayerTile(step.X, step.Z);
+            for (int i = 0; i < 2 && state.DistanceToNpc > playerRange; i++)
+            {
+                var step = StepToward(state.PlayerTile, ApproachSlot(state.PlayerTile, state.NpcTile), state.NpcTile);
+                if (step == state.PlayerTile) break;
+                state.SetPlayerTile(step.X, step.Z);
+            }
         }
         if (state.DistanceToNpc > AttackRange.ForStyle(npc.CurrentAttackType))
         {

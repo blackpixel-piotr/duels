@@ -332,7 +332,7 @@
     const ARENA_R = 5.2;       // arena circle radius, world units
     const WALK_R = 5;          // walkable tile radius (matches GameState.ArenaRadius)
     const FIELD_R = 12;        // grass extent of the field scene, world units
-    const TILE_MS = 600;       // walk speed: one tile per game tick
+    const TILE_MS = 600;       // move-segment duration: one sim step per game tick
     const STRIDE = Math.PI;    // walk-phase radians per world unit (a step per tile)
     // Spawn tiles — must match GameState.StartDuel; live positions then come
     // from setBattlePositions as the sim moves the combatants.
@@ -419,6 +419,7 @@
             st: null,                       // back-ref to the battle (camera access)
             pos: { wx: base.wx, wz: base.wz },
             target: { wx: base.wx, wz: base.wz },
+            seg: null,                      // live move segment (one per sim step)
             facing: base.facing,            // turns toward movement/opponent
             moving: false,
             walkPhase: 0,                   // gait phase, advances with distance
@@ -1137,22 +1138,27 @@
                                   ((Math.random() * 2 - 1) * st.shake.mag * ms) | 0);
             }
 
-            // Movement: glide toward the sim's tile positions (1 tile/tick)
-            // with a walk-cycle pose; face travel direction, else the opponent.
+            // Movement: play each actor's segment at constant velocity, timed
+            // to land exactly when the next sim step is due (TILE_MS) — no
+            // per-tile stall, and longer (running) segments just move faster.
+            // Face travel direction while moving, else the opponent.
             for (const key of ['player', 'enemy']) {
                 const actor = st[key];
                 const other = key === 'player' ? st.enemy : st.player;
                 if (actor.crumbled) { actor.moving = false; continue; }
-                const mdx = actor.target.wx - actor.pos.wx, mdz = actor.target.wz - actor.pos.wz;
-                const d = Math.hypot(mdx, mdz);
                 let destFacing;
-                if (d > 0.02) {
-                    const moved = Math.min(d, dt / TILE_MS);
-                    actor.pos.wx += mdx / d * moved;
-                    actor.pos.wz += mdz / d * moved;
-                    actor.walkPhase += moved * STRIDE; // gait synced to ground covered
-                    actor.moving = true;
-                    destFacing = Math.atan2(mdx, mdz);
+                if (actor.seg) {
+                    const s = actor.seg;
+                    const p = Math.min(1, (st.time - s.t0) / TILE_MS);
+                    const nx = s.x0 + (s.x1 - s.x0) * p, nz = s.z0 + (s.z1 - s.z0) * p;
+                    actor.walkPhase += Math.hypot(nx - actor.pos.wx, nz - actor.pos.wz) * STRIDE;
+                    actor.pos.wx = nx; actor.pos.wz = nz;
+                    actor.moving = p < 1;
+                    destFacing = Math.atan2(s.x1 - s.x0, s.z1 - s.z0);
+                    if (p >= 1) {
+                        actor.seg = null;
+                        destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+                    }
                 } else {
                     actor.moving = false;
                     destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
@@ -1160,12 +1166,14 @@
                 let da = destFacing - actor.facing;
                 while (da > Math.PI) da -= 6.2832;
                 while (da < -Math.PI) da += 6.2832;
-                actor.facing += da * Math.min(1, dt * 0.012);
+                actor.facing += da * Math.min(1, dt * 0.03);
             }
 
-            // Camera keeps the player centered (soft follow).
-            st.camFocus.wx += (st.player.pos.wx - st.camFocus.wx) * Math.min(1, dt * 0.006);
-            st.camFocus.wz += (st.player.pos.wz - st.camFocus.wz) * Math.min(1, dt * 0.006);
+            // Camera: rigid lock on the player (OSRS-style). The actor's own
+            // glide is already smooth, so no follow-lag is needed — lag here
+            // just reads as the world swimming.
+            st.camFocus.wx = st.player.pos.wx;
+            st.camFocus.wz = st.player.pos.wz;
             st.trackAnchors(W, H);
 
             drawScene(st, ctx, W, H);
@@ -1322,12 +1330,20 @@
         attachWeapon(live.player, model, live.rigs?.weapons?.[weaponId]?.grip);
     }
 
-    // Sim tile positions (from GameState) — actors glide toward these.
+    // Sim tile positions (from GameState). A changed tile opens a straight
+    // segment from wherever the actor currently is, covered in exactly one
+    // tick — a 2-tile running step just moves twice as fast, and a late
+    // update re-anchors mid-stride, so motion never stalls between tiles.
     function setBattlePositions(canvasId, pos) {
         const st = battles.get(canvasId);
         if (!st) return;
-        if (pos.player) st.player.target = { wx: pos.player.x, wz: pos.player.z };
-        if (pos.enemy) st.enemy.target = { wx: pos.enemy.x, wz: pos.enemy.z };
+        const order = (actor, x, z) => {
+            if (actor.target.wx === x && actor.target.wz === z) return;
+            actor.target = { wx: x, wz: z };
+            actor.seg = { x0: actor.pos.wx, z0: actor.pos.wz, x1: x, z1: z, t0: st.time };
+        };
+        if (pos.player) order(st.player, pos.player.x, pos.player.z);
+        if (pos.enemy) order(st.enemy, pos.enemy.x, pos.enemy.z);
     }
 
     // Restore both actors for a rematch on the same mounted scene (RETRY).
@@ -1340,6 +1356,7 @@
             actor.lastRemoved = [];
             actor.pos = { wx: actor.base.wx, wz: actor.base.wz };
             actor.target = { wx: actor.base.wx, wz: actor.base.wz };
+            actor.seg = null;
             actor.facing = actor.base.facing;
             actor.moving = false;
             actor.walkPhase = 0;

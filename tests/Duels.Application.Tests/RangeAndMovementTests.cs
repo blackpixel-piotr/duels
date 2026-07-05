@@ -82,14 +82,12 @@ public sealed class RangeAndMovementTests
         var (svc, state) = Build(Tank(AttackType.Crush));
         Assert.Equal(6, state.DistanceToNpc); // (0,3) vs (1,-3)
 
-        // Tick 1-2: both walk (closure 2/tick), nobody can hit.
+        // Tick 1: player runs 2 tiles, NPC walks 1 (closure 3) — no reach yet.
         await Tick(svc);
         Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
         Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatNpc));
-        await Tick(svc);
-        Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
 
-        // Tick 3: adjacency reached — both attacks land this tick.
+        // Tick 2: adjacency reached — both attacks land this tick.
         await Tick(svc);
         Assert.Equal(1, state.DistanceToNpc);
         Assert.True(Hitsplats(state, LogEntryKind.HitsplatPlayer) > 0);
