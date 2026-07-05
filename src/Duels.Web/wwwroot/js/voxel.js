@@ -346,6 +346,8 @@
     const TILE_MS = 600;       // move-segment duration: one sim step per game tick
     const STRIDE = Math.PI;    // walk-phase radians per world unit (a step per tile)
     const CAM_FOV = 25;        // perspective divide (world units); larger = less distortion
+    const ZOOM_MIN = 0.4, ZOOM_MAX = 2.5;
+    const PITCH_MIN = 0.25, PITCH_MAX = 1.4;
     // Spawn tiles — must match GameState.StartDuel; live positions then come
     // from setBattlePositions as the sim moves the combatants.
     const LAYOUT = {
@@ -364,8 +366,8 @@
 
     // px-per-world-unit and the screen y of the camera focus, fitted so the
     // arena (plus actor headroom) fills the canvas at any aspect.
-    function camera(W, H) {
-        const px = Math.min(W / (ARENA_R * 2 + 0.6), H / (ARENA_R * 2 * POS_TILT + 7.5));
+    function camera(W, H, zoom = 1) {
+        const px = Math.min(W / (ARENA_R * 2 + 0.6), H / (ARENA_R * 2 * POS_TILT + 7.5)) * zoom;
         return { px, cy: H * 0.55 };
     }
     // World → screen through the battle's live camera: translate to the
@@ -376,17 +378,19 @@
         const c = Math.cos(st.camYaw), sn = Math.sin(st.camYaw);
         const dx = wx - st.camFocus.wx, dz = wz - st.camFocus.wz;
         const rx = dx * c - dz * sn, rz = dx * sn + dz * c;
-        const cm = camera(W, H);
+        const cm = camera(W, H, st.camZoom ?? 1);
         const ps = CAM_FOV / (CAM_FOV - rz);
-        return { x: W / 2 + rx * cm.px * ps, y: cm.cy + rz * cm.px * POS_TILT * ps, rz, px: cm.px };
+        const pitch = st.camPitch ?? POS_TILT;
+        return { x: W / 2 + rx * cm.px * ps, y: cm.cy + rz * cm.px * pitch * ps, rz, px: cm.px };
     }
     // Screen → world (ground plane): exact inverse of the perspective proj above.
-    // Derived by solving: dy = rz * K / (CAM_FOV - rz), where K = px * POS_TILT * CAM_FOV.
+    // Derived by solving: dy = rz * K / (CAM_FOV - rz), where K = px * pitch * CAM_FOV.
     // Rearranges to: rz = dy * CAM_FOV / (K + dy).
     function screenToWorld(st, sx, sy, W, H) {
-        const cm = camera(W, H);
+        const cm = camera(W, H, st.camZoom ?? 1);
+        const pitch = st.camPitch ?? POS_TILT;
         const dy = sy - cm.cy;
-        const K = cm.px * POS_TILT * CAM_FOV;
+        const K = cm.px * pitch * CAM_FOV;
         const rz = Math.abs(K + dy) > 0.001 ? dy * CAM_FOV / (K + dy) : 0;
         const ps = CAM_FOV / (CAM_FOV - rz);
         const rx = (sx - W / 2) / (cm.px * ps);
@@ -493,7 +497,7 @@
     // at blit time (via ps = CAM_FOV / (CAM_FOV - rz)), so S never jumps
     // as actors move and the ~2× scale glitch during attacks is gone.
     function actorScale(actor, W, H) {
-        const cm = camera(W, H);
+        const cm = camera(W, H, actor.st?.camZoom ?? 1);
         return Math.max(1, Math.round(cm.px * actor.base.worldH / actor.model.height));
     }
 
@@ -787,7 +791,7 @@
             ctx.beginPath();
             ctx.ellipse(ax + a.dx * 0.4, ay,
                         actor.model.radius * r.S * ps * 0.9,
-                        actor.model.radius * r.S * POS_TILT * ps * 0.62, 0, 0, 6.2832);
+                        actor.model.radius * r.S * (actor.st?.camPitch ?? POS_TILT) * ps * 0.62, 0, 0, 6.2832);
             ctx.fill();
         }
 
@@ -1009,7 +1013,7 @@
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
         ctx.beginPath();
         ctx.ellipse(p.x, p.y, pr.model.radius * S * 0.9,
-            pr.model.radius * S * POS_TILT * 0.6, 0, 0, 6.2832);
+            pr.model.radius * S * (st.camPitch ?? POS_TILT) * 0.6, 0, 0, 6.2832);
         ctx.fill();
         renderModel(ctx, pr.model, st.camYaw, S, p.x, p.y);
     }
@@ -1129,6 +1133,8 @@
             scene: opts.scene === 'field' ? 'field' : 'arena',
             dotnet: opts.dotnetRef ?? null,   // Blazor callbacks (clicks)
             camYaw: CAM_ANGLE0,               // drag-to-rotate camera yaw
+            camZoom: 1.0,                     // scroll/pinch zoom (ZOOM_MIN–ZOOM_MAX)
+            camPitch: POS_TILT,               // vertical tilt (PITCH_MIN–PITCH_MAX)
             camFocus: { wx: LAYOUT.player.wx, wz: LAYOUT.player.wz },
             tileColors: new Map(),
             props: [],            // { model, wx, wz, worldH } (field scene)
@@ -1195,61 +1201,115 @@
             }
         };
 
-        // Pointer gestures: drag horizontally to orbit the camera around the
-        // player; a tap (< TAP_PX travel) is a click — on the enemy it
-        // re-engages the chase, on the ground it orders a walk to that tile.
+        // Pointer gestures:
+        //   1 finger horizontal drag → orbit (yaw)
+        //   2 fingers pinch          → zoom
+        //   2 fingers vertical shift → pitch (tilt up/down)
+        //   tap (< TAP_PX travel)    → click (enemy re-engages, ground = walk)
+        //   mouse wheel              → zoom
+        st.pointers = new Map(); // pointerId → { x, y }
+        st.pinch = null;         // { dist0, zoom0, midY0, pitch0 }
+
         st.onDown = ev => {
-            st.drag = { x: ev.clientX, y: ev.clientY, yaw0: st.camYaw, moved: 0 };
             canvas.setPointerCapture(ev.pointerId);
+            st.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+            if (st.pointers.size === 1) {
+                st.drag = { x: ev.clientX, y: ev.clientY, yaw0: st.camYaw, moved: 0 };
+            } else if (st.pointers.size === 2) {
+                const pts = [...st.pointers.values()];
+                st.pinch = {
+                    dist0: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
+                    zoom0: st.camZoom,
+                    midY0: (pts[0].y + pts[1].y) / 2,
+                    pitch0: st.camPitch,
+                };
+                st.drag = null; // 2-finger gesture supersedes single-drag
+            }
         };
         st.onMove = ev => {
-            if (!st.drag) return;
-            st.drag.moved = Math.max(st.drag.moved,
-                Math.hypot(ev.clientX - st.drag.x, ev.clientY - st.drag.y));
-            if (st.drag.moved > TAP_PX)
-                st.camYaw = st.drag.yaw0 + (ev.clientX - st.drag.x) * CAM_DRAG;
+            st.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+            if (st.pointers.size >= 2 && st.pinch) {
+                const pts = [...st.pointers.values()];
+                const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                const midY = (pts[0].y + pts[1].y) / 2;
+                st.camZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX,
+                    st.pinch.zoom0 * dist / st.pinch.dist0));
+                // upward drag (negative delta) = look more from above → higher pitch
+                const pitchDelta = (st.pinch.midY0 - midY) * 0.004;
+                st.camPitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX,
+                    st.pinch.pitch0 + pitchDelta));
+            } else if (st.drag && st.pointers.size === 1) {
+                st.drag.moved = Math.max(st.drag.moved,
+                    Math.hypot(ev.clientX - st.drag.x, ev.clientY - st.drag.y));
+                if (st.drag.moved > TAP_PX)
+                    st.camYaw = st.drag.yaw0 + (ev.clientX - st.drag.x) * CAM_DRAG;
+            }
         };
         st.onUp = ev => {
+            const wasSingle = st.pointers.size === 1;
             const d = st.drag;
-            st.drag = null;
-            if (!d || d.moved > TAP_PX) return;
+            st.pointers.delete(ev.pointerId);
+            if (st.pointers.size < 2) st.pinch = null;
 
-            const rect = canvas.getBoundingClientRect();
-            const x = (ev.clientX - rect.left) / rect.width * canvas.width;
-            const y = (ev.clientY - rect.top) / rect.height * canvas.height;
-            const W = canvas.width, H = canvas.height;
+            // Tap: only when a single pointer lifted with < TAP_PX travel.
+            if (wasSingle && d && d.moved <= TAP_PX) {
+                const rect = canvas.getBoundingClientRect();
+                const x = (ev.clientX - rect.left) / rect.width * canvas.width;
+                const y = (ev.clientY - rect.top) / rect.height * canvas.height;
+                const W = canvas.width, H = canvas.height;
 
-            // Enemy first: generous screen-rect hit-test.
-            const e = st.enemy;
-            if (!e.crumbled) {
-                const p = anchor(e, W, H);
-                const S = actorScale(e, W, H);
-                const ePs = CAM_FOV / (CAM_FOV - p.rz);
-                if (Math.abs(x - p.x) < e.model.radius * S * ePs * 1.5 &&
-                    y > p.y - e.model.height * S * ePs - 8 && y < p.y + 6) {
-                    st.targetPulse = st.time;
-                    st.dotnet?.invokeMethodAsync('OnEnemyClick');
-                    return;
+                // Enemy first: generous screen-rect hit-test.
+                const e = st.enemy;
+                if (!e.crumbled) {
+                    const p = anchor(e, W, H);
+                    const S = actorScale(e, W, H);
+                    const ePs = CAM_FOV / (CAM_FOV - p.rz);
+                    if (Math.abs(x - p.x) < e.model.radius * S * ePs * 1.5 &&
+                        y > p.y - e.model.height * S * ePs - 8 && y < p.y + 6) {
+                        st.targetPulse = st.time;
+                        st.dotnet?.invokeMethodAsync('OnEnemyClick');
+                        st.drag = null;
+                        return;
+                    }
                 }
+
+                // Ground: unproject to a tile, clamp to the walkable circle.
+                const w = screenToWorld(st, x, y, W, H);
+                let tx = Math.round(w.wx), tz = Math.round(w.wz);
+                let guard = 40;
+                while (tx * tx + tz * tz > WALK_R * WALK_R && guard-- > 0) {
+                    if (Math.abs(tx) >= Math.abs(tz)) tx -= Math.sign(tx);
+                    else tz -= Math.sign(tz);
+                }
+                st.moveMarker = { wx: tx, wz: tz, t0: st.time };
+                st.dotnet?.invokeMethodAsync('OnGroundClick', tx, tz);
             }
 
-            // Ground: unproject to a tile, clamp to the walkable circle.
-            const w = screenToWorld(st, x, y, W, H);
-            let tx = Math.round(w.wx), tz = Math.round(w.wz);
-            let guard = 40;
-            while (tx * tx + tz * tz > WALK_R * WALK_R && guard-- > 0) {
-                if (Math.abs(tx) >= Math.abs(tz)) tx -= Math.sign(tx);
-                else tz -= Math.sign(tz);
+            // If one finger remains after lifting, re-anchor single-drag.
+            if (st.pointers.size === 1) {
+                const [pt] = st.pointers.values();
+                st.drag = { x: pt.x, y: pt.y, yaw0: st.camYaw, moved: 0 };
+            } else if (st.pointers.size === 0) {
+                st.drag = null;
             }
-            st.moveMarker = { wx: tx, wz: tz, t0: st.time };
-            st.dotnet?.invokeMethodAsync('OnGroundClick', tx, tz);
         };
-        st.onCancel = () => { st.drag = null; }; // aborted gesture ≠ click
+        st.onCancel = ev => {
+            st.pointers.delete(ev.pointerId);
+            if (st.pointers.size < 2) st.pinch = null;
+            if (st.pointers.size === 0) st.drag = null;
+        };
+        // Scroll wheel: zoom in/out.
+        st.onWheel = ev => {
+            ev.preventDefault();
+            const factor = ev.deltaY > 0 ? 0.92 : 1 / 0.92;
+            st.camZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, st.camZoom * factor));
+        };
         canvas.style.touchAction = 'none';       // let pointermove drags rotate on touch
         canvas.addEventListener('pointerdown', st.onDown);
         canvas.addEventListener('pointermove', st.onMove);
         canvas.addEventListener('pointerup', st.onUp);
         canvas.addEventListener('pointercancel', st.onCancel);
+        canvas.addEventListener('wheel', st.onWheel, { passive: false });
 
         const loop = () => {
             // Scene clock: dt freezes for hit-stop, crawls for killing-blow
@@ -1432,6 +1492,7 @@
             st.canvas.removeEventListener('pointermove', st.onMove);
             st.canvas.removeEventListener('pointerup', st.onUp);
             st.canvas.removeEventListener('pointercancel', st.onCancel);
+            st.canvas.removeEventListener('wheel', st.onWheel);
         }
         battles.delete(canvasId);
     }
