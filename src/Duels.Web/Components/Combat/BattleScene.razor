@@ -78,6 +78,7 @@
     private DotNetObjectReference<BattleScene>? _selfRef;
     private bool _lastTelegraph;
     private string? _lastWindup;
+    private bool? _lastHoldPosition;
     private string? _lastWeapon;
     private bool _deathFired;
     private string? _enemyId;
@@ -240,6 +241,13 @@
         {
             _lastWindup = windup;
             await JS.InvokeVoidAsync("voxel.setBattleFlags", "battle-canvas", new { windup });
+        }
+
+        bool holdPosition = State?.HoldPosition ?? false;
+        if (holdPosition != _lastHoldPosition)
+        {
+            _lastHoldPosition = holdPosition;
+            await JS.InvokeVoidAsync("voxel.setBattleFlags", "battle-canvas", new { holdPosition });
         }
 
         if ((EnemyDead || PlayerDead) && !_deathFired)
