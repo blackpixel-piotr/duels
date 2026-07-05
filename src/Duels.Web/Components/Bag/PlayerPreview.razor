@@ -9,7 +9,7 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
-            await JS.InvokeVoidAsync("voxel.initPreview", "player-preview-canvas", "assets/player.vox");
+            await JS.InvokeVoidAsync("voxel.initPreview", "player-preview-canvas", "assets/player_sakuna.vox");
     }
 
     public async ValueTask DisposeAsync()
