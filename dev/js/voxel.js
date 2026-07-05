@@ -302,12 +302,12 @@
     }
 
     // ── Battle scene ──────────────────────────────────────────────────────────
-    // Three-quarter arena view: actors stand at world coordinates on a round
-    // checkered arena floor, projected through one fixed camera (slight yaw,
-    // steep pitch, mild depth perspective). Player lower-center seen from
-    // behind, enemy across the arena. One rAF loop per canvas; actors render
-    // to per-actor offscreen canvases (tint/flash applied there) then blit
-    // onto the main canvas at their animated positions.
+    // Three-quarter view: actors stand at world coordinates and are projected
+    // through a per-battle camera that stays centered on the player and
+    // rotates when the scene is dragged (tap = click-to-move / target). One
+    // rAF loop per canvas; actors render to per-actor offscreen canvases
+    // (tint/flash applied there) then blit onto the main canvas depth-sorted
+    // with any scene props.
 
     // NPC ids with a model at assets/npcs/<id>.vox (generated per opponent
     // by tools/gen_models.py).
@@ -326,9 +326,14 @@
     const BATTLE_PX = 1;
     const POS_TILT = 0.7;      // camera pitch for world positions (steeper than
                                // the models' internal TILT so depth separates)
-    const CAM_ANGLE = 0.10;    // camera yaw — slightly off-axis
+    const CAM_ANGLE0 = 0.10;   // initial camera yaw
+    const CAM_DRAG = 0.010;    // camera yaw per dragged px
+    const TAP_PX = 6;          // pointer travel below this = click, above = drag
     const ARENA_R = 5.2;       // arena circle radius, world units
+    const WALK_R = 5;          // walkable tile radius (matches GameState.ArenaRadius)
+    const FIELD_R = 12;        // grass extent of the field scene, world units
     const TILE_MS = 600;       // walk speed: one tile per game tick
+    const STRIDE = Math.PI;    // walk-phase radians per world unit (a step per tile)
     // Spawn tiles — must match GameState.StartDuel; live positions then come
     // from setBattlePositions as the sim moves the combatants.
     const LAYOUT = {
@@ -345,23 +350,35 @@
         return rigsPromise;
     }
 
-    // px-per-world-unit and the screen y of the world origin, fitted so the
+    // px-per-world-unit and the screen y of the camera focus, fitted so the
     // arena (plus actor headroom) fills the canvas at any aspect.
     function camera(W, H) {
         const px = Math.min(W / (ARENA_R * 2 + 0.6), H / (ARENA_R * 2 * POS_TILT + 7.5));
         return { px, cy: H * 0.55 };
     }
-    function worldToScreen(wx, wz, W, H) {
-        const c = Math.cos(CAM_ANGLE), sn = Math.sin(CAM_ANGLE);
-        const rx = wx * c - wz * sn, rz = wx * sn + wz * c;
+    // World → screen through the battle's live camera: translate to the
+    // focus (follows the player), rotate by the drag yaw, project.
+    function proj(st, wx, wz, W, H) {
+        const c = Math.cos(st.camYaw), sn = Math.sin(st.camYaw);
+        const dx = wx - st.camFocus.wx, dz = wz - st.camFocus.wz;
+        const rx = dx * c - dz * sn, rz = dx * sn + dz * c;
         const cm = camera(W, H);
         return { x: W / 2 + rx * cm.px, y: cm.cy + rz * cm.px * POS_TILT, rz, px: cm.px };
+    }
+    // Screen → world (ground plane): exact inverse of proj, used to turn
+    // taps into tile coordinates.
+    function screenToWorld(st, sx, sy, W, H) {
+        const cm = camera(W, H);
+        const rx = (sx - W / 2) / cm.px, rz = (sy - cm.cy) / (cm.px * POS_TILT);
+        const c = Math.cos(st.camYaw), sn = Math.sin(st.camYaw);
+        return { wx: st.camFocus.wx + rx * c + rz * sn,
+                 wz: st.camFocus.wz - rx * sn + rz * c };
     }
     // Mild perspective: nearer actors (larger rz) draw slightly larger.
     function depthScale(rz) { return 1 + rz * 0.045; }
     // Projected feet position of an actor (live position, not spawn).
     function anchor(actor, W, H) {
-        return worldToScreen(actor.pos.wx, actor.pos.wz, W, H);
+        return proj(actor.st, actor.pos.wx, actor.pos.wz, W, H);
     }
 
     // Attack-style accent colors (match .style-badge-* in terminal.css).
@@ -399,10 +416,12 @@
             view: { ...model, voxels: ordered.slice(), scratch: new Array(ordered.length) },
             crumbled: false,
             rig: rig ?? null,               // { pivots, hand } from rigs.json
+            st: null,                       // back-ref to the battle (camera access)
             pos: { wx: base.wx, wz: base.wz },
             target: { wx: base.wx, wz: base.wz },
             facing: base.facing,            // turns toward movement/opponent
             moving: false,
+            walkPhase: 0,                   // gait phase, advances with distance
             weaponVox: null,                // merged held-weapon voxels (player)
             combined: null,                 // cached view+weapon render list
         };
@@ -432,7 +451,7 @@
     function voxelCanvasPos(actor, v, W, H) {
         const p = anchor(actor, W, H);
         const S = actorScale(actor, W, H);
-        const ang = CAM_ANGLE - actor.facing;
+        const ang = actor.st.camYaw - actor.facing;
         const c = Math.cos(ang), sn = Math.sin(ang);
         const rx = v.x * c - v.z * sn, rz = v.x * sn + v.z * c;
         return { x: p.x + rx * S, y: p.y - v.y * S + rz * S * TILT, S };
@@ -498,8 +517,9 @@
                 if (atk.kind === 'cast') ensure(P_LARM).pitch = lerp3(p, 0.9, 0.5, 0);
             }
         } else if (actor.moving) {
-            // walk cycle: legs swing, arms counter-swing
-            const s = Math.sin(now * 0.012 + actor.bobPhase) * 0.55;
+            // walk cycle driven by distance traveled (not time) so feet never
+            // skate; drawActor grounds the stance foot with a matching body drop
+            const s = Math.sin(actor.walkPhase) * 0.55;
             ensure(P_RLEG).pitch = s;   ensure(P_LLEG).pitch = -s;
             ensure(P_RARM).pitch = -s * 0.5; ensure(P_LARM).pitch = s * 0.5;
         } else if (windup) {
@@ -541,7 +561,7 @@
             }
             view = actor.combined.view;
         }
-        renderModel(ctx, view, angle ?? (CAM_ANGLE - actor.facing), S, w / 2, h - m.radius * TILT * S - S - 1, pose);
+        renderModel(ctx, view, angle ?? (actor.st.camYaw - actor.facing), S, w / 2, h - m.radius * TILT * S - S - 1, pose);
         const tint = flashTint ?? actor.tint;
         if (tint) {
             ctx.globalCompositeOperation = 'source-atop';
@@ -591,7 +611,8 @@
                 }
             }
         }
-        st.dy += Math.sin(now * 0.0025 + actor.bobPhase) * 1.5 * ms;
+        // (No ambient hover-bob: feet stay planted; life comes from the
+        // wobble yaw and the gait's body drop instead.)
         if (windup) { // lean back/up before the attack lands
             st.dx -= (towardX / len) * 2 * ms;
             st.dy -= (2 + Math.sin(now * 0.02) * 1.5) * ms;
@@ -608,7 +629,15 @@
         const a = animState(actor, now, po.x - p.x, po.y - p.y, windup, motionScale(W, H));
         const wobble = Math.sin(now * 0.0004 + actor.bobPhase) * 0.05; // ambient life
         const pose = computePose(actor, now, windup);
-        const r = renderActorOffscreen(actor, a.flash, W, H, CAM_ANGLE - actor.facing + wobble, pose);
+        const r = renderActorOffscreen(actor, a.flash, W, H, actor.st.camYaw - actor.facing + wobble, pose);
+
+        // Gait grounding: with the legs split mid-stride the hips sit lower —
+        // dropping the body by hip·(1−cos swing) plants the stance foot
+        // instead of leaving both feet hovering above the tile.
+        if (actor.moving && actor.rig) {
+            const s = Math.sin(actor.walkPhase) * 0.55;
+            a.dy += (1 - Math.cos(s)) * (actor.rig.pivots?.rHip?.[1] ?? 12) * r.S;
+        }
 
         // Ground shadow (fades out with the actor)
         ctx.fillStyle = `rgba(0,0,0,${0.30 * a.alpha})`;
@@ -721,22 +750,25 @@
         ctx.fillRect(cx - rad, cy - rad, rad * 2, rad * 2);
     }
 
-    // Round checkered arena floor with an edge ring, rendered once per canvas
-    // size into an offscreen (it's static) and blitted each frame.
-    function renderArena(off, W, H) {
-        off.width = W; off.height = H;
-        const ctx = off.getContext('2d');
-        const g = ctx.createLinearGradient(0, 0, 0, H);
-        g.addColorStop(0, '#0b0b12');
-        g.addColorStop(0.45, '#12101a');
-        g.addColorStop(1, '#191420');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, W, H);
+    // ── Ground scenes ─────────────────────────────────────────────────────────
+    // Drawn every frame (the camera rotates and follows the player, so the
+    // ground can't be pre-rendered). 'arena': the round checkered duel ring.
+    // 'field': open grass with prop set-dressing (test fights).
 
+    function tileQuad(st, ctx, tx, tz, W, H) {
+        const p0 = proj(st, tx, tz, W, H), p1 = proj(st, tx + 1, tz, W, H),
+              p2 = proj(st, tx + 1, tz + 1, W, H), p3 = proj(st, tx, tz + 1, W, H);
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
+        ctx.closePath(); ctx.fill();
+    }
+
+    function drawArenaScene(st, ctx, W, H) {
         const ring = new Path2D();
         for (let i = 0; i <= 64; i++) {
             const a = i / 64 * Math.PI * 2;
-            const p = worldToScreen(Math.cos(a) * ARENA_R, Math.sin(a) * ARENA_R, W, H);
+            const p = proj(st, Math.cos(a) * ARENA_R, Math.sin(a) * ARENA_R, W, H);
             if (i === 0) ring.moveTo(p.x, p.y); else ring.lineTo(p.x, p.y);
         }
         ring.closePath();
@@ -747,19 +779,104 @@
         const R = Math.ceil(ARENA_R);
         for (let tx = -R - 1; tx <= R; tx++) {
             for (let tz = -R - 1; tz <= R; tz++) {
-                const p0 = worldToScreen(tx, tz, W, H), p1 = worldToScreen(tx + 1, tz, W, H),
-                      p2 = worldToScreen(tx + 1, tz + 1, W, H), p3 = worldToScreen(tx, tz + 1, W, H);
                 ctx.fillStyle = ((tx + tz) & 1) ? '#2b2331' : '#241d29';
-                ctx.beginPath();
-                ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
-                ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
-                ctx.closePath(); ctx.fill();
+                tileQuad(st, ctx, tx, tz, W, H);
             }
         }
         ctx.restore();
         ctx.strokeStyle = '#4a3a55';
         ctx.lineWidth = 1.5;
         ctx.stroke(ring);
+    }
+
+    // Deterministic per-tile grass shade (cached) — mostly quiet greens with
+    // the odd dirt patch so the field doesn't read as a flat fill.
+    function grassColor(st, tx, tz) {
+        const key = tx * 4096 + tz;
+        let c = st.tileColors.get(key);
+        if (!c) {
+            let h = (tx * 374761393 + tz * 668265263) | 0;
+            h = ((h ^ (h >> 13)) * 1274126177) | 0;
+            const v = ((h >>> 16) & 255) / 255;
+            c = v > 0.94 ? '#3d3423' : v > 0.62 ? '#243d21' : v > 0.30 ? '#1f351e' : '#28421f';
+            st.tileColors.set(key, c);
+        }
+        return c;
+    }
+
+    function drawFieldScene(st, ctx, W, H) {
+        const m = camera(W, H).px * 1.5; // cull margin
+        for (let tx = -FIELD_R; tx < FIELD_R; tx++) {
+            for (let tz = -FIELD_R; tz < FIELD_R; tz++) {
+                const p = proj(st, tx + 0.5, tz + 0.5, W, H);
+                if (p.x < -m || p.x > W + m || p.y < -m || p.y > H + m) continue;
+                ctx.fillStyle = grassColor(st, tx, tz);
+                tileQuad(st, ctx, tx, tz, W, H);
+            }
+        }
+    }
+
+    function drawScene(st, ctx, W, H) {
+        const g = ctx.createLinearGradient(0, 0, 0, H);
+        if (st.scene === 'field') {
+            g.addColorStop(0, '#0a120c');
+            g.addColorStop(0.5, '#0e1810');
+            g.addColorStop(1, '#0c140d');
+        } else {
+            g.addColorStop(0, '#0b0b12');
+            g.addColorStop(0.45, '#12101a');
+            g.addColorStop(1, '#191420');
+        }
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+        if (st.scene === 'field') drawFieldScene(st, ctx, W, H);
+        else drawArenaScene(st, ctx, W, H);
+    }
+
+    // Field set-dressing, placed outside the walkable radius. Loaded lazily
+    // into st.props; drawn depth-sorted with the actors.
+    const FIELD_PROPS = [
+        // trees stay ≥ 8.5 wu out so their canopies never occlude a fight
+        // at the walkable edge (WALK_R = 5)
+        { id: 'tree', wx: -9.0, wz: -4.5, worldH: 5.4 },
+        { id: 'tree', wx: 8.5,  wz: -7.5, worldH: 4.6 },
+        { id: 'tree', wx: 9.2,  wz: 5.5,  worldH: 5.8 },
+        { id: 'tree', wx: -8.5, wz: 8.0,  worldH: 5.0 },
+        { id: 'rock', wx: -6.6, wz: 1.5,  worldH: 1.4 },
+        { id: 'rock', wx: 3.5,  wz: -7.4, worldH: 1.1 },
+        { id: 'bush', wx: 6.6,  wz: -1.8, worldH: 1.1 },
+        { id: 'bush', wx: -3.0, wz: -7.1, worldH: 0.9 },
+        { id: 'bush', wx: 1.5,  wz: 7.4,  worldH: 1.0 },
+    ];
+
+    function drawProp(st, ctx, pr, W, H) {
+        const p = proj(st, pr.wx, pr.wz, W, H);
+        const S = Math.max(1, Math.round(p.px * pr.worldH * depthScale(p.rz) / pr.model.height));
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, pr.model.radius * S * 0.9,
+            pr.model.radius * S * POS_TILT * 0.6, 0, 0, 6.2832);
+        ctx.fill();
+        renderModel(ctx, pr.model, st.camYaw, S, p.x, p.y);
+    }
+
+    // Pulsing tile outline where the last ground click landed (walk order).
+    function drawMoveMarker(st, ctx, W, H, now) {
+        if (!st.moveMarker) return;
+        const age = now - st.moveMarker.t0;
+        if (age > 900) { st.moveMarker = null; return; }
+        const { wx, wz } = st.moveMarker;
+        const p0 = proj(st, wx - 0.5, wz - 0.5, W, H), p1 = proj(st, wx + 0.5, wz - 0.5, W, H),
+              p2 = proj(st, wx + 0.5, wz + 0.5, W, H), p3 = proj(st, wx - 0.5, wz + 0.5, W, H);
+        ctx.save();
+        ctx.globalAlpha = 1 - age / 900;
+        ctx.strokeStyle = '#ffd166';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
+        ctx.closePath(); ctx.stroke();
+        ctx.restore();
     }
 
     // Pulsing starburst above the enemy while their attack winds up; color
@@ -853,7 +970,15 @@
             weaponId: null,
             flags: { telegraph: false, windup: null },
             lastWindupStyle: null,
-            targetPulse: -1e9,    // click-to-target chevron (scaffold for waves)
+            targetPulse: -1e9,    // click-to-target chevron
+            scene: opts.scene === 'field' ? 'field' : 'arena',
+            dotnet: opts.dotnetRef ?? null,   // Blazor callbacks (clicks)
+            camYaw: CAM_ANGLE0,               // drag-to-rotate camera yaw
+            camFocus: { wx: LAYOUT.player.wx, wz: LAYOUT.player.wz },
+            tileColors: new Map(),
+            props: [],            // { model, wx, wz, worldH } (field scene)
+            moveMarker: null,     // last ground-click tile pulse
+            drag: null,           // active pointer gesture
             effects: [],
             particles: [],
             projectiles: [],
@@ -867,20 +992,28 @@
             shake: null,          // { mag, t0, dur }
             delayEnemyVis: 0,     // projectile travel offsets, consumed by the
             delayPlayerVis: 0,    // matching hit event
-            arena: document.createElement('canvas'),
             raf: 0,
             ro: null,
         };
+        st.player.st = st;
+        st.enemy.st = st;
 
-        // Logical resolution follows the CSS box (÷BATTLE_PX). Only the static
-        // arena floor is redrawn on resize — actor-anchored DOM overlays are
-        // tracked every frame now that actors walk.
+        // Field props load in the background and pop in as they arrive.
+        if (st.scene === 'field') {
+            for (const spec of FIELD_PROPS) {
+                loadModel(`assets/props/${spec.id}.vox`).then(model => {
+                    if (battles.get(canvasId) === st) st.props.push({ ...spec, model });
+                }).catch(() => { /* prop missing: field stays grass-only */ });
+            }
+        }
+
+        // Logical resolution follows the CSS box (÷BATTLE_PX). The ground is
+        // redrawn every frame (rotating camera), so resize only sizes the canvas.
         const fit = () => {
             const w = Math.max(60, Math.round(canvas.clientWidth / BATTLE_PX));
             const h = Math.max(60, Math.round(canvas.clientHeight / BATTLE_PX));
             if (canvas.width !== w) canvas.width = w;
             if (canvas.height !== h) canvas.height = h;
-            renderArena(st.arena, w, h);
         };
         fit();
         st.ro = new ResizeObserver(fit);
@@ -906,21 +1039,60 @@
             }
         };
 
-        // Click-to-target scaffold: clicking the enemy pulses the chevron.
-        // With waves this is where a target-switch command will hook in.
-        st.onClick = ev => {
+        // Pointer gestures: drag horizontally to orbit the camera around the
+        // player; a tap (< TAP_PX travel) is a click — on the enemy it
+        // re-engages the chase, on the ground it orders a walk to that tile.
+        st.onDown = ev => {
+            st.drag = { x: ev.clientX, y: ev.clientY, yaw0: st.camYaw, moved: 0 };
+            canvas.setPointerCapture(ev.pointerId);
+        };
+        st.onMove = ev => {
+            if (!st.drag) return;
+            st.drag.moved = Math.max(st.drag.moved,
+                Math.hypot(ev.clientX - st.drag.x, ev.clientY - st.drag.y));
+            if (st.drag.moved > TAP_PX)
+                st.camYaw = st.drag.yaw0 + (ev.clientX - st.drag.x) * CAM_DRAG;
+        };
+        st.onUp = ev => {
+            const d = st.drag;
+            st.drag = null;
+            if (!d || d.moved > TAP_PX) return;
+
             const rect = canvas.getBoundingClientRect();
             const x = (ev.clientX - rect.left) / rect.width * canvas.width;
             const y = (ev.clientY - rect.top) / rect.height * canvas.height;
+            const W = canvas.width, H = canvas.height;
+
+            // Enemy first: generous screen-rect hit-test.
             const e = st.enemy;
-            if (e.crumbled) return;
-            const p = anchor(e, canvas.width, canvas.height);
-            const S = actorScale(e, canvas.width, canvas.height);
-            if (Math.abs(x - p.x) < e.model.radius * S * 1.5 &&
-                y > p.y - e.model.height * S - 8 && y < p.y + 6)
-                st.targetPulse = st.time;
+            if (!e.crumbled) {
+                const p = anchor(e, W, H);
+                const S = actorScale(e, W, H);
+                if (Math.abs(x - p.x) < e.model.radius * S * 1.5 &&
+                    y > p.y - e.model.height * S - 8 && y < p.y + 6) {
+                    st.targetPulse = st.time;
+                    st.dotnet?.invokeMethodAsync('OnEnemyClick');
+                    return;
+                }
+            }
+
+            // Ground: unproject to a tile, clamp to the walkable circle.
+            const w = screenToWorld(st, x, y, W, H);
+            let tx = Math.round(w.wx), tz = Math.round(w.wz);
+            let guard = 40;
+            while (tx * tx + tz * tz > WALK_R * WALK_R && guard-- > 0) {
+                if (Math.abs(tx) >= Math.abs(tz)) tx -= Math.sign(tx);
+                else tz -= Math.sign(tz);
+            }
+            st.moveMarker = { wx: tx, wz: tz, t0: st.time };
+            st.dotnet?.invokeMethodAsync('OnGroundClick', tx, tz);
         };
-        canvas.addEventListener('click', st.onClick);
+        st.onCancel = () => { st.drag = null; }; // aborted gesture ≠ click
+        canvas.style.touchAction = 'none';       // let pointermove drags rotate on touch
+        canvas.addEventListener('pointerdown', st.onDown);
+        canvas.addEventListener('pointermove', st.onMove);
+        canvas.addEventListener('pointerup', st.onUp);
+        canvas.addEventListener('pointercancel', st.onCancel);
 
         const loop = () => {
             // Scene clock: dt freezes for hit-stop, crawls for killing-blow
@@ -975,9 +1147,10 @@
                 const d = Math.hypot(mdx, mdz);
                 let destFacing;
                 if (d > 0.02) {
-                    const t = Math.min(1, (dt / TILE_MS) / d);
-                    actor.pos.wx += mdx * t;
-                    actor.pos.wz += mdz * t;
+                    const moved = Math.min(d, dt / TILE_MS);
+                    actor.pos.wx += mdx / d * moved;
+                    actor.pos.wz += mdz / d * moved;
+                    actor.walkPhase += moved * STRIDE; // gait synced to ground covered
                     actor.moving = true;
                     destFacing = Math.atan2(mdx, mdz);
                 } else {
@@ -989,13 +1162,27 @@
                 while (da < -Math.PI) da += 6.2832;
                 actor.facing += da * Math.min(1, dt * 0.012);
             }
+
+            // Camera keeps the player centered (soft follow).
+            st.camFocus.wx += (st.player.pos.wx - st.camFocus.wx) * Math.min(1, dt * 0.006);
+            st.camFocus.wz += (st.player.pos.wz - st.camFocus.wz) * Math.min(1, dt * 0.006);
             st.trackAnchors(W, H);
 
-            if (st.arena.width) ctx.drawImage(st.arena, 0, 0);
+            drawScene(st, ctx, W, H);
+            drawMoveMarker(st, ctx, W, H, now);
             if (st.flags.telegraph) drawTelegraphGlow(ctx, W, H, st.enemy, now);
-            // far actor first (enemy is always up-screen of the player)
-            drawActor(ctx, W, H, st.enemy, st.player, now, st.flags.windup);
-            drawActor(ctx, W, H, st.player, st.enemy, now, null);
+            // Painter's order: props and actors sorted far → near (the camera
+            // rotates, so either combatant can be the near one).
+            const order = [];
+            for (const pr of st.props)
+                order.push({ rz: proj(st, pr.wx, pr.wz, W, H).rz,
+                             draw: () => drawProp(st, ctx, pr, W, H) });
+            order.push({ rz: anchor(st.enemy, W, H).rz,
+                         draw: () => drawActor(ctx, W, H, st.enemy, st.player, now, st.flags.windup) });
+            order.push({ rz: anchor(st.player, W, H).rz,
+                         draw: () => drawActor(ctx, W, H, st.player, st.enemy, now, null) });
+            order.sort((a, b) => a.rz - b.rz);
+            for (const o of order) o.draw();
             if (st.flags.windup && !st.enemy.crumbled)
                 drawWindupGlint(ctx, W, H, st.enemy, now, STYLE_COLORS[st.flags.windup] ?? '#ffffff');
 
@@ -1073,7 +1260,12 @@
         if (!st) return;
         cancelAnimationFrame(st.raf);
         st.ro?.disconnect();
-        if (st.onClick) st.canvas.removeEventListener('click', st.onClick);
+        if (st.onDown) {
+            st.canvas.removeEventListener('pointerdown', st.onDown);
+            st.canvas.removeEventListener('pointermove', st.onMove);
+            st.canvas.removeEventListener('pointerup', st.onUp);
+            st.canvas.removeEventListener('pointercancel', st.onCancel);
+        }
         battles.delete(canvasId);
     }
 
@@ -1088,6 +1280,7 @@
         if (!model || !live || live.enemySwapToken !== token) return; // stale swap or destroyed
         live.enemyId = enemyId;
         live.enemy = makeActor(model, LAYOUT.enemy, npcFallbackTint(enemyId), live.rigOf(enemyId));
+        live.enemy.st = live;
         live.enemy.anims.push({ type: 'spawn', t0: live.time, dur: 300 });
     }
 
@@ -1149,8 +1342,10 @@
             actor.target = { wx: actor.base.wx, wz: actor.base.wz };
             actor.facing = actor.base.facing;
             actor.moving = false;
+            actor.walkPhase = 0;
             setActorVisible(actor, actor.ordered.length);
         }
+        st.moveMarker = null;
         st.effects = []; st.particles = []; st.projectiles = [];
         st.pendingFreezes = []; st.cam = null; st.shake = null;
         st.freezeUntil = 0; st.slowUntil = 0;
