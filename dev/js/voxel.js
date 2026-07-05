@@ -1186,7 +1186,7 @@
             enemySwapToken: 0,
             weaponToken: 0,
             weaponId: null,
-            flags: { telegraph: false, windup: null },
+            flags: { telegraph: false, windup: null, holdPosition: false },
             lastWindupStyle: null,
             targetPulse: -1e9,    // click-to-target chevron
             scene: opts.scene === 'field' ? 'field' : 'arena',
@@ -1421,6 +1421,7 @@
                 const actor = st[key];
                 const other = key === 'player' ? st.enemy : st.player;
                 if (actor.crumbled) { actor.moving = false; continue; }
+                const disengagedIdlePlayer = key === 'player' && st.flags.holdPosition === true;
                 let destFacing;
                 if (actor.seg) {
                     const s = actor.seg;
@@ -1432,11 +1433,14 @@
                     destFacing = Math.atan2(s.x1 - s.x0, s.z1 - s.z0);
                     if (p >= 1) {
                         actor.seg = null;
-                        destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+                        if (!disengagedIdlePlayer)
+                            destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
                     }
                 } else {
                     actor.moving = false;
-                    destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+                    destFacing = disengagedIdlePlayer
+                        ? actor.facing
+                        : Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
                 }
                 let da = destFacing - actor.facing;
                 while (da > Math.PI) da -= 6.2832;
