@@ -370,24 +370,25 @@
     }
     // World → screen through the battle's live camera: translate to the
     // focus (follows the player), rotate by the drag yaw, project.
-    // Perspective divide: ps = CAM_FOV / (CAM_FOV + rz). Near objects (rz < 0)
-    // appear larger; far objects smaller, matching natural eye perspective.
+    // Perspective divide: ps = CAM_FOV / (CAM_FOV - rz). Near objects (rz > 0,
+    // below on screen) appear larger; far objects (rz < 0, above) appear smaller.
     function proj(st, wx, wz, W, H) {
         const c = Math.cos(st.camYaw), sn = Math.sin(st.camYaw);
         const dx = wx - st.camFocus.wx, dz = wz - st.camFocus.wz;
         const rx = dx * c - dz * sn, rz = dx * sn + dz * c;
         const cm = camera(W, H);
-        const ps = CAM_FOV / (CAM_FOV + rz);
+        const ps = CAM_FOV / (CAM_FOV - rz);
         return { x: W / 2 + rx * cm.px * ps, y: cm.cy + rz * cm.px * POS_TILT * ps, rz, px: cm.px };
     }
     // Screen → world (ground plane): exact inverse of the perspective proj above.
-    // Derived by solving: dy = rz * K / (CAM_FOV + rz), where K = px * POS_TILT * CAM_FOV.
+    // Derived by solving: dy = rz * K / (CAM_FOV - rz), where K = px * POS_TILT * CAM_FOV.
+    // Rearranges to: rz = dy * CAM_FOV / (K + dy).
     function screenToWorld(st, sx, sy, W, H) {
         const cm = camera(W, H);
         const dy = sy - cm.cy;
         const K = cm.px * POS_TILT * CAM_FOV;
-        const rz = (K - dy) > 0.001 ? dy * CAM_FOV / (K - dy) : 0;
-        const ps = CAM_FOV / (CAM_FOV + rz);
+        const rz = Math.abs(K + dy) > 0.001 ? dy * CAM_FOV / (K + dy) : 0;
+        const ps = CAM_FOV / (CAM_FOV - rz);
         const rx = (sx - W / 2) / (cm.px * ps);
         const c = Math.cos(st.camYaw), sn = Math.sin(st.camYaw);
         return { wx: st.camFocus.wx + rx * c + rz * sn,
@@ -483,13 +484,13 @@
     function torso(actor, W, H) {
         const p = anchor(actor, W, H);
         const S = actorScale(actor, W, H);
-        const ps = CAM_FOV / (CAM_FOV + p.rz);
+        const ps = CAM_FOV / (CAM_FOV - p.rz);
         return { x: p.x, y: p.y - actor.model.height * S * ps * 0.55 };
     }
 
     // Voxel size for an actor: world height × camera scale, rounded to a whole
     // pixel so the offscreen stays sharp. Depth perspective is applied separately
-    // at blit time (via ps = CAM_FOV / (CAM_FOV + rz)), so S never jumps
+    // at blit time (via ps = CAM_FOV / (CAM_FOV - rz)), so S never jumps
     // as actors move and the ~2× scale glitch during attacks is gone.
     function actorScale(actor, W, H) {
         const cm = camera(W, H);
@@ -777,7 +778,7 @@
         }
 
         // Perspective scale at this actor's depth; psTot folds in the anim scale.
-        const ps = CAM_FOV / (CAM_FOV + p.rz);
+        const ps = CAM_FOV / (CAM_FOV - p.rz);
         const psTot = a.scale * ps;
 
         // Shadow on ground plane (player only — no distracting circle under every NPC).
@@ -890,7 +891,7 @@
     function drawTelegraphGlow(ctx, W, H, actor, now) {
         const p = anchor(actor, W, H);
         const S = actorScale(actor, W, H);
-        const ps = CAM_FOV / (CAM_FOV + p.rz);
+        const ps = CAM_FOV / (CAM_FOV - p.rz);
         const cx = p.x;
         const cy = p.y - actor.model.height * S * ps * 0.45;
         const rad = actor.model.height * S * ps * 0.85;
@@ -1003,7 +1004,7 @@
 
     function drawProp(st, ctx, pr, W, H) {
         const p = proj(st, pr.wx, pr.wz, W, H);
-        const ps = CAM_FOV / (CAM_FOV + p.rz);
+        const ps = CAM_FOV / (CAM_FOV - p.rz);
         const S = Math.max(1, Math.round(p.px * pr.worldH * ps / pr.model.height));
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
         ctx.beginPath();
@@ -1037,7 +1038,7 @@
     function drawWindupGlint(ctx, W, H, actor, now, color) {
         const p = anchor(actor, W, H);
         const S = actorScale(actor, W, H);
-        const ps = CAM_FOV / (CAM_FOV + p.rz);
+        const ps = CAM_FOV / (CAM_FOV - p.rz);
         const x = p.x;
         const y = p.y - actor.model.height * S * ps - S * ps * 3;
         const pulse = 0.5 + 0.5 * Math.sin(now * 0.02);
@@ -1187,7 +1188,7 @@
                 if (!el) continue;
                 const actor = st[key];
                 const p = anchor(actor, W, H);
-                const ps = CAM_FOV / (CAM_FOV + p.rz);
+                const ps = CAM_FOV / (CAM_FOV - p.rz);
                 const top = p.y - actor.model.height * actorScale(actor, W, H) * ps * hFrac;
                 el.style.left = ((p.x / W + xOff) * 100) + '%';
                 el.style.top = (Math.max(0, top) / H * 100) + '%';
@@ -1223,7 +1224,7 @@
             if (!e.crumbled) {
                 const p = anchor(e, W, H);
                 const S = actorScale(e, W, H);
-                const ePs = CAM_FOV / (CAM_FOV + p.rz);
+                const ePs = CAM_FOV / (CAM_FOV - p.rz);
                 if (Math.abs(x - p.x) < e.model.radius * S * ePs * 1.5 &&
                     y > p.y - e.model.height * S * ePs - 8 && y < p.y + 6) {
                     st.targetPulse = st.time;
@@ -1353,7 +1354,7 @@
             if (now - st.targetPulse < 900 && !st.enemy.crumbled) {
                 const tp = anchor(st.enemy, W, H);
                 const tS = actorScale(st.enemy, W, H);
-                const tPs = CAM_FOV / (CAM_FOV + tp.rz);
+                const tPs = CAM_FOV / (CAM_FOV - tp.rz);
                 const ty = tp.y - st.enemy.model.height * tS * tPs - 10 * ms - Math.sin((now - st.targetPulse) * 0.02) * 3 * ms;
                 ctx.globalAlpha = 1 - (now - st.targetPulse) / 900;
                 ctx.fillStyle = '#ffd166';
@@ -1372,7 +1373,7 @@
                 const on = e.on === 'player' ? st.player : st.enemy;
                 const t = torso(on, W, H);
                 const onP = anchor(on, W, H);
-                const onPs = CAM_FOV / (CAM_FOV + onP.rz);
+                const onPs = CAM_FOV / (CAM_FOV - onP.rz);
                 drawSlash(ctx, t.x, t.y, on.model.height * actorScale(on, W, H) * onPs * 0.5,
                     (now - e.t0) / e.dur, e.color);
             }
