@@ -27,7 +27,10 @@
     const P_RARM = 2, P_LARM = 3, P_RLEG = 4, P_LLEG = 5;
     // Per-file part decode overrides (band width, part count). Everything
     // else uses the legacy 40-wide / 6-part scheme.
-    const VOX_OPTS = { 'assets/player.vox': { band: 16, parts: 12 } };
+    const VOX_OPTS = {
+        'assets/player.vox': { band: 16, parts: 12 },
+        'assets/player_sakuna.vox': { band: 16, parts: 12 },
+    };
 
     // ── .vox parsing ─────────────────────────────────────────────────────────
 
@@ -1170,11 +1173,13 @@
         if (!canvas || battles.has(canvasId)) return; // unmounted or re-init raced ahead
 
         const rigOf = id => rigs?.characters?.[id] ?? rigs?.characters?.player ?? null;
+        const playerRigId = opts.playerRigId ?? (opts.playerUrl === 'assets/player_sakuna.vox' ? 'player_sakuna' : 'player');
+        const playerRig = rigs?.characters?.[playerRigId] ?? rigs?.characters?.player ?? null;
         const st = {
             canvas,
             ctx: canvas.getContext('2d'),
             rigs,
-            player: makeActor(playerModel, LAYOUT.player, null, rigs?.characters?.player),
+            player: makeActor(playerModel, LAYOUT.player, null, playerRig),
             enemy: makeActor(enemyModel, LAYOUT.enemy, npcFallbackTint(opts.enemyId), rigOf(opts.enemyId)),
             rigOf,
             enemyId: opts.enemyId,
