@@ -110,7 +110,7 @@ public sealed class GameTickService : IDisposable
                 state.SetPlayerTile(step.X, step.Z);
             }
         }
-        if (state.DistanceToNpc > AttackRange.ForStyle(npc.CurrentAttackType))
+        if (!state.EnemyFrozen && state.DistanceToNpc > AttackRange.ForStyle(npc.CurrentAttackType))
         {
             var step = StepToward(state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
             state.SetNpcTile(step.X, step.Z);
@@ -150,7 +150,7 @@ public sealed class GameTickService : IDisposable
         }
 
         // NPC's attack — also held until its style's range covers the player
-        if (state.NpcCooldown == 0 && state.NpcInRange)
+        if (!state.EnemyFrozen && state.NpcCooldown == 0 && state.NpcInRange)
         {
             await NpcRetaliate(state, player, npc);
             state.ResetNpcCooldown(npc.Template.AttackSpeedTicks);

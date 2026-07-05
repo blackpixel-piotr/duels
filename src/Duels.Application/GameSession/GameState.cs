@@ -75,6 +75,10 @@ public sealed class GameState
     public bool TestScene { get; private set; }
     public void SetTestScene(bool on) => TestScene = on;
 
+    // Freeze the enemy (test-fight only): stops NPC movement and attacking.
+    public bool EnemyFrozen { get; private set; }
+    public void FreezeEnemy(bool frozen) => EnemyFrozen = frozen;
+
     public bool HasBegged { get; private set; }
 
     // Prestige
@@ -129,6 +133,7 @@ public sealed class GameState
         PlayerMoveTarget = null;
         HoldPosition = false;
         TestScene = false;
+        EnemyFrozen = false;
     }
 
     public void RecordDamageTaken(int amount) { if (amount > 0) DamageTakenThisDuel += amount; }

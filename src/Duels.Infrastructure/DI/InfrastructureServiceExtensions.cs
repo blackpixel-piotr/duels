@@ -57,6 +57,7 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ICommandHandler<StartTestFightCommand>, StartTestFightHandler>();
         services.AddSingleton<ICommandHandler<MoveToCommand>, MoveToHandler>();
         services.AddSingleton<ICommandHandler<EngageCommand>, EngageHandler>();
+        services.AddSingleton<ICommandHandler<FreezeEnemyCommand>, FreezeEnemyHandler>();
 
         return services;
     }

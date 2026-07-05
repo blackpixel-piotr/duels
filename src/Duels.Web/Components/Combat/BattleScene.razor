@@ -57,6 +57,13 @@
     {
         <div id="overhead-npc" class="overhead overhead-npc overhead-@no.Css">@no.Icon</div>
     }
+    @if (State?.TestScene == true)
+    {
+        <button class="freeze-btn @(_enemyFrozen ? "freeze-btn-on" : "")"
+                @onclick="ToggleFreezeEnemy">
+            @(_enemyFrozen ? "UNFREEZE" : "FREEZE ENEMY")
+        </button>
+    }
 </div>
 
 @code {
@@ -76,6 +83,7 @@
     private string? _enemyId;
     private string _enemyName = "";
     private int _enemyMaxHp = 1;
+    private bool _enemyFrozen;
 
     private sealed record Overhead(string Icon, string Css);
 
@@ -243,6 +251,13 @@
 
     // Scene taps, forwarded from voxel.js: a ground tap orders a walk
     // (disengaging), an enemy tap re-engages the chase.
+    private async Task ToggleFreezeEnemy()
+    {
+        _enemyFrozen = !_enemyFrozen;
+        if (GameSvc.PlayerId is { } pid)
+            await GameSvc.DispatchAsync(new FreezeEnemyCommand(pid, _enemyFrozen));
+    }
+
     [JSInvokable]
     public async Task OnGroundClick(int x, int z)
     {
