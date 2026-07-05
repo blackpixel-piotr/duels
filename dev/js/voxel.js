@@ -19,9 +19,15 @@
     const RESUME_MS = 2000;      // hold still after drag before spinning again
     const SHADES = 6;            // quantized depth-shading levels
     // Rig parts: color-index band per part (matches tools/gen_models.py).
-    // Index: 0 torso, 1 head, 2 rArm, 3 lArm, 4 rLeg, 5 lLeg.
+    // Legacy (NPCs): band 40, 6 parts — 0 torso, 1 head, 2 rArm, 3 lArm,
+    // 4 rLeg, 5 lLeg. v2 (player): band 16, 12 parts — limbs split at
+    // elbow/knee/ankle for chained FK + leg IK; indices 0-5 keep the legacy
+    // meaning so attack poses target the (upper) weapon arm unchanged.
     const PART_BAND = 40;
     const P_RARM = 2, P_LARM = 3, P_RLEG = 4, P_LLEG = 5;
+    // Per-file part decode overrides (band width, part count). Everything
+    // else uses the legacy 40-wide / 6-part scheme.
+    const VOX_OPTS = { 'assets/player.vox': { band: 16, parts: 12 } };
 
     // ── .vox parsing ─────────────────────────────────────────────────────────
 
@@ -86,7 +92,7 @@
 
     // Center on x/z, ground at y=0, drop fully-enclosed interior voxels, and
     // precompute quantized depth-shade fillStyle strings per used color.
-    function prepModel(parsed) {
+    function prepModel(parsed, band = PART_BAND, maxPart = 5) {
         const vs = parsed.voxels;
         let minX = 1e9, maxX = -1e9, minY = 1e9, minZ = 1e9, maxZ = -1e9, maxY = -1e9;
         for (const v of vs) {
@@ -111,9 +117,9 @@
             const r = Math.sqrt(x * x + z * z);
             if (r > radius) radius = r;
             // Rigged character models encode the body part in the color index
-            // (bands of PART_BAND, see tools/gen_models.py); unbanded models
+            // (bands of `band`, see tools/gen_models.py); unbanded models
             // land in part 0 (torso), which never poses.
-            return { x, y: v.y - minY, z, ci: v.ci, part: Math.min(5, ((v.ci - 1) / PART_BAND) | 0) };
+            return { x, y: v.y - minY, z, ci: v.ci, part: Math.min(maxPart, ((v.ci - 1) / band) | 0) };
         });
 
         // shadeTable[ci][level] = fillStyle, level 0 (far/dark) .. SHADES-1 (near/bright)
@@ -135,9 +141,10 @@
     const modelCache = new Map(); // url → Promise<model>
     function loadModel(url) {
         if (!modelCache.has(url)) {
+            const o = VOX_OPTS[url];
             modelCache.set(url, fetch(url)
                 .then(r => { if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`); return r.arrayBuffer(); })
-                .then(buf => prepModel(parseVox(buf))));
+                .then(buf => prepModel(parseVox(buf), o?.band, o ? o.parts - 1 : undefined)));
         }
         return modelCache.get(url);
     }
@@ -145,29 +152,33 @@
     // ── Rendering ─────────────────────────────────────────────────────────────
 
     // Draw one model at voxel size S with its ground-center at (cx, baseY).
-    // pose (optional): array indexed by part → { pivot:[x,y,z], pitch, yaw,
-    // dz } or null. pitch rotates the part forward/back about its pivot
-    // (positive = swing toward +z / the model's front), yaw sweeps it
-    // horizontally, dz pushes it along the model's front axis.
+    // pose (optional): array indexed by part → transform or null. A transform
+    // is { pivot:[x,y,z], pitch, yaw, dz, dy, up }: pitch rotates the part
+    // about its pivot (positive folds a hanging limb toward the model's
+    // back), yaw sweeps it horizontally, dz/dy translate it. `up` chains to
+    // the parent joint's transform — a foot voxel rotates about the ankle,
+    // then the knee, then the hip, then takes the root offset (leg IK).
     function renderModel(ctx, model, angle, S, cx, baseY, pose) {
         const c = Math.cos(angle), sn = Math.sin(angle);
         const vs = model.voxels, out = model.scratch;
-        if (pose) // precompute trig per posed part
-            for (const t of pose) {
-                if (!t) continue;
-                t._cp = Math.cos(t.pitch || 0); t._sp = Math.sin(t.pitch || 0);
-                t._cy = Math.cos(t.yaw || 0);   t._sy = Math.sin(t.yaw || 0);
-            }
+        if (pose) // precompute trig once per transform, following up-chains
+            for (let t of pose)
+                for (; t && t._cp === undefined; t = t.up) {
+                    t._cp = Math.cos(t.pitch || 0); t._sp = Math.sin(t.pitch || 0);
+                    t._cy = Math.cos(t.yaw || 0);   t._sy = Math.sin(t.yaw || 0);
+                }
         for (let i = 0; i < vs.length; i++) {
             const v = vs[i];
             let x = v.x, y = v.y, z = v.z;
-            const t = pose ? pose[v.part] : null;
-            if (t) {
-                const pv = t.pivot;
-                x -= pv[0]; y -= pv[1]; z -= pv[2];
-                if (t.pitch) { const y2 = y * t._cp - z * t._sp; z = y * t._sp + z * t._cp; y = y2; }
-                if (t.yaw)   { const x2 = x * t._cy - z * t._sy; z = x * t._sy + z * t._cy; x = x2; }
-                x += pv[0]; y += pv[1]; z += pv[2] + (t.dz || 0);
+            for (let t = pose ? pose[v.part] : null; t; t = t.up) {
+                if (t.pivot) {
+                    const pv = t.pivot;
+                    x -= pv[0]; y -= pv[1]; z -= pv[2];
+                    if (t.pitch) { const y2 = y * t._cp - z * t._sp; z = y * t._sp + z * t._cp; y = y2; }
+                    if (t.yaw)   { const x2 = x * t._cy - z * t._sy; z = x * t._sy + z * t._cy; x = x2; }
+                    x += pv[0]; y += pv[1]; z += pv[2];
+                }
+                z += t.dz || 0; y += t.dy || 0;
             }
             const rx = x * c - z * sn;
             const rz = x * sn + z * c;
@@ -415,7 +426,12 @@
             ordered, visCount: ordered.length, lastRemoved: [],
             view: { ...model, voxels: ordered.slice(), scratch: new Array(ordered.length) },
             crumbled: false,
-            rig: rig ?? null,               // { pivots, hand } from rigs.json
+            rig: rig ?? null,               // rigs.json entry (legacy or v2)
+            // v2 rigs stride so one stance half-cycle sweeps ±IK_STEP voxels
+            // — the phase-exact condition for planted, skate-free feet.
+            stride: rig?.parts
+                ? Math.PI * model.height / (base.worldH * 2 * IK_STEP)
+                : STRIDE,
             st: null,                       // back-ref to the battle (camera access)
             pos: { wx: base.wx, wz: base.wz },
             target: { wx: base.wx, wz: base.wz },
@@ -501,6 +517,7 @@
     // Returns null when nothing poses (fast path in renderModel).
     function computePose(actor, now, windup) {
         if (!actor.rig) return null;
+        if (actor.rig.parts) return computePoseV2(actor, now, windup);
         const pivots = partPivots(actor.rig);
         const mk = i => ({ pivot: pivots[i], pitch: 0, yaw: 0, dz: 0 });
         let pose = null;
@@ -527,6 +544,114 @@
             // raise the weapon arm while the attack winds up
             ensure(P_RARM).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
         }
+        return pose;
+    }
+
+    // ── v2 rig: hierarchical FK + analytic leg IK ─────────────────────────
+    // The gait is phase-exact foot planting: walkPhase advances with ground
+    // covered at actor.stride rad/wu, tuned so one stance half-cycle sweeps
+    // the foot from +IK_STEP to −IK_STEP voxels — i.e. the planted foot
+    // moves backward under the body at EXACTLY the body's speed, which is
+    // the definition of a foot that does not skate. The swing leg arcs
+    // forward with knee lift; the pelvis dips so knees stay bent; the foot
+    // counter-rotates to stay flat through the whole stride.
+    const IK_STEP = 8;      // stance half-sweep, voxels
+    const IK_LIFT = 4;      // swing foot lift, voxels
+    const IK_CROUCH = 1.4;  // moving pelvis drop, voxels (+ dip at passing)
+
+    // 2-bone solve in the sagittal plane: hip at (0, hipY) reaching an ankle
+    // at (tz forward, ty up). Returns forward-positive thigh/shin/foot
+    // angles; renderModel pitch folds backward, so callers negate.
+    function solveLeg(hipY, L1, L2, tz, ty) {
+        const dy = hipY - ty;
+        let d = Math.hypot(tz, dy);
+        d = Math.min(L1 + L2 - 0.05, Math.max(Math.abs(L1 - L2) + 0.05, d));
+        const a = Math.atan2(tz, dy);
+        const cb = (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d);
+        const cg = (L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2);
+        const thigh = a + Math.acos(Math.max(-1, Math.min(1, cb)));
+        const shin = -(Math.PI - Math.acos(Math.max(-1, Math.min(1, cg))));
+        return { thigh, shin, foot: -(thigh + shin) };
+    }
+
+    function computePoseV2(actor, now, windup) {
+        const rig = actor.rig, parts = rig.parts;
+        const T = new Array(parts.length).fill(null);
+        const mk = i => ({ pivot: parts[i].pivot, pitch: 0, yaw: 0, dz: 0, dy: 0 });
+        const ensure = i => T[i] ??= mk(i);
+
+        // Gait blend eases limbs between authored idle and the moving gait
+        // (~120ms) so starts and stops don't snap. dt from the scene clock,
+        // so the blend freezes with hit-stop like everything else.
+        const dt = Math.min(50, now - (actor._poseAt ?? now));
+        actor._poseAt = now;
+        actor.gaitBlend = Math.max(0, Math.min(1,
+            (actor.gaitBlend ?? 0) + (actor.moving ? 1 : -1) * dt / 120));
+        const g = actor.gaitBlend;
+
+        // Legs: IK gait while moving/blending, authored pose at rest.
+        if (g > 0.001) {
+            const phase = ((actor.walkPhase % 6.2832) + 6.2832) % 6.2832;
+            const crouch = (IK_CROUCH + (1 - Math.abs(Math.cos(phase))) * 0.9) * g;
+            ensure(0).dy = -crouch; // root: pelvis + everything above drops
+            for (let li = 0; li < 2; li++) {
+                const leg = rig.ik.legs[li];
+                const hipPiv = parts[leg.hip].pivot, kneePiv = parts[leg.knee].pivot,
+                      ankPiv = parts[leg.foot].pivot;
+                const L1 = hipPiv[1] - kneePiv[1], L2 = kneePiv[1] - ankPiv[1];
+                // this leg's phase: left leads by half a cycle
+                const ph = li === 0 ? phase : (phase + Math.PI) % 6.2832;
+                let relZ, lift = 0, droop = 0;
+                if (ph < Math.PI) {          // stance: planted, sweeps back
+                    relZ = IK_STEP * (1 - 2 * ph / Math.PI);
+                } else {                     // swing: arc forward
+                    const p = (ph - Math.PI) / Math.PI;
+                    const e = p * p * (3 - 2 * p);
+                    relZ = -IK_STEP + 2 * IK_STEP * e;
+                    lift = Math.sin(p * Math.PI) * IK_LIFT;
+                    droop = Math.sin(p * Math.PI) * 0.3;
+                }
+                // solve pre-root-offset: ankle target rises by crouch so the
+                // root drop lands the foot exactly on the ground
+                const s = solveLeg(hipPiv[1], L1, L2, relZ * g,
+                                   ankPiv[1] + lift * g + crouch);
+                ensure(leg.hip).pitch = -s.thigh;
+                ensure(leg.knee).pitch = -s.shin;
+                ensure(leg.foot).pitch = -(s.foot + droop * g);
+            }
+        }
+
+        // Arms: attack/windup choreography wins; otherwise the run pump.
+        const atk = actor.anims.find(a => a.type === 'attack');
+        const RU = 2, LU = 3, RL = rig.handPart ?? 6, LL = 7;
+        if (atk) {
+            const p = (now - atk.t0) / atk.dur;
+            if (p >= 0 && p <= 1) {
+                (ATTACK_POSES[atk.kind] ?? ATTACK_POSES.slash)(p, ensure(RU));
+                ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
+                if (atk.kind === 'bow') ensure(LU).pitch = lerp3(p, 1.35, 1.35, 0);
+                if (atk.kind === 'cast') ensure(LU).pitch = lerp3(p, 0.9, 0.5, 0);
+            }
+        } else if (g > 0.001) {
+            const s = Math.sin(((actor.walkPhase % 6.2832) + 6.2832) % 6.2832) * 0.55 * g;
+            ensure(RU).pitch = s;  ensure(LU).pitch = -s;
+            ensure(RL).pitch = 0.5 * g; ensure(LL).pitch = 0.5 * g; // elbows pump bent
+        } else if (windup) {
+            ensure(RU).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
+        }
+
+        if (!T.some(t => t)) return null;
+        // Link each part to its nearest posed ancestor so renderModel walks
+        // the joint chain (foot → knee → hip → root).
+        const pose = new Array(parts.length).fill(null);
+        const resolve = i => {
+            if (i === null || i === undefined) return null;
+            if (pose[i] !== null) return pose[i];
+            const up = resolve(parts[i].parent);
+            if (T[i]) { T[i].up = up; return pose[i] = T[i]; }
+            return pose[i] = up;
+        };
+        for (let i = 0; i < parts.length; i++) resolve(i);
         return pose;
     }
 
@@ -632,10 +757,11 @@
         const pose = computePose(actor, now, windup);
         const r = renderActorOffscreen(actor, a.flash, W, H, actor.st.camYaw - actor.facing + wobble, pose);
 
-        // Gait grounding: with the legs split mid-stride the hips sit lower —
-        // dropping the body by hip·(1−cos swing) plants the stance foot
-        // instead of leaving both feet hovering above the tile.
-        if (actor.moving && actor.rig) {
+        // Gait grounding (legacy rigs only): with the legs split mid-stride
+        // the hips sit lower — dropping the body by hip·(1−cos swing) plants
+        // the stance foot instead of leaving both feet hovering. v2 rigs
+        // ground their feet through the leg IK inside the pose itself.
+        if (actor.moving && actor.rig && !actor.rig.parts) {
             const s = Math.sin(actor.walkPhase) * 0.55;
             a.dy += (1 - Math.cos(s)) * (actor.rig.pivots?.rHip?.[1] ?? 12) * r.S;
         }
@@ -670,12 +796,13 @@
         const shade = {};
         for (const k of Object.keys(model.shadeTable)) shade[1000 + (+k)] = model.shadeTable[k];
         let reach = 0;
+        const handPart = actor.rig?.handPart ?? P_RARM; // v2: forearm chain
         actor.weaponVox = model.voxels.map(v => {
             const y = v.y - g[1] + hand[1];
             if (y - hand[1] > reach) reach = y - hand[1];
             return {
                 x: v.x - g[0] + hand[0], y, z: v.z - g[2] + hand[2],
-                ci: 1000 + v.ci, part: P_RARM,
+                ci: 1000 + v.ci, part: handPart,
             };
         });
         actor.weaponShade = shade;
@@ -1151,7 +1278,7 @@
                     const s = actor.seg;
                     const p = Math.min(1, (st.time - s.t0) / TILE_MS);
                     const nx = s.x0 + (s.x1 - s.x0) * p, nz = s.z0 + (s.z1 - s.z0) * p;
-                    actor.walkPhase += Math.hypot(nx - actor.pos.wx, nz - actor.pos.wz) * STRIDE;
+                    actor.walkPhase += Math.hypot(nx - actor.pos.wx, nz - actor.pos.wz) * actor.stride;
                     actor.pos.wx = nx; actor.pos.wz = nz;
                     actor.moving = p < 1;
                     destFacing = Math.atan2(s.x1 - s.x0, s.z1 - s.z0);
