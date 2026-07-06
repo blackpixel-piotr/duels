@@ -489,12 +489,13 @@ class Wpn(Rig):
     def __init__(self):
         super().__init__()
         self.grip = (0, 2, 0)
+        self.extra = {}   # extra rig fields (e.g. whip 'lash' physics config)
 
     def handle(self, y0=0, y1=4, rgb=HILT):
         self.box(0, 0, y0, y1, 0, 1, rgb)
 
     def rig_json(self):
-        return {'grip': self.center_of(self.grip)}
+        return {'grip': self.center_of(self.grip), **self.extra}
 
 
 def blade_sword(steel, accent=None, l=13):
@@ -535,12 +536,22 @@ def w_rapier(steel):
 
 
 def w_whip(color, dark):
+    # Handle plus a coiled lash. The coil is icon dressing only: at attach
+    # time the runtime keeps just the handle column and replaces the lash
+    # with a physics rope (verlet chain) driven by the 'lash' config below.
     w = Wpn(); w.handle(0, 5, dark)
-    # trailing lash: droops out and down from the handle top
-    lash = [(1, 6), (2, 6), (3, 5), (4, 4), (5, 3), (5, 2), (6, 1), (7, 1), (8, 0)]
-    for x, y in lash:
-        w.box(x, x, y, y, 0, 1, color)
-    w.dot(9, 0, 0, color)                                          # tip
+    w.dot(0, 1, 0, color); w.dot(0, 4, 0, color)   # grip wraps
+    for a in range(22):                             # coil hanging off the grip
+        ang = a / 22 * 6.2832
+        x = round(4.6 + math.cos(ang) * 2.6)
+        y = round(3.0 + math.sin(ang) * 2.6)
+        for z in (0, 1):
+            w.dot(x, y, z, color if a % 4 else dark)
+    w.dot(2, 5, 0, color)                           # lash leaving the handle
+    w.extra = {'lash': {
+        'len': 1.15, 'segs': 12, 'top': 3,          # wu, chain nodes, voxels above grip
+        'color': '#%02x%02x%02x' % color, 'dark': '#%02x%02x%02x' % dark,
+    }}
     return w
 
 

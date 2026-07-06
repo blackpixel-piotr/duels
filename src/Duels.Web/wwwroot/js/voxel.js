@@ -559,7 +559,9 @@
     const ATTACK_POSES = {
         stab:   (p, t) => { t.pitch = lerp3(p, -0.55, 1.45, 0); t.dz = lerp3(p, -1.5, 3.5, 0); },
         slash:  (p, t) => { t.pitch = lerp3(p, 1.15, 1.25, 0); t.yaw = lerp3(p, -1.15, 1.2, 0); },
-        lash:   (p, t) => { t.pitch = lerp3(p, 1.3, 1.35, 0); t.yaw = lerp3(p, -1.3, 1.6, 0); },
+        // whip: cock the arm high overhead, then snap it down-forward — the
+        // physics lash (actor.lash) follows the hand and cracks out
+        lash:   (p, t) => { t.pitch = lerp3(p, 2.3, 0.4, 0); t.yaw = lerp3(p, -0.5, 0.35, 0); },
         crush:  (p, t) => { t.pitch = lerp3(p, 2.5, 0.75, 0); },
         flurry: (p, t) => {
             t.pitch = lerp3(p, 1.2, 1.3, 0);
@@ -920,6 +922,12 @@
             (ay + a.dy - (r.h - actor.model.radius * r.S * TILT - 1) * psTot) | 0,
             bw, bh);
         ctx.globalAlpha = 1;
+        // Physics whip: simulate against this frame's posed hand, then draw
+        // over the actor (the lash spends most of its life on the near side).
+        if (actor.lash) {
+            updateLash(actor, pose, now);
+            drawLash(actor.st, ctx, actor, W, H);
+        }
         return a;
     }
 
@@ -928,10 +936,11 @@
     // they can carry their own shade table into the merged render list. The
     // painter's sort then occludes weapon vs body correctly, and the whole
     // thing follows the rArm pose (swings, walk counter-swing, wind-up).
-    function attachWeapon(actor, model, grip) {
+    function attachWeapon(actor, model, grip, lashCfg) {
         if (!model) {
             actor.weaponVox = null; actor.weaponShade = null;
             actor.weaponReach = 0; actor.combined = null;
+            actor.lash = null;
             return;
         }
         const hand = actor.rig?.hand ?? [actor.model.radius * 0.6, actor.model.height * 0.4, 0];
@@ -940,7 +949,12 @@
         for (const k of Object.keys(model.shadeTable)) shade[1000 + (+k)] = model.shadeTable[k];
         let reach = 0;
         const handPart = actor.rig?.handPart ?? P_RARM; // v2: forearm chain
-        actor.weaponVox = model.voxels.map(v => {
+        // Whips: only the handle column rides the hand — the model's coiled
+        // lash is icon dressing, replaced in battle by a physics rope.
+        const src = lashCfg
+            ? model.voxels.filter(v => Math.abs(v.x - g[0]) <= 1 && Math.abs(v.z - g[2]) <= 1)
+            : model.voxels;
+        actor.weaponVox = src.map(v => {
             const y = v.y - g[1] + hand[1];
             if (y - hand[1] > reach) reach = y - hand[1];
             return {
@@ -951,6 +965,152 @@
         actor.weaponShade = shade;
         actor.weaponReach = Math.ceil(reach);
         actor.combined = null;
+        actor.lash = lashCfg ? {
+            segs: lashCfg.segs ?? 12,
+            segLen: (lashCfg.len ?? 1.15) / (lashCfg.segs ?? 12),
+            color: lashCfg.color ?? '#a050d8',
+            dark: lashCfg.dark ?? '#503060',
+            // model-space anchor: top of the handle, riding the arm chain
+            anchorM: [hand[0], hand[1] + (lashCfg.top ?? 3), hand[2]],
+            pts: null, lastT: 0,
+        } : null;
+    }
+
+    // Posed model-space position of a point riding the weapon-arm chain
+    // (same transform walk renderModel does per voxel, for one point).
+    function posePoint(actor, pose, mx, my, mz) {
+        let x = mx, y = my, z = mz;
+        let t = pose ? pose[actor.rig?.handPart ?? P_RARM] : null;
+        for (let c = t; c && c._cp === undefined; c = c.up) {
+            c._cp = Math.cos(c.pitch || 0); c._sp = Math.sin(c.pitch || 0);
+            c._cy = Math.cos(c.yaw || 0);   c._sy = Math.sin(c.yaw || 0);
+            c._cr = Math.cos(c.roll || 0);  c._sr = Math.sin(c.roll || 0);
+        }
+        for (; t; t = t.up) {
+            if (t.pivot) {
+                const pv = t.pivot;
+                x -= pv[0]; y -= pv[1]; z -= pv[2];
+                if (t.pitch) { const y2 = y * t._cp - z * t._sp; z = y * t._sp + z * t._cp; y = y2; }
+                if (t.yaw)   { const x2 = x * t._cy - z * t._sy; z = x * t._sy + z * t._cy; x = x2; }
+                if (t.roll)  { const x2 = x * t._cr - y * t._sr; y = x * t._sr + y * t._cr; x = x2; }
+                x += pv[0]; y += pv[1]; z += pv[2];
+            }
+            z += t.dz || 0; y += t.dy || 0;
+        }
+        return { x, y, z };
+    }
+
+    // ── Whip physics ────────────────────────────────────────────────────────
+    // The lash is a verlet rope in world space (wu): pinned to the posed
+    // handle tip, pulled by gravity, dragged behind the runner, folded by
+    // constraint relaxation. During a 'lash' attack the rope is first
+    // gathered up behind the shoulder, then slung hard at the target —
+    // the crack falls out of the physics.
+    const LASH_G = 15;         // gravity, wu/s² (1 wu ≈ 0.64 m)
+    const LASH_DAMP = 0.985;
+
+    function updateLash(actor, pose, now) {
+        const lash = actor.lash, st = actor.st;
+        if (!lash || !st) return;
+        const vpw = actor.model.height / actor.base.worldH; // voxels per wu
+        const a = posePoint(actor, pose, lash.anchorM[0], lash.anchorM[1], lash.anchorM[2]);
+        const cF = Math.cos(actor.facing), sF = Math.sin(actor.facing);
+        const ax = actor.pos.wx + (a.x * cF + a.z * sF) / vpw;
+        const az = actor.pos.wz + (-a.x * sF + a.z * cF) / vpw;
+        const ay = a.y / vpw;
+
+        if (!lash.pts) { // first frame: hang straight down from the anchor
+            lash.pts = [];
+            for (let i = 0; i <= lash.segs; i++) {
+                const y = Math.max(0.02, ay - i * lash.segLen);
+                lash.pts.push({ x: ax, y, z: az, px: ax, py: y, pz: az });
+            }
+            lash.lastT = now;
+        }
+        const dt = Math.max(0, Math.min(40, now - lash.lastT));
+        lash.lastT = now;
+        const dts = dt / 1000;
+
+        // Attack drive (accel field on every free node)
+        let dvx = 0, dvy = -LASH_G, dvz = 0;
+        const atk = actor.anims.find(t => t.type === 'attack' && t.kind === 'lash');
+        if (atk) {
+            const p = (now - atk.t0) / atk.dur;
+            if (p >= 0 && p < 0.34) {           // wind up: gather high behind
+                const w = p / 0.34;
+                dvx += -sF * 90 * w; dvz += -cF * 90 * w; dvy += LASH_G + 70 * w;
+            } else if (p >= 0.34 && p < 0.64) { // strike: sling at the target
+                const other = actor === st.player ? st.enemy : st.player;
+                const pulse = Math.sin((p - 0.34) / 0.30 * Math.PI);
+                let dx = other.pos.wx - ax, dz = other.pos.wz - az;
+                let dy = other.base.worldH * 0.55 - ay;
+                const dl = Math.hypot(dx, dy, dz) || 1;
+                dvx += dx / dl * 200 * pulse;
+                dvy += dy / dl * 200 * pulse + 40 * pulse;
+                dvz += dz / dl * 200 * pulse;
+            }
+        }
+
+        for (let i = 1; i < lash.pts.length; i++) {
+            const pt = lash.pts[i];
+            const vx = (pt.x - pt.px) * LASH_DAMP,
+                  vy = (pt.y - pt.py) * LASH_DAMP,
+                  vz = (pt.z - pt.pz) * LASH_DAMP;
+            pt.px = pt.x; pt.py = pt.y; pt.pz = pt.z;
+            pt.x += vx + dvx * dts * dts;
+            pt.y += vy + dvy * dts * dts;
+            pt.z += vz + dvz * dts * dts;
+            if (pt.y < 0.02) { // ground contact: rest + friction drag
+                pt.y = 0.02;
+                pt.x += (pt.px - pt.x) * 0.35;
+                pt.z += (pt.pz - pt.z) * 0.35;
+            }
+        }
+        // Pin the root to the handle, then relax segment lengths. 10 rounds
+        // keeps the rope near-inextensible under the strike sling (a little
+        // stretch at the crack's peak is left in on purpose — it sells it).
+        const p0 = lash.pts[0];
+        p0.x = p0.px = ax; p0.y = p0.py = ay; p0.z = p0.pz = az;
+        for (let it = 0; it < 10; it++) {
+            for (let i = 0; i < lash.pts.length - 1; i++) {
+                const A = lash.pts[i], B = lash.pts[i + 1];
+                let dx = B.x - A.x, dy = B.y - A.y, dz = B.z - A.z;
+                const d = Math.hypot(dx, dy, dz) || 1e-6;
+                const f = (d - lash.segLen) / d;
+                if (i === 0) { B.x -= dx * f; B.y -= dy * f; B.z -= dz * f; }
+                else {
+                    const hx = dx * f * 0.5, hy = dy * f * 0.5, hz = dz * f * 0.5;
+                    A.x += hx; A.y += hy; A.z += hz;
+                    B.x -= hx; B.y -= hy; B.z -= hz;
+                }
+            }
+        }
+    }
+
+    // Tapered two-pass polyline (dark under-stroke for pop on any ground).
+    function drawLash(st, ctx, actor, W, H) {
+        const lash = actor.lash;
+        if (!lash?.pts || actor.crumbled) return;
+        const n = lash.pts.length;
+        const scr = lash.pts.map(pt => {
+            const p = proj(st, pt.x, pt.z, W, H);
+            const ps = CAM_FOV / (CAM_FOV - p.rz);
+            return { x: p.x, y: p.y - pt.y * p.px * ps, w: p.px * ps };
+        });
+        ctx.save();
+        ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        for (const [color, extra] of [[lash.dark, 1.6], [lash.color, 0]]) {
+            ctx.strokeStyle = color;
+            for (let i = 0; i < n - 1; i++) {
+                const t = 1 - i / (n - 1); // thick at the handle, thin at the tip
+                ctx.lineWidth = Math.max(1, scr[i].w * 0.11 * (0.45 + 0.9 * t)) + extra;
+                ctx.beginPath();
+                ctx.moveTo(scr[i].x, scr[i].y);
+                ctx.lineTo(scr[i + 1].x, scr[i + 1].y);
+                ctx.stroke();
+            }
+        }
+        ctx.restore();
     }
 
     // Debris burst at (a subset of) the given voxels' positions.
@@ -1688,7 +1848,8 @@
         const live = battles.get(canvasId);
         if (!live || live.weaponToken !== token) return; // stale or destroyed
         live.weaponId = model ? weaponId : null;
-        attachWeapon(live.player, model, live.rigs?.weapons?.[weaponId]?.grip);
+        const wrig = live.rigs?.weapons?.[weaponId];
+        attachWeapon(live.player, model, wrig?.grip, wrig?.lash);
     }
 
     // Sim tile positions (from GameState). A changed tile opens a straight
@@ -1721,6 +1882,7 @@
             actor.facing = actor.base.facing;
             actor.moving = false;
             actor.walkPhase = 0;
+            if (actor.lash) actor.lash.pts = null; // rebuild at the new anchor
             setActorVisible(actor, actor.ordered.length);
         }
         st.moveMarker = null;
@@ -1744,7 +1906,8 @@
         const W = st.canvas.width, H = st.canvas.height;
 
         const attack = (attacker, defender, style, kind) => {
-            attacker.anims.push({ type: 'attack', t0: now, dur: 340, kind });
+            // whips get a longer envelope so the rope's crack can travel
+            attacker.anims.push({ type: 'attack', t0: now, dur: kind === 'lash' ? 480 : 340, kind });
             if (style === 'ranged' || style === 'magic') {
                 // travel time from real distance — shots from across the
                 // arena visibly take longer to arrive
