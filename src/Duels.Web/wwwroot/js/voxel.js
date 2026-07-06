@@ -430,11 +430,23 @@
     // erosion chips voxels off the outside while the silhouette survives.
     // view is what actually renders: the first visCount entries of ordered.
     function makeActor(model, base, tint, rig) {
-        let cy = 0;
-        for (const v of model.voxels) cy += v.y;
-        cy /= model.voxels.length || 1;
+        // Erosion order: each horizontal slice erodes outside-in (distance
+        // from its own slice centroid), so damage pits the whole silhouette
+        // evenly. Ordering by distance from the body centroid instead would
+        // eat the extremities first — on a head-heavy model the feet and
+        // shins vanish after the first few hits.
+        const slices = new Map(); // y → { sx, sz, n }
+        for (const v of model.voxels) {
+            const s = slices.get(v.y) ?? { sx: 0, sz: 0, n: 0 };
+            s.sx += v.x; s.sz += v.z; s.n++;
+            slices.set(v.y, s);
+        }
         const ordered = model.voxels
-            .map(v => ({ v, k: Math.hypot(v.x, (v.y - cy) * 0.7, v.z) + Math.random() * model.radius * 0.5 }))
+            .map(v => {
+                const s = slices.get(v.y);
+                return { v, k: Math.hypot(v.x - s.sx / s.n, v.z - s.sz / s.n)
+                              + Math.random() * model.radius * 0.5 };
+            })
             .sort((a, b) => a.k - b.k)
             .map(o => o.v);
         // Gait amplitudes scale with the rig's actual leg length so chibi

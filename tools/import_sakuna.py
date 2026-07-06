@@ -248,17 +248,49 @@ def build():
     cz = (min(zs) + max(zs)) / 2.0
     min_y = min(ys)
 
-    def rc(joint_name):
-        j = joints[joint_name]
-        return [round(j[0] - cx, 2), round(j[2] - min_y, 2), round(j[1] - cz, 2)]
+    # Pivots come from the assembled PART GEOMETRY, not the scene's node
+    # origins — this file's transform nodes do not sit at the anatomical
+    # joints (the "Right_Arm" node lands below the whole arm), so rotating
+    # about them tears limbs off the body. The joint is where two parts
+    # meet: top of the lower part / boundary midpoint, centered on the
+    # limb's own bounding box.
+    bbox = {}
+    for x, y, z, _ci, part in world:
+        rx, ry, rz = x - cx, z - min_y, y - cz
+        b = bbox.setdefault(part, [1e9, -1e9, 1e9, -1e9, 1e9, -1e9])
+        b[0] = min(b[0], rx); b[1] = max(b[1], rx)
+        b[2] = min(b[2], ry); b[3] = max(b[3], ry)
+        b[4] = min(b[4], rz); b[5] = max(b[5], rz)
 
-    neck = rc("Head")
-    r_sho, l_sho = rc("Right_Arm"), rc("Left_Arm")
-    r_elb, l_elb = rc("Right_Forearm"), rc("Left_Forearm")
-    r_hip, l_hip = rc("Right_Thigh"), rc("Left_Thigh")
-    r_kne, l_kne = rc("Right_Leg"), rc("Left_Leg")
-    r_ank, l_ank = rc("Right_Foot"), rc("Left_Foot")
-    r_hand = rc("Right_Hand")
+    def cxz(p):  # part bbox center in x/z
+        b = bbox[p]
+        return (b[0] + b[1]) / 2.0, (b[4] + b[5]) / 2.0
+
+    def joint(upper_part, lower_part):
+        """Pivot where lower_part hangs off upper_part: the seam y, at the
+        lower part's horizontal center."""
+        y = (bbox[upper_part][2] + bbox[lower_part][3]) / 2.0
+        x, z = cxz(lower_part)
+        return [round(x, 2), round(y, 2), round(z, 2)]
+
+    def top_of(part, drop=1.0):
+        x, z = cxz(part)
+        return [round(x, 2), round(bbox[part][3] - drop, 2), round(z, 2)]
+
+    neck = joint(P_HEAD, P_TORSO)              # head rotates where it meets the torso
+    r_sho, l_sho = top_of(P_RARMU), top_of(P_LARMU)
+    r_elb, l_elb = joint(P_RARMU, P_RARML), joint(P_LARMU, P_LARML)
+    r_hip, l_hip = top_of(P_RTHIGH, 0.0), top_of(P_LTHIGH, 0.0)
+    r_kne, l_kne = joint(P_RTHIGH, P_RSHIN), joint(P_LTHIGH, P_LSHIN)
+
+    def ankle(shin, foot):  # under the shin (the foot extends toe-ward)
+        x, z = cxz(shin)
+        return [round(x, 2), round((bbox[shin][2] + bbox[foot][3]) / 2.0, 2), round(z, 2)]
+
+    r_ank, l_ank = ankle(P_RSHIN, P_RFOOT), ankle(P_LSHIN, P_LFOOT)
+    b = bbox[P_RARML]                          # hand = bottom of the forearm
+    r_hand = [round((b[0] + b[1]) / 2.0, 2), round(b[2] + 1.0, 2),
+              round((b[4] + b[5]) / 2.0, 2)]
 
     rig = {
         "band": BAND,
