@@ -417,7 +417,10 @@
     const WEAPON_ANIMS = {
         abyssal_whip: 'lash', corrupted_whip: 'lash', dragon_claws: 'flurry',
         granite_maul: 'crush', elder_maul: 'crush', abyssal_bludgeon: 'crush',
+        dragon_dagger: 'rstab', venomous_fang: 'rstab', // reverse (karambit) grip
     };
+    // Special-attack choreography per weapon (used when the hit tier is 'spec')
+    const SPEC_ANIMS = { dragon_dagger: 'ddspec' };
     const NPC_ANIMS = {
         goblin: 'crush', barbarian: 'crush', berserker: 'crush', warlord: 'crush',
         swashbuckler: 'slash', gladiator: 'slash', corsair: 'slash', champion: 'slash',
@@ -558,6 +561,18 @@
     }
     const ATTACK_POSES = {
         stab:   (p, t) => { t.pitch = lerp3(p, -0.55, 1.45, 0); t.dz = lerp3(p, -1.5, 3.5, 0); },
+        // reverse-grip dagger: cock the fist high behind, rip down-forward
+        rstab:  (p, t) => { t.pitch = lerp3(p, 1.7, -0.45, 0); t.dz = lerp3(p, -1, 2.6, 0); },
+        // dragon dagger special: the hand traces one full infinity symbol
+        // (lemniscate) — yaw runs at double the pitch frequency — with a
+        // forward thrust pulsing on each lobe (the two spec hits)
+        ddspec: (p, t) => {
+            const w = Math.sin(p * Math.PI);      // ease the figure in and out
+            const th = p * 6.2832;
+            t.pitch = (1.05 + 0.55 * Math.sin(th)) * w;
+            t.yaw = 1.15 * Math.sin(2 * th) * w;
+            t.dz = (1.2 + 1.8 * Math.abs(Math.sin(2 * th))) * w;
+        },
         slash:  (p, t) => { t.pitch = lerp3(p, 1.15, 1.25, 0); t.yaw = lerp3(p, -1.15, 1.2, 0); },
         // whip: cock the arm high overhead, then snap it down-forward — the
         // physics lash (actor.lash) follows the hand and cracks out
@@ -1906,8 +1921,10 @@
         const W = st.canvas.width, H = st.canvas.height;
 
         const attack = (attacker, defender, style, kind) => {
-            // whips get a longer envelope so the rope's crack can travel
-            attacker.anims.push({ type: 'attack', t0: now, dur: kind === 'lash' ? 480 : 340, kind });
+            // whips get a longer envelope so the rope's crack can travel;
+            // the dds spec needs a full pass to draw its infinity symbol
+            const dur = kind === 'lash' ? 480 : kind === 'ddspec' ? 620 : 340;
+            attacker.anims.push({ type: 'attack', t0: now, dur, kind });
             if (style === 'ranged' || style === 'magic') {
                 // travel time from real distance — shots from across the
                 // arena visibly take longer to arrive
@@ -1919,9 +1936,11 @@
             }
             return 0;
         };
-        // Attack choreography: per-weapon override, else the melee kind from
-        // the event (weapon AttackType), else the NPC's signature swing.
+        // Attack choreography: spec flourish on 'spec' hits, else per-weapon
+        // override, else the melee kind from the event (weapon AttackType),
+        // else the NPC's signature swing.
         const playerKind =
+            (evt.tier === 'spec' && SPEC_ANIMS[st.weaponId]) ? SPEC_ANIMS[st.weaponId] :
             WEAPON_ANIMS[st.weaponId] ?? (evt.kind in ATTACK_POSES ? evt.kind : 'slash');
         const enemyKind =
             st.lastWindupStyle === 'ranged' ? 'bow' :
