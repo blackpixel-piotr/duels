@@ -185,12 +185,14 @@ DARK = (24, 20, 18)
 # with leather bracers, belted red trousers tucked into boots. Limbs split
 # at elbow / knee / ankle so voxel.js can chain FK rotations and run leg IK.
 def m_player():
+    # OSRS-default look: short brown hair, plain t-shirt, green trousers,
+    # brown boots, bare arms. No armor, no markings.
     r = Rig(parts=PARTS_V2, band=BAND_V2)
     SK = (222, 178, 138); SK_D = (184, 138, 98)
-    HAIR = (226, 222, 214); HAIR_D = (162, 158, 152)
-    STEEL = (96, 128, 158); STEEL_D = (66, 92, 118); STEEL_L = (138, 172, 202)
+    HAIR = (106, 72, 40); HAIR_D = (76, 50, 28)
+    SHIRT = (198, 189, 167); SHIRT_D = (162, 152, 130)
     GOLD = (206, 172, 86); LEATH = (94, 70, 46); LEATH_D = (62, 46, 32)
-    RED = (152, 40, 40); RED_D = (110, 28, 30)
+    PANTS = (74, 108, 56); PANTS_D = (54, 82, 42)
     BOOT = (52, 44, 38); WHITE = (236, 236, 232)
 
     RA, LA = ('rArmU', 'lArmU'), ('rArmL', 'lArmL')
@@ -203,36 +205,33 @@ def m_player():
     # shins y3-11: boot shaft, then trouser tucked in
     r.mirror_box(1, 4, 3, 5, -1, 2, BOOT, RS)
     r.mirror_box(1, 4, 5, 5, 2, 2, LEATH_D, RS)           # shaft rim
-    r.mirror_box(1, 3, 6, 11, -1, 1, RED, RS)
-    r.mirror_box(2, 3, 7, 9, -2, -2, RED_D, RS)           # calf shadow
-    # thighs y12-21: red trousers with fold shading + knee pads
-    r.mirror_box(1, 4, 12, 21, -2, 2, RED, RT)
-    r.mirror_box(1, 4, 12, 13, 2, 2, LEATH, RT)           # knee pad
-    r.mirror_box(4, 4, 16, 18, -1, 2, RED_D, RT)          # outer fold
-    r.mirror_box(1, 4, 20, 21, 2, 2, RED_D, RT)           # hip crease
-    # pelvis y22-25 (torso root): hip cloth + belt with gold buckle
-    r.box(-4, 4, 22, 23, -2, 2, RED_D)
+    r.mirror_box(1, 3, 6, 11, -1, 1, PANTS, RS)
+    r.mirror_box(2, 3, 7, 9, -2, -2, PANTS_D, RS)         # calf shadow
+    # thighs y12-21: green trousers with fold shading
+    r.mirror_box(1, 4, 12, 21, -2, 2, PANTS, RT)
+    r.mirror_box(4, 4, 16, 18, -1, 2, PANTS_D, RT)        # outer fold
+    r.mirror_box(1, 4, 20, 21, 2, 2, PANTS_D, RT)         # hip crease
+    # pelvis y22-25 (torso root): trouser waist + simple belt
+    r.box(-4, 4, 22, 23, -2, 2, PANTS_D)
     r.box(-4, 4, 24, 25, -2, 2, LEATH)
     r.box(-1, 1, 24, 25, 2, 2, GOLD)                      # buckle
-    r.box(-4, -3, 22, 23, 2, 2, LEATH_D)                  # side pouch
-    # torso y26-38: steel cuirass — waist, chest, shading, gold collar line
-    r.box(-4, 4, 26, 29, -2, 2, STEEL_D)
-    r.box(-2, 2, 26, 29, 2, 2, STEEL)                     # abdomen panel
-    r.box(-5, 5, 30, 36, -3, 3, STEEL)
-    r.box(-5, 5, 30, 36, -3, -3, STEEL_D)                 # back plate shade
-    r.box(-4, 4, 33, 35, 3, 3, STEEL_L)                   # chest highlight
-    r.box(0, 0, 30, 36, 3, 3, STEEL_D)                    # center seam
-    r.box(-5, 5, 36, 36, -3, 3, GOLD)                     # collar trim
-    r.box(-2, 2, 37, 38, -2, 2, STEEL_D)                  # neck guard
-    # shoulders + bare upper arms y28-37
-    r.mirror_box(5, 8, 34, 37, -3, 3, STEEL_D, RA)        # pauldron
-    r.mirror_box(5, 8, 37, 37, -2, 2, GOLD, RA)           # pauldron rim
+    # torso y26-38: plain t-shirt with soft shading
+    r.box(-4, 4, 26, 29, -2, 2, SHIRT)
+    r.box(-4, 4, 26, 29, -2, -2, SHIRT_D)                 # lower-back shade
+    r.box(-5, 5, 30, 36, -3, 3, SHIRT)
+    r.box(-5, 5, 30, 36, -3, -3, SHIRT_D)                 # back shade
+    r.box(-5, -5, 30, 36, -3, 3, SHIRT_D)                 # side shade
+    r.box(0, 0, 26, 35, 3, 3, SHIRT_D)                    # front seam
+    r.box(-2, 2, 36, 36, -2, 3, SHIRT_D)                  # collar
+    r.box(-1, 1, 37, 38, -1, 2, SK)                       # neck opening
+    # t-shirt sleeves + bare upper arms y28-37
+    r.mirror_box(5, 8, 34, 37, -2, 2, SHIRT, RA)          # short sleeve
+    r.mirror_box(5, 8, 34, 34, -2, 2, SHIRT_D, RA)        # sleeve hem
     r.mirror_box(6, 7, 28, 33, -1, 1, SK, RA)             # bare arm
     r.mirror_box(6, 7, 28, 31, -1, -1, SK_D, RA)          # tricep shade
-    # forearms + hands y20-27: leather bracers, gold band, bare fists
-    r.mirror_box(6, 7, 22, 27, -1, 1, LEATH, LA)
-    r.mirror_box(6, 7, 26, 26, -1, 1, GOLD, LA)           # bracer band
-    r.mirror_box(6, 7, 22, 22, -1, 1, LEATH_D, LA)
+    # forearms + hands y20-27: bare arms, bare fists
+    r.mirror_box(6, 7, 22, 27, -1, 1, SK, LA)
+    r.mirror_box(6, 7, 22, 25, -1, -1, SK_D, LA)          # forearm shade
     r.mirror_box(6, 7, 20, 21, -1, 1, SK, LA)             # hand
     r.mirror_box(6, 7, 21, 21, 1, 1, SK_D, LA)            # knuckle shade
     # neck y39
@@ -244,27 +243,20 @@ def m_player():
     r.box(-1, 0, 42, 42, 3, 3, DARK, 'head')              # mouth
     r.box(0, 0, 43, 44, 3, 3, SK_D, 'head')               # nose shadow
     r.dot(0, 44, 4, SK, 'head')                           # nose tip
-    for sx in (1, -1):                                    # 2×2 anime eyes
+    for sx in (1, -1):                                    # 2×2 eyes
         r.box(sx * 1, sx * 2, 45, 46, 3, 3, WHITE, 'head')
         r.box(sx * 1, sx * 1, 45, 46, 3, 3, DARK, 'head') # iris (inner)
         r.box(sx * 1, sx * 2, 47, 47, 3, 3, DARK, 'head') # brow
     r.mirror_box(4, 4, 44, 45, 0, 1, SK, ('head', 'head'))       # ears
     r.mirror_box(4, 4, 44, 44, 0, 0, SK_D, ('head', 'head'))
-    # hair: back/side shell, cap with jagged fringe, chunky top spikes
-    r.box(-4, 4, 44, 47, -4, -1, HAIR_D, 'head')          # sides/back
-    r.box(-3, 3, 41, 43, -4, -4, HAIR_D, 'head')          # back spill
-    r.box(-4, 4, 48, 51, -4, 3, HAIR, 'head')             # cap
-    r.box(-4, 4, 48, 48, -4, 3, HAIR_D, 'head')           # cap underside
-    for fx, fy in [(-3, 47), (-2, 48), (-1, 47), (0, 48), (1, 47), (2, 48), (3, 47)]:
-        r.box(fx, fx, fy, 49, 4, 4, HAIR if fy == 48 else HAIR_D, 'head')  # fringe
-    r.mirror_box(5, 5, 49, 51, -1, 1, HAIR, ('head', 'head'))    # side flicks
-    r.mirror_box(5, 5, 51, 52, 0, 0, HAIR_D, ('head', 'head'))
-    for sx0, sx1, sz0, sz1, top in [(-4, -3, -2, -1, 54), (-1, 0, -1, 0, 56),
-                                    (2, 3, -3, -2, 54), (-2, -1, 1, 2, 53),
-                                    (1, 2, 1, 2, 53), (3, 4, 0, 1, 52)]:
-        r.box(sx0, sx1, 52, min(top, 53), sz0, sz1, HAIR, 'head')
-        if top > 53:
-            r.box(sx0, sx0, 54, top, sz0, sz0, HAIR, 'head')     # spike tip
+    # short hair: snug back/side shell + rounded cap + straight fringe line
+    r.box(-4, 4, 44, 47, -4, -1, HAIR, 'head')            # sides/back
+    r.box(-4, 4, 44, 45, -4, -4, HAIR_D, 'head')          # nape shade
+    r.box(-4, 4, 48, 50, -4, 3, HAIR, 'head')             # cap
+    r.box(-4, 4, 48, 48, -4, -1, HAIR_D, 'head')          # cap underside
+    r.box(-3, 3, 51, 51, -3, 2, HAIR, 'head')             # crown
+    r.box(-3, 3, 48, 48, 4, 4, HAIR_D, 'head')            # fringe line
+    r.box(-4, 4, 49, 50, 4, 4, HAIR, 'head')              # brow-line fringe
     r.dot(-2, 43, 3, SK_D, 'head'); r.dot(2, 43, 3, SK_D, 'head')  # cheeks
 
     # joints (pre-centering coords; rig_json centers them)
