@@ -686,6 +686,15 @@
             root.yaw = sway;
             root.roll = Math.sin(phase) * IK_ROLL * g;
 
+            // Forward lean, from the ankles (sprinter-style): the root
+            // pitches the whole body about its ground pivot — positive
+            // pitch tips above-ground mass toward +z, the facing/travel
+            // direction — and the leg IK targets below are counter-rotated
+            // so the feet stay planted while only the body tips forward.
+            const lean = (IK_LEAN + 0.15 * run) * g;
+            root.pitch = lean;
+            const lc = Math.cos(lean), ls = Math.sin(lean);
+
             for (let li = 0; li < 2; li++) {
                 const leg = rig.ik.legs[li];
                 const hipPiv = parts[leg.hip].pivot, kneePiv = parts[leg.knee].pivot,
@@ -713,13 +722,20 @@
                 // solve pre-root-offset: the ankle target rises by the pelvis
                 // dip so the root drop lands the foot exactly on the ground;
                 // the sway-induced z-shift at this hip is subtracted so the
-                // planted foot doesn't drift when the pelvis yaws.
+                // planted foot doesn't drift when the pelvis yaws; the whole
+                // target is rotated by the inverse of the body lean so the
+                // root pitch lands the foot back on its world spot; and the
+                // stride recenters forward under the LEANED hip (+hipY·ls)
+                // so neither leg over-extends.
+                const tzW = relZ * g - hipPiv[0] * Math.sin(sway) + hipPiv[1] * ls;
+                const tyW = ankPiv[1] + lift * g + dip * g;
                 const s = solveLeg(hipPiv[1], L1, L2,
-                                   relZ * g - hipPiv[0] * Math.sin(sway),
-                                   ankPiv[1] + lift * g + dip * g);
+                                   tzW * lc - tyW * ls,
+                                   tyW * lc + tzW * ls);
                 ensure(leg.hip).pitch = -s.thigh;
                 ensure(leg.knee).pitch = -s.shin;
-                ensure(leg.foot).pitch = -s.foot;
+                // -lean keeps the sole flat once the root pitch folds in
+                ensure(leg.foot).pitch = -s.foot - lean;
             }
         }
 
@@ -737,16 +753,17 @@
         } else if (g > 0.001) {
             // Counter-swing IN PHASE with the legs: phase 0 = right foot max
             // forward = right arm max back (cos, not sin — a quarter-cycle
-            // lag here is what reads as "robotic"). Positive pitch folds a
-            // limb toward the model's BACK, so the forward lean and the
-            // forward elbow flex are negative. Running pumps harder: wider
-            // arm swing, tighter elbows, deeper lean.
+            // lag here is what reads as "robotic"). The forward posture
+            // comes from the root's ankle-lean above; here the arms just
+            // pump — wider swing and tighter elbows as the run blends in
+            // (elbow flex is negative: positive pitch folds a hanging limb
+            // toward the model's back).
             const s = Math.cos(phase) * (0.55 + 0.35 * run) * g;
-            const lean = -(IK_LEAN + 0.22 * run) * g;
-            ensure(RU).pitch = s + lean;  ensure(LU).pitch = -s + lean;
+            ensure(RU).pitch = s;  ensure(LU).pitch = -s;
             ensure(RL).pitch = -(0.4 + 0.45 * run) * g;
             ensure(LL).pitch = -(0.4 + 0.45 * run) * g;
-            ensure(1).pitch = lean * 0.6; // head tips into the lean, gaze mostly level
+            if (actor.ik) // head sits ABOVE its pivot: negative pitch tips it
+                ensure(1).pitch = -(IK_LEAN + 0.15 * run) * g * 0.4; // back a touch — gaze stays level under the body lean
         } else if (windup) {
             ensure(RU).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
         }
