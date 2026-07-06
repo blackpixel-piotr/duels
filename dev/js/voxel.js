@@ -29,7 +29,7 @@
     // else uses the legacy 40-wide / 6-part scheme.
     const VOX_OPTS = {
         'assets/player.vox': { band: 16, parts: 12 },
-        'assets/player_sakuna.vox': { band: 16, parts: 12 },
+        'assets/player_sakuna.vox': { band: 20, parts: 12 },
     };
 
     // ── .vox parsing ─────────────────────────────────────────────────────────
@@ -156,11 +156,12 @@
 
     // Draw one model at voxel size S with its ground-center at (cx, baseY).
     // pose (optional): array indexed by part → transform or null. A transform
-    // is { pivot:[x,y,z], pitch, yaw, dz, dy, up }: pitch rotates the part
-    // about its pivot (positive folds a hanging limb toward the model's
-    // back), yaw sweeps it horizontally, dz/dy translate it. `up` chains to
-    // the parent joint's transform — a foot voxel rotates about the ankle,
-    // then the knee, then the hip, then takes the root offset (leg IK).
+    // is { pivot:[x,y,z], pitch, yaw, roll, dz, dy, up }: pitch rotates the
+    // part about its pivot (positive folds a hanging limb toward the model's
+    // back), yaw sweeps it horizontally, roll tilts it sideways, dz/dy
+    // translate it. `up` chains to the parent joint's transform — a foot
+    // voxel rotates about the ankle, then the knee, then the hip, then takes
+    // the root offset (leg IK).
     function renderModel(ctx, model, angle, S, cx, baseY, pose) {
         const c = Math.cos(angle), sn = Math.sin(angle);
         const vs = model.voxels, out = model.scratch;
@@ -169,6 +170,7 @@
                 for (; t && t._cp === undefined; t = t.up) {
                     t._cp = Math.cos(t.pitch || 0); t._sp = Math.sin(t.pitch || 0);
                     t._cy = Math.cos(t.yaw || 0);   t._sy = Math.sin(t.yaw || 0);
+                    t._cr = Math.cos(t.roll || 0);  t._sr = Math.sin(t.roll || 0);
                 }
         for (let i = 0; i < vs.length; i++) {
             const v = vs[i];
@@ -179,6 +181,7 @@
                     x -= pv[0]; y -= pv[1]; z -= pv[2];
                     if (t.pitch) { const y2 = y * t._cp - z * t._sp; z = y * t._sp + z * t._cp; y = y2; }
                     if (t.yaw)   { const x2 = x * t._cy - z * t._sy; z = x * t._sy + z * t._cy; x = x2; }
+                    if (t.roll)  { const x2 = x * t._cr - y * t._sr; y = x * t._sr + y * t._cr; x = x2; }
                     x += pv[0]; y += pv[1]; z += pv[2];
                 }
                 z += t.dz || 0; y += t.dy || 0;
@@ -434,6 +437,16 @@
             .map(v => ({ v, k: Math.hypot(v.x, (v.y - cy) * 0.7, v.z) + Math.random() * model.radius * 0.5 }))
             .sort((a, b) => a.k - b.k)
             .map(o => o.v);
+        // Gait amplitudes scale with the rig's actual leg length so chibi
+        // proportions (short legs on a tall model) don't over-reach the IK.
+        let ik = null;
+        if (rig?.parts && rig.ik) {
+            const L = rig.ik.legs[0];
+            const legLen = rig.parts[L.hip].pivot[1] - rig.parts[L.foot].pivot[1];
+            const step = Math.min(IK_STEP, legLen * 0.45);
+            const k = step / IK_STEP;
+            ik = { step, lift: step * 0.5, crouch: IK_CROUCH * k, bob: IK_BOB * k };
+        }
         return {
             model, base, tint: tint ?? null, anims: [],
             bobPhase: Math.random() * 6.28, off: document.createElement('canvas'),
@@ -441,10 +454,11 @@
             view: { ...model, voxels: ordered.slice(), scratch: new Array(ordered.length) },
             crumbled: false,
             rig: rig ?? null,               // rigs.json entry (legacy or v2)
-            // v2 rigs stride so one stance half-cycle sweeps ±IK_STEP voxels
+            ik,                             // per-rig gait amplitudes (v2 only)
+            // v2 rigs stride so one stance half-cycle sweeps ±ik.step voxels
             // — the phase-exact condition for planted, skate-free feet.
-            stride: rig?.parts
-                ? Math.PI * model.height / (base.worldH * 2 * IK_STEP)
+            stride: ik
+                ? Math.PI * model.height / (base.worldH * 2 * ik.step)
                 : STRIDE,
             st: null,                       // back-ref to the battle (camera access)
             pos: { wx: base.wx, wz: base.wz },
@@ -580,18 +594,16 @@
     // ── v2 rig: hierarchical FK + analytic leg IK ─────────────────────────
     // The gait is phase-exact foot planting: walkPhase advances with ground
     // covered at actor.stride rad/wu, tuned so one stance half-cycle sweeps
-    // the foot from +IK_STEP to −IK_STEP voxels — i.e. the planted foot
-    // moves backward under the body at EXACTLY the body's speed, which is
-    // the definition of a foot that does not skate. The swing leg arcs
-    // forward with knee lift; the pelvis dips so knees stay bent; the foot
-    // counter-rotates to stay flat through the whole stride.
-    const IK_STEP = 8;         // stance half-sweep, voxels
-    const IK_LIFT = 4;         // swing foot lift, voxels
+    // the foot from +step to −step voxels — i.e. the planted foot moves
+    // backward under the body at EXACTLY the body's speed, which is the
+    // definition of a foot that does not skate. Amplitudes live in actor.ik,
+    // scaled from these by the rig's leg length (see makeActor).
+    const IK_STEP = 8;         // stance half-sweep, voxels (19-voxel leg)
     const IK_CROUCH = 1.4;     // moving pelvis drop base, voxels
-    const IK_SWING_BOB = 1.2;  // pelvis bob amplitude (sine wave engine)
-    const IK_HIP_SWAY = 0.15;  // hip yaw amplitude (radians)
-    const IK_HIP_ROLL = 0.08;  // hip roll tilt (radians)
-    const IK_TORSO_LEAN = 0.12; // torso forward lean on acceleration
+    const IK_BOB = 1.0;        // extra pelvis dip at heel-strike, voxels
+    const IK_SWAY = 0.08;      // pelvis yaw sway amplitude, radians
+    const IK_ROLL = 0.05;      // pelvis roll (weight shift) amplitude, radians
+    const IK_LEAN = 0.10;      // upper-body forward lean while moving, radians
 
     // 2-bone solve in the sagittal plane: hip at (0, hipY) reaching an ankle
     // at (tz forward, ty up). Returns forward-positive thigh/shin/foot
@@ -611,7 +623,11 @@
     function computePoseV2(actor, now, windup) {
         const rig = actor.rig, parts = rig.parts;
         const T = new Array(parts.length).fill(null);
-        const mk = i => ({ pivot: parts[i].pivot, pitch: 0, yaw: 0, dz: 0, dy: 0 });
+        // Root (part 0) pivots at the model's ground center so its yaw sways
+        // the pelvis about the vertical axis and its roll rocks the whole
+        // body over the planted feet (weight shift) without skating them.
+        const mk = i => ({ pivot: i === 0 ? [0, 0, 0] : parts[i].pivot,
+                           pitch: 0, yaw: 0, roll: 0, dz: 0, dy: 0 });
         const ensure = i => T[i] ??= mk(i);
 
         // Gait blend eases limbs between authored idle and the moving gait
@@ -625,25 +641,25 @@
         const phase = ((actor.walkPhase % 6.2832) + 6.2832) % 6.2832;
 
         // Legs: IK gait while moving/blending, authored pose at rest.
-        if (g > 0.001) {
-            
-            // 1. PELVIS ENGINE: Sine wave vertical motion (not cosine crouch)
-            // Lowest at passing structure (phase 0, π) when feet spread wide
-            // Highest at single-leg support (phase π/2, 3π/2)
-            const passingStructurePhase = Math.abs(Math.sin(phase)); // 0 at passing, 1 at single support
-            const pelvisY = -(IK_CROUCH + (1 - passingStructurePhase) * IK_SWING_BOB) * g;
-            ensure(0).dy = pelvisY;
-            
-            // 2. HIP SWAYING & ROTATION: Counter-phase rotation + roll tilt
-            // Yaw sways opposite to leg swing (left leg forward = right hip rotates forward)
-            const hipYaw = Math.sin(phase) * IK_HIP_SWAY * g;
-            ensure(0).yaw = hipYaw;
-            
-            // Hip roll: when foot leaves ground, that side's pelvis drops slightly
-            // Phase crossover at π marks right foot takeoff
-            const hipRoll = Math.sin(phase + Math.PI * 0.5) * IK_HIP_ROLL * g;
-            ensure(0).dz = hipRoll;  // roll tilt around forward axis
-            
+        // Phase convention: 0 = right heel-strike (right foot max forward),
+        // 0..π right stance / left swing, π..2π the mirror.
+        if (g > 0.001 && actor.ik) {
+            const ik = actor.ik;
+            const root = ensure(0);
+
+            // Pelvis engine: high at mid-stance (leg vertical under the
+            // body), dipping into each heel-strike. The ^1.3 sharpens the
+            // dip at contact so each step lands with visible weight.
+            const dip = ik.crouch + Math.pow(1 - Math.abs(Math.sin(phase)), 1.3) * ik.bob;
+            root.dy = -dip * g;
+
+            // Pelvis yaw follows the leading leg (right side forward at
+            // phase 0); roll rocks the body over the stance leg. Both ride
+            // the root, whose ground pivot keeps the feet planted.
+            const sway = Math.cos(phase) * IK_SWAY * g;
+            root.yaw = sway;
+            root.roll = Math.sin(phase) * IK_ROLL * g;
+
             for (let li = 0; li < 2; li++) {
                 const leg = rig.ik.legs[li];
                 const hipPiv = parts[leg.hip].pivot, kneePiv = parts[leg.knee].pivot,
@@ -651,63 +667,39 @@
                 const L1 = hipPiv[1] - kneePiv[1], L2 = kneePiv[1] - ankPiv[1];
                 // this leg's phase: left leads by half a cycle
                 const ph = li === 0 ? phase : (phase + Math.PI) % 6.2832;
-                let relZ, lift = 0, droop = 0, hipYawLeg = 0;
-                
+                let relZ, lift = 0;
                 if (ph < Math.PI) {
-                    // STANCE: Smooth backward sweep (not sharp linear)
-                    // Use ease-out for natural weight transfer
-                    const stance = ph / Math.PI;
-                    const easeOut = 1 - (1 - stance) * (1 - stance);
-                    relZ = IK_STEP * (1 - 2 * easeOut);
+                    // Stance: strictly linear sweep — the planted foot must
+                    // move backward at exactly body speed (no-skate law).
+                    relZ = ik.step * (1 - 2 * ph / Math.PI);
                 } else {
-                    // SWING: Parabolic arc (quick lift, glide, gentle landing)
+                    // Swing: cubic Hermite from −step to +step whose END
+                    // SLOPES MATCH THE STANCE SWEEP, so the foot leaves and
+                    // lands already moving at ground speed — no velocity pop
+                    // at contact, with a natural follow-through/reach
+                    // overshoot (~9%) baked into the curve.
                     const p = (ph - Math.PI) / Math.PI;
-                    // Lift: sharp parabola upward then gentle ease down
-                    lift = (4 * p * (1 - p)) * IK_LIFT;
-                    // Forward motion: smooth ease-in-out along horizontal
-                    const easeIO = p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) * (-2 * p + 2) / 2;
-                    relZ = -IK_STEP + 2 * IK_STEP * easeIO;
-                    // Subtle knee droop during swing for ground clearance
-                    droop = Math.sin(p * Math.PI) * 0.3;
-                    // Hip internal rotation during swing leg (adds realism)
-                    hipYawLeg = (li === 1 ? -1 : 1) * Math.sin(p * Math.PI) * 0.1;
+                    relZ = ik.step * (((-8 * p + 12) * p - 2) * p - 1);
+                    // Lift arcs like a landing plane: peaks early (~40%),
+                    // then eases down into the step.
+                    lift = ik.lift * Math.sin(Math.PI * Math.pow(p, 0.8));
                 }
-                
-                // solve pre-root-offset: ankle target rises by crouch so the
-                // root drop lands the foot exactly on the ground
-                const s = solveLeg(hipPiv[1], L1, L2, relZ * g,
-                                   ankPiv[1] + lift * g - pelvisY);
+                // solve pre-root-offset: the ankle target rises by the pelvis
+                // dip so the root drop lands the foot exactly on the ground;
+                // the sway-induced z-shift at this hip is subtracted so the
+                // planted foot doesn't drift when the pelvis yaws.
+                const s = solveLeg(hipPiv[1], L1, L2,
+                                   relZ * g - hipPiv[0] * Math.sin(sway),
+                                   ankPiv[1] + lift * g + dip * g);
                 ensure(leg.hip).pitch = -s.thigh;
                 ensure(leg.knee).pitch = -s.shin;
-                ensure(leg.foot).pitch = -(s.foot + droop * g);
-                
-                // Hip internal rotation during swing for natural gait
-                if (hipYawLeg !== 0) {
-                    ensure(leg.hip).yaw = (ensure(leg.hip).yaw || 0) + hipYawLeg * g;
-                }
+                ensure(leg.foot).pitch = -s.foot;
             }
         }
 
         // Arms: attack/windup choreography wins; otherwise the run pump.
         const atk = actor.anims.find(a => a.type === 'attack');
         const RU = 2, LU = 3, RL = rig.handPart ?? 6, LL = 7;
-        
-        // 5. TORSO LAG & SECONDARY MOTION
-        // Torso forward lean on acceleration (makes character feel responsive)
-        if (g > 0.001 && actor.moving) {
-           ensure(0).pitch = IK_TORSO_LEAN * g;  // lean forward slightly
-        }
-        
-        // Impact jerks: when foot transitions from swing to stance (phase = π, 2π)
-        // This simulates weight impact and removes floaty feeling
-        const nextFootImpactL = (phase < Math.PI) ? false : (phase - Math.PI < 0.3); // right foot just landed
-        const nextFootImpactR = (phase >= Math.PI) ? false : (phase < 0.3); // left foot just landed
-        if ((nextFootImpactL || nextFootImpactR) && g > 0.001) {
-           // Sharp downward impulse on pelvis and chest on landing
-           const impactStrength = Math.max(0, 1 - (nextFootImpactL ? (phase - Math.PI) : phase) * 5);
-           ensure(0).dy = (ensure(0).dy || 0) - impactStrength * 0.15 * g;
-        }
-        
         if (atk) {
             const p = (now - atk.t0) / atk.dur;
             if (p >= 0 && p <= 1) {
@@ -717,9 +709,15 @@
                 if (atk.kind === 'cast') ensure(LU).pitch = lerp3(p, 0.9, 0.5, 0);
             }
         } else if (g > 0.001) {
-            const s = Math.sin(((actor.walkPhase % 6.2832) + 6.2832) % 6.2832) * 0.55 * g;
-            ensure(RU).pitch = s;  ensure(LU).pitch = -s;
+            // Counter-swing IN PHASE with the legs: phase 0 = right foot max
+            // forward = right arm max back (cos, not sin — a quarter-cycle
+            // lag here is what reads as "robotic"). The lean pitches the
+            // head and shoulders into the run.
+            const s = Math.cos(phase) * 0.55 * g;
+            const lean = IK_LEAN * g;
+            ensure(RU).pitch = s + lean;  ensure(LU).pitch = -s + lean;
             ensure(RL).pitch = 0.5 * g; ensure(LL).pitch = 0.5 * g; // elbows pump bent
+            ensure(1).pitch = lean * 0.6; // head nods into the lean, gaze mostly level
         } else if (windup) {
             ensure(RU).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
         }
