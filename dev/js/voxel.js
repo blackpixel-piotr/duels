@@ -616,6 +616,12 @@
     const IK_SWAY = 0.08;      // pelvis yaw sway amplitude, radians
     const IK_ROLL = 0.05;      // pelvis roll (weight shift) amplitude, radians
     const IK_LEAN = 0.10;      // upper-body forward lean while moving, radians
+    // Running (multi-tile segments): the stride LENGTHENS up to ×(1+RUN_STRIDE)
+    // and the cycle slows to match, instead of the walk loop just spinning
+    // faster. The no-skate law survives any stride scale — the multiplier
+    // cancels between phase rate and foot sweep. Other amplitudes (crouch,
+    // lift, bob, lean, arm swing) grow with actor.runBlend.
+    const RUN_STRIDE = 0.35;
 
     // 2-bone solve in the sagittal plane: hip at (0, hipY) reaching an ankle
     // at (tz forward, ty up). Returns forward-positive thigh/shin/foot
@@ -655,14 +661,22 @@
         // Legs: IK gait while moving/blending, authored pose at rest.
         // Phase convention: 0 = right heel-strike (right foot max forward),
         // 0..π right stance / left swing, π..2π the mirror.
+        const run = actor.runBlend ?? 0;
         if (g > 0.001 && actor.ik) {
             const ik = actor.ik;
             const root = ensure(0);
+            // Run scaling: longer stride, higher knee lift, deeper crouch
+            // and heel-strike bounce — the visual difference between a walk
+            // and a run at the same cycle math.
+            const m = 1 + RUN_STRIDE * run;
+            const step = ik.step * m;
+            const liftAmp = ik.lift * (1 + 0.6 * run);
 
             // Pelvis engine: high at mid-stance (leg vertical under the
             // body), dipping into each heel-strike. The ^1.3 sharpens the
             // dip at contact so each step lands with visible weight.
-            const dip = ik.crouch + Math.pow(1 - Math.abs(Math.sin(phase)), 1.3) * ik.bob;
+            const dip = ik.crouch * (1 + 0.8 * run)
+                + Math.pow(1 - Math.abs(Math.sin(phase)), 1.3) * ik.bob * (1 + 0.6 * run);
             root.dy = -dip * g;
 
             // Pelvis yaw follows the leading leg (right side forward at
@@ -683,7 +697,7 @@
                 if (ph < Math.PI) {
                     // Stance: strictly linear sweep — the planted foot must
                     // move backward at exactly body speed (no-skate law).
-                    relZ = ik.step * (1 - 2 * ph / Math.PI);
+                    relZ = step * (1 - 2 * ph / Math.PI);
                 } else {
                     // Swing: cubic Hermite from −step to +step whose END
                     // SLOPES MATCH THE STANCE SWEEP, so the foot leaves and
@@ -691,10 +705,10 @@
                     // at contact, with a natural follow-through/reach
                     // overshoot (~9%) baked into the curve.
                     const p = (ph - Math.PI) / Math.PI;
-                    relZ = ik.step * (((-8 * p + 12) * p - 2) * p - 1);
+                    relZ = step * (((-8 * p + 12) * p - 2) * p - 1);
                     // Lift arcs like a landing plane: peaks early (~40%),
                     // then eases down into the step.
-                    lift = ik.lift * Math.sin(Math.PI * Math.pow(p, 0.8));
+                    lift = liftAmp * Math.sin(Math.PI * Math.pow(p, 0.8));
                 }
                 // solve pre-root-offset: the ankle target rises by the pelvis
                 // dip so the root drop lands the foot exactly on the ground;
@@ -725,11 +739,13 @@
             // forward = right arm max back (cos, not sin — a quarter-cycle
             // lag here is what reads as "robotic"). Positive pitch folds a
             // limb toward the model's BACK, so the forward lean and the
-            // forward elbow flex are negative.
-            const s = Math.cos(phase) * 0.55 * g;
-            const lean = -IK_LEAN * g;
+            // forward elbow flex are negative. Running pumps harder: wider
+            // arm swing, tighter elbows, deeper lean.
+            const s = Math.cos(phase) * (0.55 + 0.35 * run) * g;
+            const lean = -(IK_LEAN + 0.22 * run) * g;
             ensure(RU).pitch = s + lean;  ensure(LU).pitch = -s + lean;
-            ensure(RL).pitch = -0.4 * g; ensure(LL).pitch = -0.4 * g; // elbows flexed forward
+            ensure(RL).pitch = -(0.4 + 0.45 * run) * g;
+            ensure(LL).pitch = -(0.4 + 0.45 * run) * g;
             ensure(1).pitch = lean * 0.6; // head tips into the lean, gaze mostly level
         } else if (windup) {
             ensure(RU).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
@@ -1444,19 +1460,33 @@
 
             // Movement: play each actor's segment at constant velocity, timed
             // to land exactly when the next sim step is due (TILE_MS) — no
-            // per-tile stall, and longer (running) segments just move faster.
-            // Face travel direction while moving, else the opponent.
+            // per-tile stall. Longer (running) segments move faster; the
+            // gait absorbs the speed as a LONGER stride via runBlend, not a
+            // faster cycle. Face travel direction while moving, else the
+            // opponent.
             for (const key of ['player', 'enemy']) {
                 const actor = st[key];
                 const other = key === 'player' ? st.enemy : st.player;
                 if (actor.crumbled) { actor.moving = false; continue; }
                 const disengagedIdlePlayer = key === 'player' && st.flags.holdPosition === true;
+                // Run blend: segments longer than one straight tile shift
+                // the gait toward a run. Eased (~170ms) so walk↔run
+                // transitions glide instead of snapping.
+                const sg = actor.seg;
+                const segLen = sg ? (sg.len ??= Math.hypot(sg.x1 - sg.x0, sg.z1 - sg.z0)) : 0;
+                const runTarget = sg ? Math.max(0, Math.min(1, (segLen - 1) / 1.2)) : 0;
+                actor.runBlend = (actor.runBlend ?? 0)
+                    + (runTarget - (actor.runBlend ?? 0)) * Math.min(1, dt * 0.006);
                 let destFacing;
                 if (actor.seg) {
                     const s = actor.seg;
                     const p = Math.min(1, (st.time - s.t0) / TILE_MS);
                     const nx = s.x0 + (s.x1 - s.x0) * p, nz = s.z0 + (s.z1 - s.z0) * p;
-                    actor.walkPhase += Math.hypot(nx - actor.pos.wx, nz - actor.pos.wz) * actor.stride;
+                    // Longer stride ⇒ proportionally slower cycle at the same
+                    // ground speed. Must mirror computePoseV2's step scale
+                    // exactly, or the feet skate.
+                    const m = actor.ik ? 1 + RUN_STRIDE * actor.runBlend : 1;
+                    actor.walkPhase += Math.hypot(nx - actor.pos.wx, nz - actor.pos.wz) * actor.stride / m;
                     actor.pos.wx = nx; actor.pos.wz = nz;
                     actor.moving = p < 1;
                     destFacing = Math.atan2(s.x1 - s.x0, s.z1 - s.z0);
