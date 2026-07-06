@@ -222,9 +222,64 @@ def silhouette(voxels, axis_a, axis_b, flip_b=True, max_w=70):
     return "\n".join("".join(r) for r in rows)
 
 
+# ── Restyle: Sukuna → OSRS-default look ────────────────────────────────────
+# Short brown hair (spikes trimmed, black undercut recolored), plain t-shirt
+# over the bare torso (erases the body markings/belly face), green trousers,
+# skin forearms, brown boots. Palette slots 230+ carry the new colors.
+HAIR_CI, HAIR_D_CI = 230, 231
+SHIRT_CI, SHIRT_D_CI = 232, 233
+PANTS_CI, PANTS_D_CI = 234, 235
+BOOT_CI, SOLE_CI = 236, 237
+NEW_COLORS = {
+    HAIR_CI: (106, 72, 40), HAIR_D_CI: (78, 52, 30),
+    SHIRT_CI: (198, 189, 167), SHIRT_D_CI: (164, 154, 132),
+    PANTS_CI: (74, 108, 56), PANTS_D_CI: (54, 82, 42),
+    BOOT_CI: (94, 70, 46), SOLE_CI: (52, 44, 38),
+}
+PINK = {7, 9}          # bright hair
+PINK_D = {8}           # hair shade
+BLACKISH = {11, 12, 13, 14, 15, 16, 17, 255}
+SKIN_LIGHT = 5
+
+
+def restyle(world, palette, min_y):
+    for ci, rgb in NEW_COLORS.items():
+        palette[ci] = rgb
+    out = []
+    for x, y, z, ci, p in world:
+        ry = z - min_y  # renderer height (z is file-up)
+        if p == P_HEAD:
+            hairish = ci in PINK or ci in PINK_D or (ci in BLACKISH and ry >= 48)
+            if hairish and ry > 58:
+                continue                       # trim the spikes: short hair
+            if ci in PINK: ci = HAIR_CI
+            elif ci in PINK_D: ci = HAIR_D_CI
+            elif hairish: ci = HAIR_D_CI       # black undercut → dark brown
+        elif p == P_TORSO:
+            if ry < 39:                        # (39+ = neck, stays skin)
+                if ry <= 25:                   # hips → trouser waist
+                    ci = PANTS_CI if ci == SKIN_LIGHT else PANTS_D_CI
+                else:                          # t-shirt over the bare torso
+                    ci = SHIRT_CI if ci == SKIN_LIGHT else SHIRT_D_CI
+        elif p in (P_RARMU, P_LARMU):
+            if ry >= 34:                       # short sleeve
+                ci = SHIRT_CI if ci == SKIN_LIGHT else SHIRT_D_CI
+            elif ci in BLACKISH:               # arm bands → bare skin
+                ci = SKIN_LIGHT
+        elif p in (P_RARML, P_LARML):
+            if ci in BLACKISH: ci = SKIN_LIGHT # wrist marks → bare skin
+        elif p in (P_RTHIGH, P_LTHIGH, P_RSHIN, P_LSHIN):
+            ci = PANTS_CI if ci == 16 else PANTS_D_CI
+        elif p in (P_RFOOT, P_LFOOT):
+            ci = BOOT_CI if ci == 10 else SOLE_CI
+        out.append((x, y, z, ci, p))
+    return out
+
+
 def build():
     models, palette, nodes = read_scene(SOURCE)
     world, joints = flatten_scene(models, nodes)
+    world = restyle(world, palette, min(v[2] for v in world))
 
     # Color slots: source ci -> [0, BAND)
     ci_to_c0 = {}
