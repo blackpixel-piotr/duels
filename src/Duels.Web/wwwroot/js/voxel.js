@@ -723,13 +723,14 @@
         } else if (g > 0.001) {
             // Counter-swing IN PHASE with the legs: phase 0 = right foot max
             // forward = right arm max back (cos, not sin — a quarter-cycle
-            // lag here is what reads as "robotic"). The lean pitches the
-            // head and shoulders into the run.
+            // lag here is what reads as "robotic"). Positive pitch folds a
+            // limb toward the model's BACK, so the forward lean and the
+            // forward elbow flex are negative.
             const s = Math.cos(phase) * 0.55 * g;
-            const lean = IK_LEAN * g;
+            const lean = -IK_LEAN * g;
             ensure(RU).pitch = s + lean;  ensure(LU).pitch = -s + lean;
-            ensure(RL).pitch = 0.5 * g; ensure(LL).pitch = 0.5 * g; // elbows pump bent
-            ensure(1).pitch = lean * 0.6; // head nods into the lean, gaze mostly level
+            ensure(RL).pitch = -0.4 * g; ensure(LL).pitch = -0.4 * g; // elbows flexed forward
+            ensure(1).pitch = lean * 0.6; // head tips into the lean, gaze mostly level
         } else if (windup) {
             ensure(RU).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
         }
@@ -1614,14 +1615,15 @@
     }
 
     // HP fractions (0..1) drive voxel erosion/regrow; called every game tick.
+    // The player is exempt — the hero always renders whole; damage reads
+    // through hitsplats, flashes, and the HP bar instead.
     function setBattleVitals(canvasId, vitals) {
         const st = battles.get(canvasId);
         if (!st) return;
-        for (const [actor, frac] of [[st.player, vitals.player], [st.enemy, vitals.enemy]]) {
-            if (actor.crumbled || typeof frac !== 'number') continue;
-            const f = Math.max(0, Math.min(1, frac));
-            setActorVisible(actor, Math.round(actor.ordered.length * (0.45 + 0.55 * f)));
-        }
+        const actor = st.enemy;
+        if (actor.crumbled || typeof vitals.enemy !== 'number') return;
+        const f = Math.max(0, Math.min(1, vitals.enemy));
+        setActorVisible(actor, Math.round(actor.ordered.length * (0.45 + 0.55 * f)));
     }
 
     // Equip/unequip the weapon shown in the player's hand. The weapon's
