@@ -647,17 +647,31 @@
   },
   "abyssal_whip": {
    "grip": [
-    -4.5,
+    -3.5,
     2,
     -0.5
-   ]
+   ],
+   "lash": {
+    "len": 1.15,
+    "segs": 12,
+    "top": 3,
+    "color": "#9646be",
+    "dark": "#3c1e50"
+   }
   },
   "corrupted_whip": {
    "grip": [
-    -4.5,
+    -3.5,
     2,
     -0.5
-   ]
+   ],
+   "lash": {
+    "len": 1.15,
+    "segs": 12,
+    "top": 3,
+    "color": "#50c878",
+    "dark": "#183c28"
+   }
   },
   "armadyl_sword": {
    "grip": [
