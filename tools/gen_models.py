@@ -510,12 +510,17 @@ def w_scimitar(steel):
 
 
 def w_dagger(steel, jagged=False):
+    # Reverse (karambit) grip: the fist wraps the handle and the blade
+    # rakes DOWNWARD out of the pinky side, hooking slightly back — held
+    # blade-down at rest, it rips down-forward in the stab.
     w = Wpn(); w.handle(0, 3)
-    w.box(-1, 1, 4, 4, 0, 1, HILT)
-    w.box(0, 0, 5, 11, 0, 1, steel)
+    w.box(-1, 1, 4, 4, 0, 1, HILT)                                 # pommel cap
+    w.box(-1, 1, -1, -1, 0, 1, HILT)                               # guard under the fist
+    w.box(0, 0, -5, -2, 0, 1, steel)                               # blade
+    w.box(0, 0, -7, -6, 0, 0, steel)                               # taper
+    w.dot(0, -8, -1, steel)                                        # hooked tip
     if jagged:
-        w.dot(1, 7, 0, steel); w.dot(-1, 9, 0, steel)              # barbs
-    w.dot(0, 12, 0, steel)
+        w.dot(1, -3, 0, steel); w.dot(-1, -5, 0, steel)            # barbs
     return w
 
 
