@@ -492,7 +492,8 @@
         const p = anchor(actor, W, H);
         const S = actorScale(actor, W, H);
         const ps = CAM_FOV / (CAM_FOV - p.rz);
-        return { x: p.x, y: p.y - actor.model.height * S * ps * 0.55 };
+        const ws = actorWorldScale(actor, W, H);
+        return { x: p.x, y: p.y - actor.model.height * S * ps * ws * 0.55 };
     }
 
     // Voxel size for an actor: world height × camera scale, rounded to a whole
@@ -502,6 +503,17 @@
     function actorScale(actor, W, H) {
         const cm = camera(W, H, actor.st?.camZoom ?? 1);
         return Math.max(1, Math.round(cm.px * actor.base.worldH / actor.model.height));
+    }
+
+    // Fractional correction: actorScale rounds to an integer, but the true
+    // ratio px*worldH/height is rarely an exact integer. This returns the
+    // remaining factor so every blit-time size matches worldH exactly —
+    // e.g. the HD player (57 vox) renders into an offscreen at S=1 but is
+    // then blitted at ~0.66× so it occupies the same screen real-estate as
+    // a 35-voxel NPC of the same worldH.
+    function actorWorldScale(actor, W, H) {
+        const S = actorScale(actor, W, H);
+        return (camera(W, H, actor.st?.camZoom ?? 1).px * actor.base.worldH) / (actor.model.height * S);
     }
 
     // Motion amplitudes (lunges, knockback, debris velocity) scale with the
@@ -838,17 +850,19 @@
             a.dy += (1 - Math.cos(s)) * (actor.rig.pivots?.rHip?.[1] ?? 12) * r.S;
         }
 
-        // Perspective scale at this actor's depth; psTot folds in the anim scale.
+        // Perspective scale at this actor's depth; psTot folds in the anim scale
+        // and the worldH correction (ws) so the blit matches worldH exactly.
         const ps = CAM_FOV / (CAM_FOV - p.rz);
-        const psTot = a.scale * ps;
+        const ws = actorWorldScale(actor, W, H);
+        const psTot = a.scale * ps * ws;
 
         // Shadow on ground plane (player only — no distracting circle under every NPC).
         if (actor === actor.st.player) {
             ctx.fillStyle = `rgba(0,0,0,${0.30 * a.alpha})`;
             ctx.beginPath();
             ctx.ellipse(ax + a.dx * 0.4, ay,
-                        actor.model.radius * r.S * ps * 0.9,
-                        actor.model.radius * r.S * (actor.st?.camPitch ?? POS_TILT) * ps * 0.62, 0, 0, 6.2832);
+                        actor.model.radius * r.S * ps * ws * 0.9,
+                        actor.model.radius * r.S * (actor.st?.camPitch ?? POS_TILT) * ps * ws * 0.62, 0, 0, 6.2832);
             ctx.fill();
         }
 
@@ -953,9 +967,10 @@
         const p = anchor(actor, W, H);
         const S = actorScale(actor, W, H);
         const ps = CAM_FOV / (CAM_FOV - p.rz);
+        const ws = actorWorldScale(actor, W, H);
         const cx = p.x;
-        const cy = p.y - actor.model.height * S * ps * 0.45;
-        const rad = actor.model.height * S * ps * 0.85;
+        const cy = p.y - actor.model.height * S * ps * ws * 0.45;
+        const rad = actor.model.height * S * ps * ws * 0.85;
         const pulse = 0.22 + 0.14 * Math.sin(now * 0.006);
         const g = ctx.createRadialGradient(cx, cy, rad * 0.15, cx, cy, rad);
         g.addColorStop(0, `rgba(204,68,255,${pulse})`);
@@ -1100,14 +1115,15 @@
         const p = anchor(actor, W, H);
         const S = actorScale(actor, W, H);
         const ps = CAM_FOV / (CAM_FOV - p.rz);
+        const ws = actorWorldScale(actor, W, H);
         const x = p.x;
-        const y = p.y - actor.model.height * S * ps - S * ps * 3;
+        const y = p.y - actor.model.height * S * ps * ws - S * ps * ws * 3;
         const pulse = 0.5 + 0.5 * Math.sin(now * 0.02);
-        const r = actor.model.height * S * ps * 0.22 * (0.7 + 0.5 * pulse);
+        const r = actor.model.height * S * ps * ws * 0.22 * (0.7 + 0.5 * pulse);
         ctx.save();
         ctx.globalAlpha = 0.5 + 0.5 * pulse;
         ctx.strokeStyle = color;
-        ctx.lineWidth = Math.max(1.5, S * ps * 0.7);
+        ctx.lineWidth = Math.max(1.5, S * ps * ws * 0.7);
         for (let i = 0; i < 4; i++) {
             const ang = i * Math.PI / 4 + now * 0.003;
             ctx.beginPath();
@@ -1254,7 +1270,8 @@
                 const actor = st[key];
                 const p = anchor(actor, W, H);
                 const ps = CAM_FOV / (CAM_FOV - p.rz);
-                const top = p.y - actor.model.height * actorScale(actor, W, H) * ps * hFrac;
+                const ws = actorWorldScale(actor, W, H);
+                const top = p.y - actor.model.height * actorScale(actor, W, H) * ps * ws * hFrac;
                 el.style.left = ((p.x / W + xOff) * 100) + '%';
                 el.style.top = (Math.max(0, top) / H * 100) + '%';
             }
@@ -1323,8 +1340,9 @@
                     const p = anchor(e, W, H);
                     const S = actorScale(e, W, H);
                     const ePs = CAM_FOV / (CAM_FOV - p.rz);
-                    if (Math.abs(x - p.x) < e.model.radius * S * ePs * 1.5 &&
-                        y > p.y - e.model.height * S * ePs - 8 && y < p.y + 6) {
+                    const eWs = actorWorldScale(e, W, H);
+                    if (Math.abs(x - p.x) < e.model.radius * S * ePs * eWs * 1.5 &&
+                        y > p.y - e.model.height * S * ePs * eWs - 8 && y < p.y + 6) {
                         st.targetPulse = st.time;
                         st.dotnet?.invokeMethodAsync('OnEnemyClick');
                         st.drag = null;
@@ -1478,7 +1496,8 @@
                 const tp = anchor(st.enemy, W, H);
                 const tS = actorScale(st.enemy, W, H);
                 const tPs = CAM_FOV / (CAM_FOV - tp.rz);
-                const ty = tp.y - st.enemy.model.height * tS * tPs - 10 * ms - Math.sin((now - st.targetPulse) * 0.02) * 3 * ms;
+                const tWs = actorWorldScale(st.enemy, W, H);
+                const ty = tp.y - st.enemy.model.height * tS * tPs * tWs - 10 * ms - Math.sin((now - st.targetPulse) * 0.02) * 3 * ms;
                 ctx.globalAlpha = 1 - (now - st.targetPulse) / 900;
                 ctx.fillStyle = '#ffd166';
                 ctx.beginPath();
@@ -1497,7 +1516,7 @@
                 const t = torso(on, W, H);
                 const onP = anchor(on, W, H);
                 const onPs = CAM_FOV / (CAM_FOV - onP.rz);
-                drawSlash(ctx, t.x, t.y, on.model.height * actorScale(on, W, H) * onPs * 0.5,
+                drawSlash(ctx, t.x, t.y, on.model.height * actorScale(on, W, H) * onPs * actorWorldScale(on, W, H) * 0.5,
                     (now - e.t0) / e.dur, e.color);
             }
 
