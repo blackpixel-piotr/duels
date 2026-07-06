@@ -627,15 +627,15 @@
   "dragon_dagger": {
    "grip": [
     0.0,
-    2,
-    -0.5
+    10,
+    0.0
    ]
   },
   "venomous_fang": {
    "grip": [
     0.0,
-    2,
-    -0.5
+    10,
+    0.0
    ]
   },
   "ghrazi_rapier": {
