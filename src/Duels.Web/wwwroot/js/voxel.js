@@ -2356,6 +2356,21 @@
         if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
         return audioCtx;
     }
+    // Browsers only let an AudioContext start/resume from INSIDE a genuine
+    // user-gesture call stack (click/tap/key). playWhipCrack is only ever
+    // reached later, via async Blazor JS-interop from the tick loop — by
+    // then the gesture is long gone, so the context would start (and stay)
+    // suspended and no sound would ever play. Create/resume it eagerly on
+    // the very first pointer/key/touch anywhere on the page instead, so
+    // it's already running by the time a whip actually swings.
+    let audioUnlockTried = false;
+    function unlockAudioOnce() {
+        if (audioUnlockTried) return;
+        audioUnlockTried = true;
+        getAudioCtx();
+    }
+    for (const evt of ['pointerdown', 'keydown', 'touchstart'])
+        document.addEventListener(evt, unlockAudioOnce, { capture: true, passive: true });
 
     let crackNoiseBuffer = null;
     function getCrackNoiseBuffer(ctx) {
