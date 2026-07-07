@@ -52,6 +52,36 @@
                 @onclick="ToggleFreezeEnemy">
             @(_enemyFrozen ? "UNFREEZE" : "FREEZE ENEMY")
         </button>
+
+        <button class="cam-toggle-btn" @onclick="() => _camPanelOpen = !_camPanelOpen">
+            @(_camPanelOpen ? "CAM ▲" : "CAM ▼")
+        </button>
+        @if (_camPanelOpen)
+        {
+            <div class="cam-debug-panel">
+                <div class="cam-debug-row">
+                    <label>FOV <span>@_camFov.ToString("0")</span></label>
+                    <input type="range" min="10" max="90" step="1"
+                           value="@_camFov" @oninput="OnCamFovInput" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Depth squash <span>@_camTilt.ToString("0.00")</span></label>
+                    <input type="range" min="0" max="1" step="0.01"
+                           value="@_camTilt" @oninput="OnCamTiltInput" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Pitch <span>@_camPitch.ToString("0.00")</span></label>
+                    <input type="range" min="0.1" max="2.2" step="0.01"
+                           value="@_camPitch" @oninput="OnCamPitchInput" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Zoom <span>@_camZoom.ToString("0.00")</span></label>
+                    <input type="range" min="0.2" max="4" step="0.01"
+                           value="@_camZoom" @oninput="OnCamZoomInput" />
+                </div>
+                <button class="cam-debug-reset" @onclick="ResetCameraDebug">Reset</button>
+            </div>
+        }
     }
 </div>
 
@@ -74,6 +104,15 @@
     private string _enemyName = "";
     private int _enemyMaxHp = 1;
     private bool _enemyFrozen;
+
+    // Admin camera debug panel (test fights only) — mirrors the JS defaults
+    // in voxel.js (CAM_FOV, TILT, POS_TILT, camZoom=1) so the sliders start
+    // in sync with what's already on screen.
+    private bool _camPanelOpen;
+    private double _camFov = 25;
+    private double _camTilt = 0.3;
+    private double _camPitch = 0.7;
+    private double _camZoom = 1.0;
 
     private string? _lastOverheads;
 
@@ -273,6 +312,29 @@
         _enemyFrozen = !_enemyFrozen;
         if (GameSvc.PlayerId is { } pid)
             await GameSvc.DispatchAsync(new FreezeEnemyCommand(pid, _enemyFrozen));
+    }
+
+    // Camera debug panel: each slider pushes the full set of four values —
+    // voxel.setCameraDebug is idempotent and cheap, so no point diffing.
+    private Task OnCamFovInput(ChangeEventArgs e) => SetCamField(e, v => _camFov = v);
+    private Task OnCamTiltInput(ChangeEventArgs e) => SetCamField(e, v => _camTilt = v);
+    private Task OnCamPitchInput(ChangeEventArgs e) => SetCamField(e, v => _camPitch = v);
+    private Task OnCamZoomInput(ChangeEventArgs e) => SetCamField(e, v => _camZoom = v);
+
+    private Task SetCamField(ChangeEventArgs e, Action<double> assign)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v)) assign(v);
+        return PushCameraDebug();
+    }
+
+    private Task PushCameraDebug() =>
+        JS.InvokeVoidAsync("voxel.setCameraDebug", "battle-canvas",
+            new { fov = _camFov, tilt = _camTilt, pitch = _camPitch, zoom = _camZoom }).AsTask();
+
+    private Task ResetCameraDebug()
+    {
+        _camFov = 25; _camTilt = 0.3; _camPitch = 0.7; _camZoom = 1.0;
+        return PushCameraDebug();
     }
 
     [JSInvokable]
