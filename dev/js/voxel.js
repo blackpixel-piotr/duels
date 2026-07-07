@@ -587,6 +587,40 @@
         cast:   (p, t) => { t.pitch = lerp3(p, 1.5, 1.1, 0); },
     };
 
+    // Full-body drive behind each swing (v2 rigs): the hips wind back and
+    // snap through (yaw), the body rears then lunges (pitch, about the
+    // ground pivot — doubles as a step into the blow), and the legs load
+    // then extend (dip). The whip gets the biggest hip rotation.
+    const ATTACK_BODY = {
+        stab:   { yaw: 0.18, lunge: 0.10, dip: 1.2 },
+        rstab:  { yaw: 0.22, lunge: 0.12, dip: 1.4 },
+        slash:  { yaw: 0.30, lunge: 0.08, dip: 1.0 },
+        lash:   { yaw: 0.42, lunge: 0.10, dip: 1.6 },
+        crush:  { yaw: 0.15, lunge: 0.14, dip: 2.2 },
+        flurry: { yaw: 0.25, lunge: 0.06, dip: 0.8 },
+        ddspec: { yaw: 0.35, lunge: 0.10, dip: 1.4 },
+        bow:    { yaw: 0.12, lunge: 0.02, dip: 0.6 },
+        cast:   { yaw: 0.15, lunge: 0.03, dip: 0.8 },
+    };
+
+    // Eased combat-stance weight: →1 when squared up with a live opponent
+    // (a recent exchange, or standing inside melee reach), →0 when the
+    // fight is over or the player disengages. ~180ms blend both ways.
+    function stanceWeight(actor, now, dt) {
+        const st = actor.st;
+        let engaged = false;
+        if (st) {
+            const other = actor === st.player ? st.enemy : st.player;
+            const dist = Math.hypot(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+            engaged = !actor.crumbled && !other.crumbled
+                && (now - (st.lastCombatAt ?? -1e9) < 4000 || dist <= 2.3)
+                && !(actor === st.player && st.flags.holdPosition);
+        }
+        actor.stanceBlend = Math.max(0, Math.min(1,
+            (actor.stanceBlend ?? 0) + (engaged ? 1 : -1) * dt / 180));
+        return actor.stanceBlend;
+    }
+
     // Build the pose array for a rigged actor at scene time `now`.
     // Returns null when nothing poses (fast path in renderModel).
     function computePose(actor, now, windup) {
@@ -599,6 +633,9 @@
             if (!pose) pose = [null, null, null, null, null, null];
             return pose[i] ??= mk(i);
         };
+        const dt = Math.min(50, now - (actor._poseAt ?? now));
+        actor._poseAt = now;
+        const sb = stanceWeight(actor, now, dt);
 
         const atk = actor.anims.find(a => a.type === 'attack');
         if (atk) {
@@ -617,6 +654,10 @@
         } else if (windup) {
             // raise the weapon arm while the attack winds up
             ensure(P_RARM).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
+        } else if (sb > 0.01) {
+            // combat guard: arms up and forward while squared up
+            ensure(P_RARM).pitch = -0.35 * sb;
+            ensure(P_LARM).pitch = -0.3 * sb;
         }
 
         // Hit flinch (legacy rigs have no root transform — head + arms carry
@@ -688,6 +729,7 @@
         actor.gaitBlend = Math.max(0, Math.min(1,
             (actor.gaitBlend ?? 0) + (actor.moving ? 1 : -1) * dt / 120));
         const g = actor.gaitBlend;
+        const sb = stanceWeight(actor, now, dt);
         const phase = ((actor.walkPhase % 6.2832) + 6.2832) % 6.2832;
 
         // Legs: IK gait while moving/blending, authored pose at rest.
@@ -769,6 +811,30 @@
                 // -lean keeps the sole flat once the root pitch folds in
                 ensure(leg.foot).pitch = -s.foot - lean;
             }
+        } else if (actor.ik && sb > 0.01) {
+            // Combat stance: feet staggered (weapon-side foot back), light
+            // crouch with a slow breathing bob, body bladed toward the
+            // opponent, slight forward press. Fades out of fights (~180ms).
+            const ik = actor.ik;
+            const root = ensure(0);
+            const breathe = Math.sin(now * 0.0016 + actor.bobPhase);
+            const dip = (ik.crouch * 0.55 + breathe * 0.25) * sb;
+            root.dy = -dip;
+            root.yaw = 0.22 * sb;   // weapon shoulder toward the enemy
+            root.pitch = 0.05 * sb;
+            const stag = 2.4 * sb * (ik.step / IK_STEP);
+            for (let li = 0; li < 2; li++) {
+                const leg = rig.ik.legs[li];
+                const hipPiv = parts[leg.hip].pivot, kneePiv = parts[leg.knee].pivot,
+                      ankPiv = parts[leg.foot].pivot;
+                const L1 = hipPiv[1] - kneePiv[1], L2 = kneePiv[1] - ankPiv[1];
+                const s = solveLeg(hipPiv[1], L1, L2,
+                                   li === 0 ? -stag : stag,   // right back, left forward
+                                   ankPiv[1] + dip);
+                ensure(leg.hip).pitch = -s.thigh;
+                ensure(leg.knee).pitch = -s.shin;
+                ensure(leg.foot).pitch = -s.foot;
+            }
         }
 
         // Arms: attack/windup choreography wins; otherwise the run pump.
@@ -781,6 +847,18 @@
                 ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
                 if (atk.kind === 'bow') ensure(LU).pitch = lerp3(p, 1.35, 1.35, 0);
                 if (atk.kind === 'cast') ensure(LU).pitch = lerp3(p, 0.9, 0.5, 0);
+                // Full-body drive: hips wind back through the anticipation
+                // and snap through the strike, the body rears then lunges,
+                // the legs load then extend; the off arm counter-swings and
+                // the head counter-yaws to stay on target.
+                const b = ATTACK_BODY[atk.kind] ?? ATTACK_BODY.slash;
+                const root = ensure(0);
+                const wy = lerp3(p, -b.yaw, b.yaw * 0.8, 0);
+                root.yaw += wy;
+                root.pitch += lerp3(p, -b.lunge * 0.5, b.lunge, 0);
+                root.dy -= lerp3(p, b.dip * 0.4, b.dip, 0);
+                ensure(LU).pitch += lerp3(p, b.yaw * 0.7, -b.yaw * 0.5, 0);
+                ensure(1).yaw -= wy * 0.5;
             }
         } else if (g > 0.001) {
             // Counter-swing IN PHASE with the legs: phase 0 = right foot max
@@ -798,6 +876,11 @@
                 ensure(1).pitch = -(IK_LEAN + 0.15 * run) * g * 0.4; // back a touch — gaze stays level under the body lean
         } else if (windup) {
             ensure(RU).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
+        } else if (sb > 0.01) {
+            // Combat guard between swings: weapon arm half-raised, off fist
+            // up — instead of arms hanging limp mid-fight.
+            ensure(RU).pitch = -0.45 * sb; ensure(RL).pitch = -0.7 * sb;
+            ensure(LU).pitch = -0.35 * sb; ensure(LL).pitch = -0.9 * sb;
         }
 
         // Eating: the LEFT arm brings the food to the mouth, two chewing
@@ -2185,6 +2268,8 @@
         const st = battles.get(canvasId);
         if (!st) return;
         const now = st.time;
+        // Any exchange keeps both combatants in their fighting stance a while.
+        if (evt.type !== 'playerEat') st.lastCombatAt = now;
         const dmg = evt.dmg | 0;
         const landed = evt.tier !== 'miss' && evt.tier !== 'poison';
         const big = evt.tier === 'heavy' || evt.tier === 'spec' || evt.tier === 'boss';
