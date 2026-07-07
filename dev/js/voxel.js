@@ -1345,14 +1345,18 @@
         lash.anchor = { x: ax, y: ay, z: az };
     }
 
-    // Voxel-style rope: the polyline is resampled by arc length into squares
-    // — thicker near the handle, tapering to the tip — banded in dark/base/
-    // light color runs (BRAID samples per band) so the braided-leather
-    // pattern reads as distinct wraps at this scale instead of a single-
-    // pixel dither that just blends into a flat color. Samples draw far →
-    // near so the rope self-occludes plausibly; far segments always use
-    // the dark tone as a depth cue regardless of braid phase.
-    const LASH_BRAID_RUN = 3; // samples per color band
+    // Voxel-style rope: each inter-node segment is a solid capped stroke
+    // (not a sampled square) — guarantees a continuous cord with no gaps
+    // no matter how close together or far apart the physics nodes land on
+    // screen (a short 12-segment rope can put adjacent nodes just 1-2px
+    // apart, which left isolated dots with gaps between them under the old
+    // point-sampling approach — "pieces" instead of a rope). Segments cycle
+    // through dark/base/light in short runs (LASH_BRAID_RUN each) for a
+    // braided-leather look, tapering thicker→thinner from handle to tip.
+    // Drawn back-to-front by segment (not per-point) so occlusion still
+    // reads correctly; the low-res canvas + nearest-neighbor upscaling
+    // keeps the strokes looking chunky/pixelated, not smooth vector lines.
+    const LASH_BRAID_RUN = 3; // segments per color band
     function drawLash(st, ctx, actor, W, H) {
         const lash = actor.lash;
         if (!lash?.pts || actor.crumbled) return;
@@ -1364,29 +1368,24 @@
             return { x: p.x, y: p.y - pt.y * p.px * ps,
                      rz: p.rz, S: p.px * ps / vpw }; // px per voxel at depth
         });
-        const samples = [];
-        let braid = 0;
+        const segsArr = [];
         for (let i = 0; i < n - 1; i++) {
             const A = scr[i], B = scr[i + 1];
             const t = i / (n - 1);
-            const size = Math.max(2.4, A.S * (2.4 - 0.9 * t)); // thicker; tapers to the tip
-            const steps = Math.max(1, Math.ceil(Math.hypot(B.x - A.x, B.y - A.y) / (size * 0.7)));
-            for (let k = 0; k < steps; k++) {
-                const q = k / steps;
-                samples.push({
-                    x: A.x + (B.x - A.x) * q, y: A.y + (B.y - A.y) * q,
-                    rz: A.rz + (B.rz - A.rz) * q, size,
-                    band: Math.floor(braid++ / LASH_BRAID_RUN) % 3,
-                });
-            }
+            const width = Math.max(2.4, A.S * (2.4 - 0.9 * t)); // thicker; tapers to the tip
+            const band = Math.floor(i / LASH_BRAID_RUN) % 3;
+            segsArr.push({ A, B, width, band, rz: (A.rz + B.rz) / 2 });
         }
-        samples.sort((a, b) => a.rz - b.rz);
+        segsArr.sort((a, b) => a.rz - b.rz);
         ctx.save();
-        for (const s of samples) {
-            ctx.fillStyle = s.rz < -0.35 ? lash.dark // depth cue on the far side
-                : s.band === 0 ? lash.dark : s.band === 1 ? lash.color : lash.light;
-            const sz = Math.ceil(s.size);
-            ctx.fillRect((s.x - sz / 2) | 0, (s.y - sz / 2) | 0, sz, sz);
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        for (const s of segsArr) {
+            ctx.strokeStyle = s.band === 0 ? lash.dark : s.band === 1 ? lash.color : lash.light;
+            ctx.lineWidth = s.width;
+            ctx.beginPath();
+            ctx.moveTo(s.A.x, s.A.y);
+            ctx.lineTo(s.B.x, s.B.y);
+            ctx.stroke();
         }
         ctx.restore();
     }
