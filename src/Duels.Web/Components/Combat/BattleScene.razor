@@ -14,9 +14,6 @@
 <div class="battle-scene" id="battle-scene">
     <canvas id="battle-canvas" width="260" height="200"></canvas>
 
-    <div id="zone-npc" class="hitsplat-zone battle-zone"></div>
-    <div id="zone-player" class="hitsplat-zone battle-zone"></div>
-
     <div class="battle-box battle-box-enemy">
         <div class="battle-box-name glow-red">
             @if (State?.ActiveNpc is { } liveNpc)
@@ -49,14 +46,6 @@
     {
         <div class="telegraph-bubble">@bubble</div>
     }
-    @if (PlayerOverhead is { } po)
-    {
-        <div id="overhead-player" class="overhead overhead-player overhead-@po.Css">@po.Icon</div>
-    }
-    @if (NpcOverhead is { } no)
-    {
-        <div id="overhead-npc" class="overhead overhead-npc overhead-@no.Css">@no.Icon</div>
-    }
     @if (State?.TestScene == true)
     {
         <button class="freeze-btn @(_enemyFrozen ? "freeze-btn-on" : "")"
@@ -86,7 +75,7 @@
     private int _enemyMaxHp = 1;
     private bool _enemyFrozen;
 
-    private sealed record Overhead(string Icon, string Css);
+    private string? _lastOverheads;
 
     protected override void OnParametersSet()
     {
@@ -117,17 +106,19 @@
             e.Kind == LogEntryKind.BossSpecial &&
             (DateTimeOffset.UtcNow - e.Timestamp) < TimeSpan.FromSeconds(2.4))?.Message;
 
-    private Overhead? PlayerOverhead => State?.Player switch
+    // Overhead prayer icons are drawn in-canvas by voxel.js (pixel art);
+    // these just name the active icon per side.
+    private string? PlayerOverhead => State?.Player switch
     {
-        { ActiveProtection: ProtectionPrayer.Melee } => new("⛉⚔", "melee"),
-        { ActiveProtection: ProtectionPrayer.Range } => new("⛉➶", "ranged"),
-        { ActiveProtection: ProtectionPrayer.Magic } => new("⛉✦", "magic"),
-        { PietyActive: true }                        => new("⚡", "piety"),
+        { ActiveProtection: ProtectionPrayer.Melee } => "melee",
+        { ActiveProtection: ProtectionPrayer.Range } => "ranged",
+        { ActiveProtection: ProtectionPrayer.Magic } => "magic",
+        { PietyActive: true }                        => "piety",
         _ => null,
     };
 
-    private Overhead? NpcOverhead =>
-        State?.ActiveNpc is { WarlordPrayerActive: true } ? new("⛉", "melee") : null;
+    private string? NpcOverhead =>
+        State?.ActiveNpc is { WarlordPrayerActive: true } ? "melee" : null;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -142,8 +133,6 @@
                 playerUrl = "assets/player_sakuna.vox",
                 playerRigId = "player_sakuna",
                 enemyId = _enemyId,
-                zonePlayerId = "zone-player",
-                zoneNpcId = "zone-npc",
                 scene = State?.TestScene == true ? "field" : "arena",
                 dotnetRef = _selfRef,
             });
@@ -190,6 +179,15 @@
                 enemy = new { x = s.NpcTile.X, z = s.NpcTile.Z },
             });
 
+        // Overhead prayer icons (drawn in-canvas); send only on change.
+        var overheads = $"{PlayerOverhead}|{NpcOverhead}";
+        if (overheads != _lastOverheads)
+        {
+            _lastOverheads = overheads;
+            await JS.InvokeVoidAsync("voxel.setBattleOverheads", "battle-canvas",
+                new { player = PlayerOverhead, enemy = NpcOverhead });
+        }
+
         var newEntries = LogEntries.Count > _lastCount ? LogEntries.Skip(_lastCount).ToList() : [];
         _lastCount = LogEntries.Count;
 
@@ -202,10 +200,8 @@
 
             // HitsplatPlayer = damage dealt BY the player → lands on the enemy;
             // HitsplatNpc = damage dealt BY the NPC → lands on the player.
+            // (The splat itself is drawn in-canvas by battleEvent's impact.)
             bool onEnemy = e.Kind == LogEntryKind.HitsplatPlayer;
-            string zone = onEnemy ? "zone-npc" : "zone-player";
-            await JS.InvokeVoidAsync("spawnHitsplats",
-                (object)new[] { new { zoneId = zone, damage = dmg, tier } });
 
             // DoT ticks aren't attacks — no swing, just the victim's flash.
             if (tier != "poison")

@@ -1420,6 +1420,128 @@
         ctx.restore();
     }
 
+    // ── In-canvas pixel-art overlays: overhead prayers + hitsplats ─────────
+    // Both draw straight into the low-res battle canvas as chunky pixels so
+    // they read as part of the voxel world (the old DOM overlays floated in
+    // crisp UI-space above it).
+
+    // Tiny bitmaps: rows of chars, '.' = transparent, letters index colors.
+    function drawBitmap(ctx, rows, colors, cx, cy, u) {
+        const w = rows[0].length, h = rows.length;
+        const x0 = cx - (w * u / 2) | 0, y0 = cy - (h * u / 2) | 0;
+        for (let r = 0; r < h; r++)
+            for (let c = 0; c < w; c++) {
+                const ch = rows[r][c];
+                if (ch === '.') continue;
+                ctx.fillStyle = colors[ch];
+                ctx.fillRect(x0 + c * u, y0 + r * u, u, u);
+            }
+    }
+
+    // Overhead prayer icons (OSRS-style, 9×9)
+    const OVERHEAD_ICONS = {
+        melee: { // crossed swords
+            rows: ['s.......s', '.s..d..s.', '..s.d.s..', '...sds...',
+                   '....s....', '...gsg...', '..g.s.g..', '.g..s..g.', '....s....'],
+            colors: { s: '#cdd6e4', d: '#8a97ac', g: '#d8b545' },
+        },
+        ranged: { // arrow, fletching at the base
+            rows: ['....a....', '...aaa...', '..a.a.a..', '....a....',
+                   '....a....', '....a....', '.f..a..f.', '..f.a.f..', '....a....'],
+            colors: { a: '#9fdc8a', f: '#4f9a44' },
+        },
+        magic: { // four-point spark
+            rows: ['....b....', '....b....', '....l....', '.b.lwl.b.',
+                   'bblwwwlbb', '.b.lwl.b.', '....l....', '....b....', '....b....'],
+            colors: { b: '#6ec6ff', l: '#a8ddff', w: '#eef8ff' },
+        },
+        piety: { // lightning bolt
+            rows: ['...yyy...', '..yyy....', '..yy.....', '.yyyyy...',
+                   '...yy....', '..yy.....', '..y......', '.y.......', 'y........'],
+            colors: { y: '#ffd166' },
+        },
+    };
+
+    function drawOverhead(st, ctx, actor, key, W, H, now) {
+        const icon = OVERHEAD_ICONS[key];
+        if (!icon || actor.crumbled) return;
+        const p = anchor(actor, W, H);
+        const ps = CAM_FOV / (CAM_FOV - p.rz);
+        const ws = actorWorldScale(actor, W, H);
+        const S = actorScale(actor, W, H);
+        const top = p.y - actor.model.height * S * ps * ws;
+        const u = Math.max(1, Math.round(ps));            // pixel unit at depth
+        const cy = top - 9 * u + Math.sin(now * 0.003 + actor.bobPhase) * 1.5;
+        // dark plate so the icon pops on any ground/sky
+        ctx.fillStyle = 'rgba(8,6,12,0.72)';
+        ctx.fillRect((p.x - 6.5 * u) | 0, (cy - 6.5 * u) | 0, 13 * u, 13 * u);
+        ctx.fillStyle = 'rgba(255,255,255,0.10)';
+        ctx.fillRect((p.x - 6.5 * u) | 0, (cy - 6.5 * u) | 0, 13 * u, u); // top bevel
+        drawBitmap(ctx, icon.rows, icon.colors, p.x | 0, cy | 0, u);
+    }
+
+    // Hitsplats: OSRS-style starburst with a 3×5 pixel digit font.
+    const SPLAT_ROWS = [
+        '......xxx......',
+        '..x.xxXXXxx.x..',
+        '.xxxXXXXXXXxxx.',
+        '.xXXXXXXXXXXXx.',
+        'xxXXXXXXXXXXXxx',
+        '.xXXXXXXXXXXXx.',
+        '.xxxXXXXXXXxxx.',
+        '..x.xxXXXxx.x..',
+        '......xxx......',
+    ];
+    const SPLAT_COLORS = { // [fill, rim] per tier
+        normal: ['#b3281e', '#6d140f'],
+        heavy:  ['#d8a018', '#8a6208'],
+        max:    ['#d8a018', '#8a6208'],
+        spec:   ['#d86a10', '#8a3f08'],
+        boss:   ['#9932cc', '#5c1a80'],
+        poison: ['#3f8f3f', '#255c25'],
+        miss:   ['#2f4d8a', '#1b2d54'],
+    };
+    const DIGITS = {
+        '0': ['xxx', 'x.x', 'x.x', 'x.x', 'xxx'], '1': ['.x.', 'xx.', '.x.', '.x.', 'xxx'],
+        '2': ['xxx', '..x', 'xxx', 'x..', 'xxx'], '3': ['xxx', '..x', '.xx', '..x', 'xxx'],
+        '4': ['x.x', 'x.x', 'xxx', '..x', '..x'], '5': ['xxx', 'x..', 'xxx', '..x', 'xxx'],
+        '6': ['xxx', 'x..', 'xxx', 'x.x', 'xxx'], '7': ['xxx', '..x', '.x.', '.x.', '.x.'],
+        '8': ['xxx', 'x.x', 'xxx', 'x.x', 'xxx'], '9': ['xxx', 'x.x', 'xxx', '..x', 'xxx'],
+    };
+
+    function drawSplats(st, ctx, W, H, now) {
+        st.splats = st.splats.filter(s => now - s.t0 < 900);
+        const perActor = {};
+        for (const s of st.splats) {
+            if (now < s.t0) continue;
+            const actor = s.on === 'player' ? st.player : st.enemy;
+            if (actor.crumbled) continue;
+            const idx = perActor[s.on] = (perActor[s.on] ?? -1) + 1;
+            const p = anchor(actor, W, H);
+            const ps = CAM_FOV / (CAM_FOV - p.rz);
+            const ws = actorWorldScale(actor, W, H);
+            const S = actorScale(actor, W, H);
+            const u = Math.max(1, Math.round(ps));
+            const off = [[0, 0], [11, -9], [-11, -7], [7, 9]][idx & 3];
+            const cx = (p.x + off[0] * u) | 0;
+            const cy = (p.y - actor.model.height * S * ps * ws * 0.55 + off[1] * u) | 0;
+            const age = now - s.t0;
+            ctx.globalAlpha = age > 600 ? 1 - (age - 600) / 300 : 1;
+            const [fill, rim] = SPLAT_COLORS[s.tier] ?? SPLAT_COLORS.normal;
+            drawBitmap(ctx, SPLAT_ROWS, { X: fill, x: rim }, cx, cy, u);
+            // centered damage number ('miss' shows 0, OSRS-style)
+            const txt = s.tier === 'miss' ? '0' : String(s.dmg);
+            const tw = txt.length * 4 - 1;
+            let x = cx - (tw * u / 2) | 0;
+            for (const ch of txt) {
+                drawBitmap(ctx, DIGITS[ch] ?? DIGITS['0'], { x: '#ffffff' },
+                           x + 1.5 * u, cy, u);
+                x += 4 * u;
+            }
+            ctx.globalAlpha = 1;
+        }
+    }
+
     function npcModelUrl(enemyId) {
         return NPC_ASSETS.has(enemyId) ? `assets/npcs/${enemyId}.vox` : 'assets/player.vox';
     }
@@ -1480,6 +1602,8 @@
             effects: [],
             particles: [],
             projectiles: [],
+            splats: [],           // in-canvas pixel hitsplats
+            overheads: { player: null, enemy: null }, // active prayer icons
             // Scene time: freezes during hit-stop, crawls during slow-mo.
             time: 0,
             lastReal: performance.now(),
@@ -1516,28 +1640,6 @@
         fit();
         st.ro = new ResizeObserver(fit);
         st.ro.observe(canvas);
-
-        // Hitsplat zones + overhead prayer icons follow the actors' projected
-        // positions (throttled — they move at walk speed, not frame speed).
-        const tracked = [ // element id, actor key (survives enemy swaps), height frac, x offset
-            [opts.zonePlayerId, 'player', 0.85, 0],
-            [opts.zoneNpcId, 'enemy', 0.85, 0],
-            ['overhead-player', 'player', 1.02, -0.06],
-            ['overhead-npc', 'enemy', 1.02, 0.10],
-        ];
-        st.trackAnchors = (W, H) => {
-            for (const [id, key, hFrac, xOff] of tracked) {
-                const el = document.getElementById(id);
-                if (!el) continue;
-                const actor = st[key];
-                const p = anchor(actor, W, H);
-                const ps = CAM_FOV / (CAM_FOV - p.rz);
-                const ws = actorWorldScale(actor, W, H);
-                const top = p.y - actor.model.height * actorScale(actor, W, H) * ps * ws * hFrac;
-                el.style.left = ((p.x / W + xOff) * 100) + '%';
-                el.style.top = (Math.max(0, top) / H * 100) + '%';
-            }
-        };
 
         // Pointer gestures:
         //   1 finger horizontal drag → orbit (yaw)
@@ -1747,7 +1849,6 @@
             // just reads as the world swimming.
             st.camFocus.wx = st.player.pos.wx;
             st.camFocus.wz = st.player.pos.wz;
-            st.trackAnchors(W, H);
 
             drawScene(st, ctx, W, H);
             drawMoveMarker(st, ctx, W, H, now);
@@ -1817,6 +1918,11 @@
                 }
             }
 
+            // Overhead prayers + hitsplats (in-canvas pixel art, top layer)
+            if (st.overheads.player) drawOverhead(st, ctx, st.player, st.overheads.player, W, H, now);
+            if (st.overheads.enemy) drawOverhead(st, ctx, st.enemy, st.overheads.enemy, W, H, now);
+            drawSplats(st, ctx, W, H, now);
+
             // Debris: gravity, floor bounce, fade over the last 30% of life
             st.particles = st.particles.filter(pt => now - pt.t0 < pt.life);
             for (const pt of st.particles) {
@@ -1877,6 +1983,15 @@
         // Style rotation can advance the moment the NPC attacks, so the impact
         // color comes from the style that was showing during the wind-up.
         if (st.flags.windup) st.lastWindupStyle = st.flags.windup;
+    }
+
+    // Active overhead prayer per side: 'melee' | 'ranged' | 'magic' |
+    // 'piety' | null. Drawn as pixel icons above the heads.
+    function setBattleOverheads(canvasId, o) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        st.overheads.player = o.player ?? null;
+        st.overheads.enemy = o.enemy ?? null;
     }
 
     // HP fractions (0..1) drive voxel erosion/regrow; called every game tick.
@@ -1997,6 +2112,8 @@
             (NPC_ANIMS[st.enemyId] ?? 'slash');
         const impact = (defender, attacker, delay, color) => {
             const t0 = now + delay;
+            st.splats.push({ on: defender === st.player ? 'player' : 'enemy',
+                             dmg, tier: evt.tier ?? 'normal', t0 });
             if (evt.tier === 'miss') { defender.anims.push({ type: 'dodge', t0, dur: 260 }); return; }
             defender.anims.push({ type: 'hit', t0, dur: 260, amp: Math.min(7, 2 + dmg * 0.35) });
             if (!landed) return; // poison DoT: flash only
@@ -2043,5 +2160,6 @@
         initPreview, destroyPreview, renderIcon, itemIcon,
         initBattle, destroyBattle, setBattleEnemy, setBattleFlags, battleEvent,
         setBattleVitals, setBattleWeapon, setBattlePositions, resetBattle,
+        setBattleOverheads,
     };
 })();
