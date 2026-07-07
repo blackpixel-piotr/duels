@@ -607,6 +607,44 @@ def w_godsword(steel, accent):
     return w
 
 
+# ── Food (held during the eat animation; doubles as bag/shop icon) ─────────
+
+def f_shark():
+    r = Rig()
+    body = (108, 128, 148); belly = (218, 222, 228); fin = (78, 96, 114)
+    r.box(1, 8, 1, 4, 0, 1, body)                   # body
+    r.box(2, 7, 1, 1, 0, 1, belly)                  # belly line
+    r.box(0, 0, 1, 5, 0, 0, fin); r.dot(0, 0, 0, fin)   # tail fork
+    r.box(4, 5, 5, 6, 0, 0, fin)                    # dorsal fin
+    r.dot(8, 3, 1, (20, 22, 26))                    # eye
+    return r, 'shark'
+
+
+def f_karambwan():
+    r = Rig()
+    body = (168, 96, 44); dark = (120, 62, 28)
+    for x0, x1, y in [(2, 6, 1), (1, 7, 2), (1, 7, 3), (2, 6, 4)]:
+        r.box(x0, x1, y, y, 0, 1, body)             # rounded blob
+    r.box(2, 6, 4, 4, 0, 1, dark)                   # top shade
+    for x in (1, 3, 5, 7):                          # trailing tentacle nubs
+        r.dot(x, 0, 0, dark)
+    r.dot(2, 3, 1, (20, 22, 26)); r.dot(5, 3, 1, (20, 22, 26))  # eyes
+    return r, 'karambwan'
+
+
+def f_anglerfish():
+    r = Rig()
+    body = (150, 158, 108); belly = (196, 200, 160); fin = (104, 112, 72)
+    r.box(1, 7, 1, 4, 0, 1, body)
+    r.box(2, 6, 1, 1, 0, 1, belly)
+    r.box(0, 0, 1, 4, 0, 0, fin)                    # tail
+    r.dot(7, 5, 0, fin); r.dot(8, 6, 0, (255, 220, 120))  # lure stalk + glow
+    r.dot(7, 3, 1, (20, 22, 26))                    # eye
+    return r, 'anglerfish'
+
+
+FOODS = [f_shark, f_karambwan, f_anglerfish]
+
 WEAPONS = {
     'rune_scimitar':      lambda: w_scimitar((96, 140, 170)),
     'dragon_scimitar':    lambda: w_scimitar((170, 48, 48)),
@@ -694,6 +732,11 @@ if __name__ == '__main__':
         write_vox(os.path.join(ASSETS, 'items', wid + '.vox'), w.v, w.pal, banded=False)
         rigs['weapons'][wid] = w.rig_json()
         print(f'  item {wid:20s} {len(w.v):4d} voxels')
+
+    for fn in FOODS:
+        r, name = fn()
+        write_vox(os.path.join(ASSETS, 'items', name + '.vox'), r.v, r.pal, banded=False)
+        print(f'  food {name:20s} {len(r.v):4d} voxels')
 
     for fn in PROPS:
         r, name = fn()

@@ -193,6 +193,16 @@
 
         foreach (var e in newEntries)
         {
+            // Eating: raise-to-mouth animation with the food in the off-hand.
+            if (e.Kind == LogEntryKind.Info && e.Message.StartsWith("You eat the "))
+            {
+                var rest = e.Message["You eat the ".Length..];
+                var dot = rest.IndexOf('.');
+                var item = dot > 0 ? rest[..dot] : rest;
+                await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
+                    new { type = "playerEat", item });
+                continue;
+            }
             if (e.Kind is not (LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)) continue;
             var parts = e.Message.Split(':');
             int dmg = int.TryParse(parts[0], out var d) ? d : 0;
