@@ -594,9 +594,18 @@
             t.dz = (1.2 + 1.8 * Math.abs(Math.sin(2 * th))) * w;
         },
         slash:  (p, t) => { t.pitch = lerp3(p, 1.15, 1.25, 0); t.yaw = lerp3(p, -1.15, 1.2, 0); },
-        // whip: cock the arm high overhead, then snap it down-forward — the
-        // physics lash (actor.lash) follows the hand and cracks out
-        lash:   (p, t) => { t.pitch = lerp3(p, 2.3, 0.4, 0); t.yaw = lerp3(p, -0.5, 0.35, 0); },
+        // whip: a compact bent-arm throw, not a windmill. The upper arm
+        // cocks up so the hand sits beside the head (elbow bent ~97°),
+        // then swings down-forward a moderate amount for the release —
+        // ELBOW_POSES.lash does most of the actual motion (a big forearm
+        // swing relative to the upper arm), so the elbow stays visibly
+        // bent (~90-100°) through BOTH the cock and the release instead of
+        // the arm straightening out. Verified by FK simulation against the
+        // rig pivots (scratchpad): cock lands the hand at roughly
+        // [x4.9, y52.6, z-6.6] (beside/above the head), release at
+        // [x5.7, y26.4, z9] (chest height, forward). The physics lash
+        // (actor.lash) follows wherever the hand ends up and cracks out.
+        lash:   (p, t) => { t.pitch = lerp3(p, 1.9, 0.3, 0.2); t.yaw = lerp3(p, -0.25, 0.15, 0); },
         crush:  (p, t) => { t.pitch = lerp3(p, 2.5, 0.75, 0); },
         flurry: (p, t) => {
             t.pitch = lerp3(p, 1.2, 1.3, 0);
@@ -606,15 +615,28 @@
         cast:   (p, t) => { t.pitch = lerp3(p, 1.5, 1.1, 0); },
     };
 
+    // Forearm (elbow) follow-through, keyed by attack kind. Every other
+    // kind just folds the elbow a fraction of the upper arm's own pitch
+    // (see the 0.35x fallback below) — but the whip's "throw" IS the
+    // forearm: it stays folded in tight (hand near the head) through the
+    // anticipation, then snaps out big relative to the barely-moving upper
+    // arm for the release, and settles part-bent.
+    const ELBOW_POSES = {
+        lash: p => lerp3(p, 1.4, -1.6, 0.3),
+    };
+
     // Full-body drive behind each swing (v2 rigs): the hips wind back and
     // snap through (yaw), the body rears then lunges (pitch, about the
     // ground pivot — doubles as a step into the blow), and the legs load
-    // then extend (dip). The whip gets the biggest hip rotation.
+    // then extend (dip).
     const ATTACK_BODY = {
         stab:   { yaw: 0.18, lunge: 0.10, dip: 1.2 },
         rstab:  { yaw: 0.22, lunge: 0.12, dip: 1.4 },
         slash:  { yaw: 0.30, lunge: 0.08, dip: 1.0 },
-        lash:   { yaw: 0.42, lunge: 0.10, dip: 1.6 },
+        // the throw is now upper-arm-compact (see ATTACK_POSES.lash /
+        // ELBOW_POSES.lash), so the hips don't need to sling it — a modest
+        // twist like the other one-handed weapons is enough.
+        lash:   { yaw: 0.20, lunge: 0.10, dip: 1.6 },
         crush:  { yaw: 0.15, lunge: 0.14, dip: 2.2 },
         flurry: { yaw: 0.25, lunge: 0.06, dip: 0.8 },
         ddspec: { yaw: 0.35, lunge: 0.10, dip: 1.4 },
@@ -863,7 +885,8 @@
             const p = (now - atk.t0) / atk.dur;
             if (p >= 0 && p <= 1) {
                 (ATTACK_POSES[atk.kind] ?? ATTACK_POSES.slash)(p, ensure(RU));
-                ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
+                ensure(RL).pitch = ELBOW_POSES[atk.kind]
+                    ? ELBOW_POSES[atk.kind](p) : T[RU].pitch * 0.35; // elbow follow-through
                 if (atk.kind === 'bow') ensure(LU).pitch = lerp3(p, 1.35, 1.35, 0);
                 if (atk.kind === 'cast') ensure(LU).pitch = lerp3(p, 0.9, 0.5, 0);
                 // Full-body drive: hips wind back through the anticipation
