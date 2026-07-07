@@ -1345,18 +1345,20 @@
         lash.anchor = { x: ax, y: ay, z: az };
     }
 
-    // Voxel-style rope: each inter-node segment is a solid capped stroke
-    // (not a sampled square) — guarantees a continuous cord with no gaps
-    // no matter how close together or far apart the physics nodes land on
-    // screen (a short 12-segment rope can put adjacent nodes just 1-2px
-    // apart, which left isolated dots with gaps between them under the old
-    // point-sampling approach — "pieces" instead of a rope). Segments cycle
-    // through dark/base/light in short runs (LASH_BRAID_RUN each) for a
-    // braided-leather look, tapering thicker→thinner from handle to tip.
-    // Drawn back-to-front by segment (not per-point) so occlusion still
-    // reads correctly; the low-res canvas + nearest-neighbor upscaling
-    // keeps the strokes looking chunky/pixelated, not smooth vector lines.
-    const LASH_BRAID_RUN = 3; // segments per color band
+    // Voxel-style rope, drawn in two passes:
+    //  1. a continuous tapered stroke per inter-node segment (not a sampled
+    //     square) — guarantees no gaps regardless of how close together or
+    //     far apart the physics nodes land on screen (a short 12-segment
+    //     rope can put adjacent nodes just 1-2px apart, which left isolated
+    //     dots under the old point-sampling approach — "pieces" instead of
+    //     a rope);
+    //  2. alternating dark/light ticks perpendicular to the cord (tilted to
+    //     suggest a twist) — a color running the LENGTH of the cord just
+    //     reads as a gradient, not texture; real braid/cord texture crosses
+    //     the WIDTH, so that's what these ticks do.
+    // Segment order is back-to-front by depth so occlusion still reads
+    // correctly; the low-res canvas + nearest-neighbor upscaling keeps
+    // everything looking chunky/pixelated, not smooth vector art.
     function drawLash(st, ctx, actor, W, H) {
         const lash = actor.lash;
         if (!lash?.pts || actor.crumbled) return;
@@ -1368,24 +1370,60 @@
             return { x: p.x, y: p.y - pt.y * p.px * ps,
                      rz: p.rz, S: p.px * ps / vpw }; // px per voxel at depth
         });
+
+        // Base cord: one continuous tapered stroke per inter-node segment,
+        // solid mid-tone — guarantees no gaps regardless of on-screen node
+        // spacing (see the "isolated dots" bug this replaced).
         const segsArr = [];
         for (let i = 0; i < n - 1; i++) {
             const A = scr[i], B = scr[i + 1];
             const t = i / (n - 1);
-            const width = Math.max(2.4, A.S * (2.4 - 0.9 * t)); // thicker; tapers to the tip
-            const band = Math.floor(i / LASH_BRAID_RUN) % 3;
-            segsArr.push({ A, B, width, band, rz: (A.rz + B.rz) / 2 });
+            const width = Math.max(2.6, A.S * (2.6 - 1.0 * t)); // thicker; tapers to the tip
+            segsArr.push({ A, B, width, rz: (A.rz + B.rz) / 2 });
         }
         segsArr.sort((a, b) => a.rz - b.rz);
         ctx.save();
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         for (const s of segsArr) {
-            ctx.strokeStyle = s.band === 0 ? lash.dark : s.band === 1 ? lash.color : lash.light;
+            ctx.strokeStyle = lash.color;
             ctx.lineWidth = s.width;
             ctx.beginPath();
             ctx.moveTo(s.A.x, s.A.y);
             ctx.lineTo(s.B.x, s.B.y);
             ctx.stroke();
+        }
+
+        // Braid texture: a color running the LENGTH of the cord just reads
+        // as a gradient, not a texture — real braided/corded rope shows as
+        // wraps crossing the WIDTH. Overlay short alternating dark/light
+        // ticks perpendicular to the cord's local direction (tilted to
+        // suggest a twist), spaced by actual on-screen pixels so it reads
+        // the same at any zoom or rope length.
+        let tick = 0;
+        for (let i = 0; i < n - 1; i++) {
+            const A = scr[i], B = scr[i + 1];
+            const t = i / (n - 1);
+            const width = Math.max(2.6, A.S * (2.6 - 1.0 * t));
+            const dx = B.x - A.x, dy = B.y - A.y;
+            const segLen = Math.hypot(dx, dy) || 1e-6;
+            const tx = dx / segLen, ty = dy / segLen;   // tangent
+            const px = -ty, py = tx;                    // perpendicular
+            const spacing = Math.max(1.6, width * 0.85);
+            const steps = Math.max(1, Math.round(segLen / spacing));
+            for (let k = (i > 0 ? 1 : 0); k <= steps; k++) {
+                const q = k / steps;
+                const x = A.x + dx * q, y = A.y + dy * q;
+                const half = width * 0.45;
+                const ang = (tick % 2 === 0) ? 0.55 : -0.55; // alternate tilt = twist
+                const ex = px * Math.cos(ang) + tx * Math.sin(ang);
+                const ey = py * Math.cos(ang) + ty * Math.sin(ang);
+                ctx.strokeStyle = (tick++ % 2 === 0) ? lash.dark : lash.light;
+                ctx.lineWidth = Math.max(1, width * 0.24);
+                ctx.beginPath();
+                ctx.moveTo(x - ex * half, y - ey * half);
+                ctx.lineTo(x + ex * half, y + ey * half);
+                ctx.stroke();
+            }
         }
         ctx.restore();
     }
