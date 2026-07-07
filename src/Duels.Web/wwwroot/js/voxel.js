@@ -618,6 +618,20 @@
             // raise the weapon arm while the attack winds up
             ensure(P_RARM).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
         }
+
+        // Hit flinch (legacy rigs have no root transform — head + arms carry
+        // the reaction, the body slide comes from animState's knockback).
+        const react = actor.anims.find(a => a.type === 'hit' || a.type === 'dodge');
+        if (react) {
+            const p = (now - react.t0) / react.dur;
+            if (p >= 0 && p <= 1) {
+                const k = react.type === 'hit' ? Math.min(1, (react.amp ?? 4) / 7) : 0.45;
+                const env = Math.sin(Math.pow(Math.min(1, p * 1.08), 0.6) * Math.PI);
+                ensure(1).pitch -= 0.35 * k * env;        // head snaps back (part 1 = head)
+                ensure(P_RARM).pitch += 0.5 * k * env;
+                ensure(P_LARM).pitch += 0.5 * k * env;
+            }
+        }
         return pose;
     }
 
@@ -805,6 +819,26 @@
             }
         }
 
+        // Hit flinch / miss dodge overlay: the BODY reacts to being struck —
+        // a stagger back from the ankles, head snap, and arm jerk, scaled by
+        // damage — layered additively over whatever else the actor is doing.
+        // A dodge is the same shape at half strength with a sideways roll.
+        const react = actor.anims.find(a => a.type === 'hit' || a.type === 'dodge');
+        if (react) {
+            const p = (now - react.t0) / react.dur;
+            if (p >= 0 && p <= 1) {
+                const k = react.type === 'hit' ? Math.min(1, (react.amp ?? 4) / 7) : 0.45;
+                // sharp attack, smooth recovery
+                const env = Math.sin(Math.pow(Math.min(1, p * 1.08), 0.6) * Math.PI);
+                const root = ensure(0);
+                root.pitch -= 0.15 * k * env;             // stagger back
+                ensure(1).pitch -= 0.30 * k * env;        // head snaps back
+                ensure(RU).pitch += 0.45 * k * env;       // arms jerk up-back
+                ensure(LU).pitch += 0.45 * k * env;
+                if (react.type === 'dodge') root.roll += 0.12 * env; // lean out of the line
+            }
+        }
+
         if (!T.some(t => t)) return null;
         // Link each part to its nearest posed ancestor so renderModel walks
         // the joint chain (foot → knee → hip → root).
@@ -887,12 +921,19 @@
                     st.dy += (towardY / len) * 5 * ms * e - Math.max(0, e) * 2 * ms;
                     break;
                 }
-                case 'hit': { // white → red flash + damage-scaled knockback
-                    st.flash = p < 0.3 ? 'rgba(255,255,255,0.85)' : `rgba(224,32,16,${0.6 * (1 - p)})`;
-                    const e = Math.sin(Math.PI * Math.min(1, p * 1.4));
+                case 'hit': { // flash pop + sharp shove that settles back
+                    // one-two flash: a 2-frame white pop, then a red wash
+                    // that dies fast (the long lingering wash read as cheap)
+                    st.flash = p < 0.10 ? 'rgba(255,255,255,0.9)'
+                             : p < 0.5 ? `rgba(224,44,20,${0.45 * (1 - (p - 0.10) / 0.40)})`
+                             : st.flash;
+                    // knockback: near-instant shove out, exponential settle
+                    const e = p < 0.15 ? p / 0.15 : Math.exp(-(p - 0.15) * 4.5);
                     const amp = (a.amp ?? 4) * ms;
                     st.dx -= (towardX / len) * amp * e;
-                    st.dy -= (towardY / len) * amp * e;
+                    st.dy -= (towardY / len) * amp * e * 0.6;
+                    // damage-scaled hop: heavy hits lift the victim briefly
+                    st.dy -= Math.max(0, amp - 3 * ms) * 0.5 * Math.sin(Math.PI * Math.min(1, p * 2));
                     break;
                 }
                 case 'dodge': { // sidestep, no flash (miss)
@@ -1459,26 +1500,29 @@
         ctx.restore();
     }
 
-    // Impact slash over the defender: sweeping arcs + radial sparks, fading out.
+    // Impact burst at the point of contact: a 2-frame white core pop, then
+    // style-colored pixel rays that shoot out fast and die — reads as a hit
+    // landing rather than a UI decal. Ray heads leave a fading trail pixel.
     function drawSlash(ctx, x, y, r, p, color) {
         ctx.save();
+        const R = r * 0.95;
+        const reach = 1 - Math.pow(1 - Math.min(1, p * 1.2), 2.4); // expo out
         ctx.globalAlpha = 1 - p;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = Math.max(2, r * 0.06);
-        const sweep = p * 1.4;
-        for (let i = 0; i < 3; i++) {
-            ctx.beginPath();
-            ctx.arc(x, y, r * (0.45 + i * 0.25), -2.2 + sweep, -0.9 + sweep);
-            ctx.stroke();
+        ctx.fillStyle = color;
+        for (let i = 0; i < 7; i++) {
+            const ang = i * 0.897 + 0.35; // 7 rays, deliberately irregular
+            const rr = R * (0.2 + 0.75 * reach);
+            const hx = x + Math.cos(ang) * rr, hy = y + Math.sin(ang) * rr * 0.72;
+            const s = Math.max(1, Math.round((1 - p) * 2.5));
+            ctx.fillRect((hx - s / 2) | 0, (hy - s / 2) | 0, s, s);
+            ctx.fillRect((x + Math.cos(ang) * rr * 0.55) | 0,
+                         (y + Math.sin(ang) * rr * 0.55 * 0.72) | 0, 1, 1);
         }
-        ctx.lineWidth = Math.max(1, r * 0.03);
-        for (let i = 0; i < 5; i++) {
-            const ang = i * 1.2566 + 0.6;
-            const r0 = r * (0.25 + 0.55 * p), r1 = r * (0.5 + 0.8 * p);
-            ctx.beginPath();
-            ctx.moveTo(x + Math.cos(ang) * r0, y + Math.sin(ang) * r0);
-            ctx.lineTo(x + Math.cos(ang) * r1, y + Math.sin(ang) * r1);
-            ctx.stroke();
+        if (p < 0.22) { // white core flash
+            ctx.globalAlpha = 1 - p / 0.22;
+            ctx.fillStyle = '#ffffff';
+            const c = Math.max(2, Math.round(R * 0.32 * (1 - p / 0.22)));
+            ctx.fillRect((x - c / 2) | 0, (y - c / 2) | 0, c, c);
         }
         ctx.restore();
     }
@@ -1948,16 +1992,21 @@
                 ctx.globalAlpha = 1;
             }
 
-            // Impact slashes (style-color cue; debris carries the weight now)
+            // Impact bursts (style-color cue; debris carries the weight now)
+            // — drawn at the CONTACT side of the defender, toward the attacker.
             st.effects = st.effects.filter(e => now - e.t0 < e.dur);
             for (const e of st.effects) {
                 if (now < e.t0) continue;
                 const on = e.on === 'player' ? st.player : st.enemy;
-                const t = torso(on, W, H);
+                const from = e.on === 'player' ? st.enemy : st.player;
+                const t = torso(on, W, H), f = torso(from, W, H);
+                const dl = Math.hypot(f.x - t.x, f.y - t.y) || 1;
                 const onP = anchor(on, W, H);
                 const onPs = CAM_FOV / (CAM_FOV - onP.rz);
-                drawSlash(ctx, t.x, t.y, on.model.height * actorScale(on, W, H) * onPs * actorWorldScale(on, W, H) * 0.5,
-                    (now - e.t0) / e.dur, e.color);
+                const r = on.model.height * actorScale(on, W, H) * onPs * actorWorldScale(on, W, H) * 0.5;
+                drawSlash(ctx, t.x + (f.x - t.x) / dl * r * 0.45,
+                          t.y + (f.y - t.y) / dl * r * 0.3,
+                          r, (now - e.t0) / e.dur, e.color);
             }
 
             // Projectiles (arrow line / swirling motes)
@@ -2181,6 +2230,20 @@
             defender.anims.push({ type: 'hit', t0, dur: 260, amp: Math.min(7, 2 + dmg * 0.35) });
             if (!landed) return; // poison DoT: flash only
             st.effects.push({ on: defender === st.player ? 'player' : 'enemy', t0, dur: 280, color });
+            // white sparks: a few hot, fast, short-lived pixels off the impact
+            {
+                const c = torso(defender, W, H);
+                const ms2 = motionScale(W, H);
+                for (let i = 0; i < 3; i++)
+                    st.particles.push({
+                        x: c.x, y: c.y,
+                        vx: (Math.random() - 0.5) * 4 * ms2,
+                        vy: (-0.5 - Math.random() * 1.5) * ms2,
+                        size: 1, color: '#ffffff',
+                        t0, life: 260 + Math.random() * 140,
+                        floor: anchor(defender, W, H).y + 2,
+                    });
+            }
             spawnDebris(st, defender, attacker, Math.min(4 + dmg, 14), t0, defender.lastRemoved);
             defender.lastRemoved = [];
             st.pendingFreezes.push({ at: t0, dur: big ? 95 : 60 });
