@@ -306,6 +306,7 @@
         'bandos_godsword', 'zamorak_godsword', 'saradomin_godsword',
         'armadyl_godsword', 'dragon_claws', 'granite_maul', 'elder_maul',
         'abyssal_bludgeon', 'zamorakian_hasta', 'scythe_of_vitur',
+        'shark', 'karambwan', 'anglerfish', // food (eat anim + icons)
     ]);
 
     // dataURL for an item's icon, or null when the item has no model yet
@@ -785,6 +786,25 @@
             ensure(RU).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
         }
 
+        // Eating: the LEFT arm brings the food to the mouth, two chewing
+        // nibbles, then lowers — overrides the walk pump on that arm and
+        // composes with right-arm attacks (OSRS eats mid-fight).
+        const eat = actor.anims.find(a => a.type === 'eat');
+        if (eat) {
+            const p = (now - eat.t0) / eat.dur;
+            if (p >= 0 && p <= 1) {
+                // envelope: 0→1 over the raise, hold, 1→0 over the lower
+                const env = p < 0.25 ? p / 0.25 : p > 0.8 ? (1 - p) / 0.2 : 1;
+                const e2 = env * env * (3 - 2 * env);
+                // nibbles: two elbow beats while held at the mouth
+                const chew = (p >= 0.25 && p < 0.8)
+                    ? Math.abs(Math.sin((p - 0.25) / 0.55 * Math.PI * 2)) * 0.14 : 0;
+                ensure(LU).pitch = -1.2 * e2;               // FK-solved: hand
+                ensure(LL).pitch = (-2.35 + chew) * e2;     // lands at the mouth
+                ensure(1).pitch = (0.12 + chew * 0.5) * e2; // head dips to bite
+            }
+        }
+
         if (!T.some(t => t)) return null;
         // Link each part to its nearest posed ancestor so renderModel walks
         // the joint chain (foot → knee → hip → root).
@@ -816,17 +836,21 @@
         const ctx = off.getContext('2d');
         ctx.clearRect(0, 0, w, h);
 
-        // Merge held-weapon voxels into the render list (rebuilt when erosion
-        // or the weapon changes) so the painter's sort occludes correctly.
+        // Merge held-weapon (and mid-eat food) voxels into the render list
+        // (rebuilt when erosion or the held items change) so the painter's
+        // sort occludes correctly.
         let view = actor.view;
-        if (actor.weaponVox) {
-            if (!actor.combined || actor.combined.src !== actor.view.voxels || actor.combined.wsrc !== actor.weaponVox) {
-                const voxels = actor.view.voxels.concat(actor.weaponVox);
+        if (actor.weaponVox || actor.foodVox) {
+            if (!actor.combined || actor.combined.src !== actor.view.voxels
+                || actor.combined.wsrc !== actor.weaponVox || actor.combined.fsrc !== actor.foodVox) {
+                const voxels = actor.view.voxels
+                    .concat(actor.weaponVox ?? [])
+                    .concat(actor.foodVox ?? []);
                 actor.combined = {
-                    src: actor.view.voxels, wsrc: actor.weaponVox,
+                    src: actor.view.voxels, wsrc: actor.weaponVox, fsrc: actor.foodVox,
                     view: {
                         ...actor.view, voxels, scratch: new Array(voxels.length),
-                        shadeTable: { ...actor.view.shadeTable, ...actor.weaponShade },
+                        shadeTable: { ...actor.view.shadeTable, ...actor.weaponShade, ...actor.foodShade },
                     },
                 };
             }
@@ -943,6 +967,29 @@
             updateLash(actor, pose, now);
             drawLash(actor.st, ctx, actor, W, H);
         }
+        // Eating: crumbs fall from the mouth on each chew beat; the held
+        // food disappears with the anim.
+        const eat = actor.anims.find(t => t.type === 'eat');
+        if (eat) {
+            const ep = (now - eat.t0) / eat.dur;
+            const beat = ep >= 0.66 ? 2 : ep >= 0.39 ? 1 : 0;
+            if (beat > (eat._crumbed ?? 0)) {
+                eat._crumbed = beat;
+                const tbl = actor.foodShade && Object.values(actor.foodShade)[0];
+                const msc = motionScale(W, H);
+                const my = ay - actor.model.height * r.S * ps * ws * 0.72;
+                for (let i = 0; i < 3; i++)
+                    actor.st.particles.push({
+                        x: ax + (Math.random() - 0.5) * 4, y: my,
+                        vx: (Math.random() - 0.5) * 0.7 * msc,
+                        vy: -0.2 * msc,
+                        size: 1, color: tbl ? tbl[3] : '#d8c090',
+                        t0: now, life: 480, floor: ay + 1,
+                    });
+            }
+        } else if (actor.foodVox) {
+            attachFood(actor, null);
+        }
         return a;
     }
 
@@ -989,6 +1036,22 @@
             anchorM: [hand[0], hand[1] + (lashCfg.top ?? 3), hand[2]],
             pts: null, lastT: 0,
         } : null;
+    }
+
+    // Food held in the LEFT hand for the eat animation: same merge trick as
+    // attachWeapon but mirrored, riding the left forearm (part 7). Cleared
+    // by drawActor once the eat anim expires.
+    function attachFood(actor, model) {
+        if (!model) { actor.foodVox = null; actor.foodShade = null; actor.combined = null; return; }
+        const hand = actor.rig?.hand ?? [actor.model.radius * 0.6, actor.model.height * 0.4, 0];
+        const shade = {};
+        for (const k of Object.keys(model.shadeTable)) shade[2000 + (+k)] = model.shadeTable[k];
+        actor.foodVox = model.voxels.map(v => ({
+            x: v.x - hand[0], y: v.y + hand[1], z: v.z + hand[2],
+            ci: 2000 + v.ci, part: 7,
+        }));
+        actor.foodShade = shade;
+        actor.combined = null;
     }
 
     // Posed model-space position of a point riding the weapon-arm chain
@@ -2129,6 +2192,16 @@
         };
 
         switch (evt.type) {
+            case 'playerEat': {
+                st.player.anims.push({ type: 'eat', t0: now, dur: 720, item: evt.item });
+                if (evt.item && ITEM_ASSETS.has(evt.item))
+                    loadModel(`assets/items/${evt.item}.vox`).then(m => {
+                        // still eating on this same battle? then show the food
+                        if (battles.get(canvasId) === st && st.player.anims.some(a => a.type === 'eat'))
+                            attachFood(st.player, m);
+                    }).catch(() => { /* icon-less eat still animates */ });
+                break;
+            }
             case 'playerAttack': st.delayEnemyVis = attack(st.player, st.enemy, evt.style, playerKind); break;
             case 'enemyAttack':  st.delayPlayerVis = attack(st.enemy, st.player, st.lastWindupStyle, enemyKind); break;
             case 'enemyHit': {
