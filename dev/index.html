@@ -54,19 +54,6 @@
             const b = document.getElementById('tick-bar');
             if (b) b.style.transform = 'scaleX(0)';
         };
-        window.spawnHitsplats = (splats) => {
-            for (const s of splats) {
-                const zone = document.getElementById(s.zoneId);
-                if (!zone) continue;
-                const existing = zone.querySelectorAll('.hitsplat').length;
-                const el = document.createElement('span');
-                el.className = 'hitsplat hitsplat-' + s.tier;
-                el.textContent = s.tier === 'miss' ? '[-]' : '[' + s.damage + ']';
-                el.style.bottom = (2 + existing * 22) + 'px';
-                zone.appendChild(el);
-                el.addEventListener('animationend', () => el.remove(), { once: true });
-            }
-        };
     </script>
     <script src="js/voxel.js"></script>
 </body>

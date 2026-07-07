@@ -141,47 +141,6 @@ html, body {
     margin-bottom: 5px;
 }
 
-/* ─── Hitsplat zones (anchored to status panel HP bars) ─── */
-.hitsplat-zone {
-    position: relative;
-    height: 0;
-    overflow: visible;
-    pointer-events: none;
-}
-
-/* ─── Text-bracket hitsplats ─── */
-.hitsplat {
-    position: absolute;
-    bottom: 2px;
-    left: 0;
-    font-family: var(--font);
-    font-weight: bold;
-    font-size: 13px;
-    pointer-events: none;
-    white-space: nowrap;
-    animation: hitsplat-rise 1.6s ease-out forwards;
-    z-index: 20;
-}
-.hitsplat-zone-right .hitsplat { left: auto; right: 0; }
-.hitsplat-normal { color: #ff5555; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(255,50,50,0.5); }
-.hitsplat-miss   { color: #4488cc; text-shadow: 1px 1px 0 #000; opacity: 0.8; font-size: 11px; }
-.hitsplat-heavy  { color: #ffd700; font-size: 16px; text-shadow: 1px 1px 0 #000, 0 0 8px rgba(255,215,0,0.8); animation: hitsplat-rise-heavy 1.6s ease-out forwards; }
-.hitsplat-spec   { color: #ff8c00; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(255,140,0,0.6); }
-.hitsplat-boss   { color: #cc44ff; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(180,60,255,0.5); }
-.hitsplat-poison { color: #5ada5a; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(90,218,90,0.6); font-size: 11px; }
-
-@keyframes hitsplat-rise {
-    0%   { transform: translateY(0);      opacity: 1; }
-    65%  { opacity: 1; }
-    100% { transform: translateY(-36px);  opacity: 0; }
-}
-@keyframes hitsplat-rise-heavy {
-    0%   { transform: translateY(0) scale(1);     opacity: 1; }
-    12%  { transform: translateY(-4px) scale(1.1); }
-    65%  { opacity: 1; }
-    100% { transform: translateY(-42px) scale(1); opacity: 0; }
-}
-
 @keyframes pulse-grow {
     0%, 100% { transform: scale(1); }
     50%       { transform: scale(1.06); }
@@ -410,15 +369,6 @@ html, body {
 .battle-box-bars .mini-bar-wrap { flex: 1; }
 .battle-box-val { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
 
-/* Hitsplat zones anchored over the actors (left/top set by voxel.initBattle
-   from the same LAYOUT the renderer uses) */
-.battle-zone {
-    position: absolute;
-    width: 0;
-    z-index: 10;
-}
-.battle-zone .hitsplat { transform: translateX(-50%); }
-
 /* Test-fight freeze button */
 .freeze-btn {
     position: absolute;
@@ -473,28 +423,6 @@ html, body {
 @keyframes bubble-pop {
     0%   { transform: scale(0.6); opacity: 0; }
     100% { transform: scale(1);   opacity: 1; }
-}
-
-/* Overhead prayer icons (OSRS-style) */
-.overhead {
-    position: absolute;
-    transform: translateX(-50%);
-    font-size: 17px;
-    font-weight: bold;
-    pointer-events: none;
-    z-index: 9;
-    text-shadow: 1px 1px 0 #000;
-    animation: overhead-float 2.2s ease-in-out infinite;
-}
-.overhead-player { left: 30%; top: 28%; }
-.overhead-npc    { left: 52%; top: 18%; }  /* beside the enemy's head, clear of bubble + hitsplats */
-.overhead-melee  { color: #ff5555; filter: drop-shadow(0 0 5px rgba(255, 85, 85, 0.7)); }
-.overhead-ranged { color: #5ada5a; filter: drop-shadow(0 0 5px rgba(90, 218, 90, 0.7)); }
-.overhead-magic  { color: #6ec6ff; filter: drop-shadow(0 0 5px rgba(110, 198, 255, 0.7)); }
-.overhead-piety  { color: var(--yellow); filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.7)); }
-@keyframes overhead-float {
-    0%, 100% { margin-top: 0; }
-    50%       { margin-top: -3px; }
 }
 
 /* ─── Duel result overlay (over the battle scene) ─── */
