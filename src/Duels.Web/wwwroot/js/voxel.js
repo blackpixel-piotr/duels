@@ -1136,6 +1136,15 @@
         return a;
     }
 
+    // Lighten a '#rrggbb' color toward white by fraction amt (0-1) — used to
+    // derive the lash's highlight tone from its base color.
+    function tintHex(hex, amt) {
+        const n = parseInt(hex.slice(1), 16);
+        const f = v => Math.min(255, Math.round(v + (255 - v) * amt));
+        return `#${[f((n >> 16) & 255), f((n >> 8) & 255), f(n & 255)]
+            .map(v => v.toString(16).padStart(2, '0')).join('')}`;
+    }
+
     // Attach a weapon model to an actor's hand: weapon voxels are translated
     // grip→hand, tagged as the weapon arm, and given remapped color indices so
     // they can carry their own shade table into the merged render list. The
@@ -1175,6 +1184,7 @@
             segLen: (lashCfg.len ?? 1.15) / (lashCfg.segs ?? 12),
             color: lashCfg.color ?? '#a050d8',
             dark: lashCfg.dark ?? '#503060',
+            light: tintHex(lashCfg.color ?? '#a050d8', 0.4), // braid highlight
             // model-space anchor: top of the handle, riding the arm chain
             anchorM: [hand[0], hand[1] + (lashCfg.top ?? 3), hand[2]],
             pts: null, lastT: 0,
@@ -1227,9 +1237,9 @@
     // constraint relaxation. During a 'lash' attack the rope is first
     // gathered up behind the shoulder, then slung hard at the target —
     // the crack falls out of the physics.
-    const LASH_G = 15;         // gravity, wu/s² (1 wu ≈ 0.64 m)
-    const LASH_DAMP = 0.985;   // per substep (≈0.956/frame at 3 substeps)
-    const LASH_ANCHOR_MAX = 0.12; // wu per frame — a hard turn drags, not teleports
+    const LASH_G = 19;         // gravity, wu/s² (1 wu ≈ 0.64 m) — heavier hang
+    const LASH_DAMP = 0.965;   // per substep — more energy loss, calmer/heavier, less jitter
+    const LASH_ANCHOR_MAX = 0.09; // wu per frame — a hard turn drags, not teleports
 
     function updateLash(actor, pose, now) {
         const lash = actor.lash, st = actor.st;
@@ -1271,16 +1281,16 @@
             const p = (now - atk.t0) / atk.dur;
             if (p >= 0 && p < 0.34) {           // wind up: gather high behind
                 const w = p / 0.34;
-                dvx += -sF * 90 * w; dvz += -cF * 90 * w; dvy += LASH_G + 70 * w;
+                dvx += -sF * 55 * w; dvz += -cF * 55 * w; dvy += LASH_G + 45 * w;
             } else if (p >= 0.34 && p < 0.64) { // strike: sling at the target
                 const other = actor === st.player ? st.enemy : st.player;
                 const pulse = Math.sin((p - 0.34) / 0.30 * Math.PI);
                 let dx = other.pos.wx - ax, dz = other.pos.wz - az;
                 let dy = other.base.worldH * 0.55 - ay;
                 const dl = Math.hypot(dx, dy, dz) || 1;
-                dvx += dx / dl * 200 * pulse;
-                dvy += dy / dl * 200 * pulse + 40 * pulse;
-                dvz += dz / dl * 200 * pulse;
+                dvx += dx / dl * 140 * pulse;
+                dvy += dy / dl * 140 * pulse + 25 * pulse;
+                dvz += dz / dl * 140 * pulse;
             }
         }
 
@@ -1308,7 +1318,7 @@
             }
         };
         if (dt === 0) {
-            relax(4, ax, ay, az);
+            relax(6, ax, ay, az);
         } else for (let s = 1; s <= SUB; s++) {
             const dts = dt / SUB / 1000;
             const q = s / SUB;
@@ -1330,15 +1340,19 @@
                     pt.z += (pt.pz - pt.z) * 0.35;
                 }
             }
-            relax(4, sx, sy, sz);
+            relax(6, sx, sy, sz);
         }
         lash.anchor = { x: ax, y: ay, z: az };
     }
 
     // Voxel-style rope: the polyline is resampled by arc length into squares
-    // of roughly one voxel, alternating the weapon's light/dark colors
-    // (braided leather) and shading darker with depth like renderModel does.
-    // Samples draw far → near so the rope self-occludes plausibly.
+    // — thicker near the handle, tapering to the tip — banded in dark/base/
+    // light color runs (BRAID samples per band) so the braided-leather
+    // pattern reads as distinct wraps at this scale instead of a single-
+    // pixel dither that just blends into a flat color. Samples draw far →
+    // near so the rope self-occludes plausibly; far segments always use
+    // the dark tone as a depth cue regardless of braid phase.
+    const LASH_BRAID_RUN = 3; // samples per color band
     function drawLash(st, ctx, actor, W, H) {
         const lash = actor.lash;
         if (!lash?.pts || actor.crumbled) return;
@@ -1355,24 +1369,24 @@
         for (let i = 0; i < n - 1; i++) {
             const A = scr[i], B = scr[i + 1];
             const t = i / (n - 1);
-            const size = Math.max(1.5, A.S * (1.6 - 0.7 * t)); // taper to the tip
-            const steps = Math.max(1, Math.ceil(Math.hypot(B.x - A.x, B.y - A.y) / size));
+            const size = Math.max(2.4, A.S * (2.4 - 0.9 * t)); // thicker; tapers to the tip
+            const steps = Math.max(1, Math.ceil(Math.hypot(B.x - A.x, B.y - A.y) / (size * 0.7)));
             for (let k = 0; k < steps; k++) {
                 const q = k / steps;
                 samples.push({
                     x: A.x + (B.x - A.x) * q, y: A.y + (B.y - A.y) * q,
                     rz: A.rz + (B.rz - A.rz) * q, size,
-                    dark: (braid++ & 1) === 0,
+                    band: Math.floor(braid++ / LASH_BRAID_RUN) % 3,
                 });
             }
         }
         samples.sort((a, b) => a.rz - b.rz);
         ctx.save();
         for (const s of samples) {
-            // depth shade: far samples use the dark tone regardless of braid
-            ctx.fillStyle = (s.dark || s.rz < -0.35) ? lash.dark : lash.color;
-            ctx.fillRect((s.x - s.size / 2) | 0, (s.y - s.size / 2) | 0,
-                         Math.ceil(s.size), Math.ceil(s.size));
+            ctx.fillStyle = s.rz < -0.35 ? lash.dark // depth cue on the far side
+                : s.band === 0 ? lash.dark : s.band === 1 ? lash.color : lash.light;
+            const sz = Math.ceil(s.size);
+            ctx.fillRect((s.x - sz / 2) | 0, (s.y - sz / 2) | 0, sz, sz);
         }
         ctx.restore();
     }
