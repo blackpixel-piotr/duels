@@ -13,7 +13,11 @@
 (function () {
     'use strict';
 
-    const TILT = 0.3;            // isometric-ish downward tilt
+    // Mutable (not const): the battle debug camera panel (test fights only)
+    // overrides these live via setCameraDebug. Defaults restored when the
+    // test battle unmounts (destroyBattle) so a real duel is never affected.
+    let TILT = 0.3;               // isometric-ish downward tilt (voxel depth squash)
+    const DEFAULT_TILT = TILT;
     const SPIN_SPEED = 0.008;    // rad/frame idle auto-spin (~28s/rev)
     const DRAG_SPEED = 0.02;     // rad per dragged px
     const RESUME_MS = 2000;      // hold still after drag before spinning again
@@ -352,7 +356,8 @@
     const FIELD_R = 12;        // grass extent of the field scene, world units
     const TILE_MS = 600;       // move-segment duration: one sim step per game tick
     const STRIDE = Math.PI;    // walk-phase radians per world unit (a step per tile)
-    const CAM_FOV = 25;        // perspective divide (world units); larger = less distortion
+    let CAM_FOV = 25;          // perspective divide (world units); larger = less distortion
+    const DEFAULT_CAM_FOV = CAM_FOV;
     const ZOOM_MIN = 0.4, ZOOM_MAX = 2.5;
     const PITCH_MIN = 0.25, PITCH_MAX = 1.4;
     // Spawn tiles — must match GameState.StartDuel; live positions then come
@@ -2141,6 +2146,28 @@
         battles.set(canvasId, st);
     }
 
+    // Admin/debug camera panel (test fights only): live-tweak the global
+    // perspective strength (FOV) and voxel depth-squash (TILT), and the
+    // per-battle zoom/pitch already driven by touch/wheel gestures. FOV and
+    // TILT are module-wide (only one battle canvas is ever mounted at a
+    // time), so setting them here affects the live scene immediately with
+    // no threading through the render path.
+    function getCameraDebug(canvasId) {
+        const st = battles.get(canvasId);
+        return {
+            fov: CAM_FOV, tilt: TILT,
+            pitch: st?.camPitch ?? POS_TILT, zoom: st?.camZoom ?? 1,
+        };
+    }
+    function setCameraDebug(canvasId, d) {
+        if (typeof d.fov === 'number' && d.fov > 1) CAM_FOV = d.fov;
+        if (typeof d.tilt === 'number') TILT = Math.max(0, d.tilt);
+        const st = battles.get(canvasId);
+        if (!st) return;
+        if (typeof d.pitch === 'number') st.camPitch = Math.max(0.05, d.pitch);
+        if (typeof d.zoom === 'number') st.camZoom = Math.max(0.05, d.zoom);
+    }
+
     function destroyBattle(canvasId) {
         const st = battles.get(canvasId);
         if (!st) return;
@@ -2154,6 +2181,10 @@
             st.canvas.removeEventListener('wheel', st.onWheel);
         }
         battles.delete(canvasId);
+        // Debug overrides are global (module-scope) — restore defaults so a
+        // real duel started next never inherits a test-fight camera tweak.
+        CAM_FOV = DEFAULT_CAM_FOV;
+        TILT = DEFAULT_TILT;
     }
 
     // Swap the enemy actor in place (endless waves) with a pop-in.
@@ -2381,6 +2412,6 @@
         initPreview, destroyPreview, renderIcon, itemIcon,
         initBattle, destroyBattle, setBattleEnemy, setBattleFlags, battleEvent,
         setBattleVitals, setBattleWeapon, setBattlePositions, resetBattle,
-        setBattleOverheads,
+        setBattleOverheads, getCameraDebug, setCameraDebug,
     };
 })();
