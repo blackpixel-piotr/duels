@@ -2291,6 +2291,68 @@
         st.delayEnemyVis = 0; st.delayPlayerVis = 0;
     }
 
+    // ── Audio: whip crack ───────────────────────────────────────────────────
+    // Synthesized with the Web Audio API (no asset to ship or license): a
+    // band-passed noise transient for the "snap" layered under a fast
+    // descending triangle chirp for the "thwip" of the lash uncoiling.
+    // Lazily created on first use so no AudioContext exists (and no
+    // autoplay-policy warning fires) until a whip actually swings.
+    let audioCtx = null;
+    function getAudioCtx() {
+        if (!audioCtx) {
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            if (!Ctx) return null;
+            audioCtx = new Ctx();
+        }
+        if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+        return audioCtx;
+    }
+
+    let crackNoiseBuffer = null;
+    function getCrackNoiseBuffer(ctx) {
+        if (crackNoiseBuffer && crackNoiseBuffer.sampleRate === ctx.sampleRate) return crackNoiseBuffer;
+        const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * 0.15), ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        return crackNoiseBuffer = buf;
+    }
+
+    // delaySec schedules the crack near the tip's peak sling velocity
+    // (called from the attack anim's start, not played immediately).
+    function playWhipCrack(delaySec = 0) {
+        const ctx = getAudioCtx();
+        if (!ctx) return;
+        const t0 = ctx.currentTime + Math.max(0, delaySec);
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = getCrackNoiseBuffer(ctx);
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass'; bp.frequency.value = 2800; bp.Q.value = 0.7;
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(0, t0);
+        noiseGain.gain.linearRampToValueAtTime(0.9, t0 + 0.002);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.09);
+        noise.connect(bp); bp.connect(noiseGain);
+
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(1400, t0);
+        osc.frequency.exponentialRampToValueAtTime(120, t0 + 0.09);
+        const oscGain = ctx.createGain();
+        oscGain.gain.setValueAtTime(0.001, t0);
+        oscGain.gain.linearRampToValueAtTime(0.5, t0 + 0.004);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.11);
+        osc.connect(oscGain);
+
+        const master = ctx.createGain();
+        master.gain.value = 0.7;
+        noiseGain.connect(master); oscGain.connect(master);
+        master.connect(ctx.destination);
+
+        noise.start(t0); noise.stop(t0 + 0.1);
+        osc.start(t0); osc.stop(t0 + 0.12);
+    }
+
     // evt = { type, tier?, dmg?, style? }; types: playerAttack | enemyAttack |
     // playerHit | enemyHit | enemyDeath | playerDeath. Attack events fire
     // projectiles for ranged/magic and delay the matching hit's visuals by the
@@ -2315,6 +2377,9 @@
             // masking the dds spec fired right after it)
             attacker.anims = attacker.anims.filter(a => a.type !== 'attack');
             attacker.anims.push({ type: 'attack', t0: now, dur, kind });
+            // Crack near the tip's peak sling velocity (~60% through the
+            // strike phase, see updateLash), not the swing's start.
+            if (kind === 'lash') playWhipCrack(dur * 0.27 / 1000);
             if (style === 'ranged' || style === 'magic') {
                 // travel time from real distance — shots from across the
                 // arena visibly take longer to arrive
