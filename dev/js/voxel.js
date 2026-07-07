@@ -1967,6 +1967,10 @@
             // whips get a longer envelope so the rope's crack can travel;
             // the dds spec needs a full pass to draw its infinity symbol
             const dur = kind === 'lash' ? 480 : kind === 'ddspec' ? 620 : 340;
+            // a new swing supersedes any still-running one — otherwise
+            // anims.find() keeps playing the old kind (e.g. a whip crack
+            // masking the dds spec fired right after it)
+            attacker.anims = attacker.anims.filter(a => a.type !== 'attack');
             attacker.anims.push({ type: 'attack', t0: now, dur, kind });
             if (style === 'ranged' || style === 'magic') {
                 // travel time from real distance — shots from across the
@@ -1981,10 +1985,12 @@
         };
         // Attack choreography: spec flourish on 'spec' hits, else per-weapon
         // override, else the melee kind from the event (weapon AttackType),
-        // else the NPC's signature swing.
+        // else the NPC's signature swing. The event's weapon id (fresh from
+        // the sim) wins over st.weaponId, which can lag one swap behind.
+        const wid = evt.weapon ?? st.weaponId;
         const playerKind =
-            (evt.tier === 'spec' && SPEC_ANIMS[st.weaponId]) ? SPEC_ANIMS[st.weaponId] :
-            WEAPON_ANIMS[st.weaponId] ?? (evt.kind in ATTACK_POSES ? evt.kind : 'slash');
+            (evt.tier === 'spec' && SPEC_ANIMS[wid]) ? SPEC_ANIMS[wid] :
+            WEAPON_ANIMS[wid] ?? (evt.kind in ATTACK_POSES ? evt.kind : 'slash');
         const enemyKind =
             st.lastWindupStyle === 'ranged' ? 'bow' :
             st.lastWindupStyle === 'magic' ? 'cast' :
