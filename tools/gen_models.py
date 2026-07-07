@@ -536,17 +536,19 @@ def w_whip(color, dark):
     # Handle plus a coiled lash. The coil is icon dressing only: at attach
     # time the runtime keeps just the handle column and replaces the lash
     # with a physics rope (verlet chain) driven by the 'lash' config below.
-    w = Wpn(); w.handle(0, 5, dark)
-    w.dot(0, 1, 0, color); w.dot(0, 4, 0, color)   # grip wraps
+    w = Wpn(); w.handle(0, 3, dark)                 # fist-sized handle
+    w.dot(0, 1, 0, color); w.dot(0, 3, 0, color)    # grip wraps
     for a in range(22):                             # coil hanging off the grip
         ang = a / 22 * 6.2832
         x = round(4.6 + math.cos(ang) * 2.6)
         y = round(3.0 + math.sin(ang) * 2.6)
         for z in (0, 1):
             w.dot(x, y, z, color if a % 4 else dark)
-    w.dot(2, 5, 0, color)                           # lash leaving the handle
+    w.dot(2, 4, 0, color)                           # lash leaving the handle
     w.extra = {'lash': {
-        'len': 1.15, 'segs': 12, 'top': 3,          # wu, chain nodes, voxels above grip
+        # rope exits just BELOW the fist (top: -2 relative to the grip) so
+        # the hanging lash reads as connected to the hand, not the hip
+        'len': 1.15, 'segs': 12, 'top': -2,
         'color': '#%02x%02x%02x' % color, 'dark': '#%02x%02x%02x' % dark,
     }}
     return w

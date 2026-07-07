@@ -1022,7 +1022,8 @@
     // gathered up behind the shoulder, then slung hard at the target —
     // the crack falls out of the physics.
     const LASH_G = 15;         // gravity, wu/s² (1 wu ≈ 0.64 m)
-    const LASH_DAMP = 0.985;
+    const LASH_DAMP = 0.985;   // per substep (≈0.956/frame at 3 substeps)
+    const LASH_ANCHOR_MAX = 0.12; // wu per frame — a hard turn drags, not teleports
 
     function updateLash(actor, pose, now) {
         const lash = actor.lash, st = actor.st;
@@ -1030,9 +1031,9 @@
         const vpw = actor.model.height / actor.base.worldH; // voxels per wu
         const a = posePoint(actor, pose, lash.anchorM[0], lash.anchorM[1], lash.anchorM[2]);
         const cF = Math.cos(actor.facing), sF = Math.sin(actor.facing);
-        const ax = actor.pos.wx + (a.x * cF + a.z * sF) / vpw;
-        const az = actor.pos.wz + (-a.x * sF + a.z * cF) / vpw;
-        const ay = a.y / vpw;
+        let ax = actor.pos.wx + (a.x * cF + a.z * sF) / vpw;
+        let az = actor.pos.wz + (-a.x * sF + a.z * cF) / vpw;
+        let ay = a.y / vpw;
 
         if (!lash.pts) { // first frame: hang straight down from the anchor
             lash.pts = [];
@@ -1041,10 +1042,21 @@
                 lash.pts.push({ x: ax, y, z: az, px: ax, py: y, pz: az });
             }
             lash.lastT = now;
+            lash.anchor = { x: ax, y: ay, z: az };
+        }
+        // Fast facing turns can move the hand several body-widths in one
+        // frame; clamp the pin's travel so the rope is dragged through a
+        // swept arc instead of receiving a teleport impulse (the spasm).
+        const prev = lash.anchor;
+        const jump = Math.hypot(ax - prev.x, ay - prev.y, az - prev.z);
+        if (jump > LASH_ANCHOR_MAX) {
+            const k = LASH_ANCHOR_MAX / jump;
+            ax = prev.x + (ax - prev.x) * k;
+            ay = prev.y + (ay - prev.y) * k;
+            az = prev.z + (az - prev.z) * k;
         }
         const dt = Math.max(0, Math.min(40, now - lash.lastT));
         lash.lastT = now;
-        const dts = dt / 1000;
 
         // Attack drive (accel field on every free node)
         let dvx = 0, dvy = -LASH_G, dvz = 0;
@@ -1066,64 +1078,95 @@
             }
         }
 
-        for (let i = 1; i < lash.pts.length; i++) {
-            const pt = lash.pts[i];
-            const vx = (pt.x - pt.px) * LASH_DAMP,
-                  vy = (pt.y - pt.py) * LASH_DAMP,
-                  vz = (pt.z - pt.pz) * LASH_DAMP;
-            pt.px = pt.x; pt.py = pt.y; pt.pz = pt.z;
-            pt.x += vx + dvx * dts * dts;
-            pt.y += vy + dvy * dts * dts;
-            pt.z += vz + dvz * dts * dts;
-            if (pt.y < 0.02) { // ground contact: rest + friction drag
-                pt.y = 0.02;
-                pt.x += (pt.px - pt.x) * 0.35;
-                pt.z += (pt.pz - pt.z) * 0.35;
-            }
-        }
-        // Pin the root to the handle, then relax segment lengths. 10 rounds
-        // keeps the rope near-inextensible under the strike sling (a little
-        // stretch at the crack's peak is left in on purpose — it sells it).
-        const p0 = lash.pts[0];
-        p0.x = p0.px = ax; p0.y = p0.py = ay; p0.z = p0.pz = az;
-        for (let it = 0; it < 10; it++) {
-            for (let i = 0; i < lash.pts.length - 1; i++) {
-                const A = lash.pts[i], B = lash.pts[i + 1];
-                let dx = B.x - A.x, dy = B.y - A.y, dz = B.z - A.z;
-                const d = Math.hypot(dx, dy, dz) || 1e-6;
-                const f = (d - lash.segLen) / d;
-                if (i === 0) { B.x -= dx * f; B.y -= dy * f; B.z -= dz * f; }
-                else {
-                    const hx = dx * f * 0.5, hy = dy * f * 0.5, hz = dz * f * 0.5;
-                    A.x += hx; A.y += hy; A.z += hz;
-                    B.x -= hx; B.y -= hy; B.z -= hz;
+        // Integrate in substeps with the pin interpolated across the frame,
+        // so even the clamped anchor motion arrives as a sweep. dt === 0
+        // (hit-stop) skips integration entirely — re-pin only — so frozen
+        // frames don't keep feeding stale per-frame velocity into the rope.
+        const SUB = 3;
+        const relax = (rounds, px2, py2, pz2) => {
+            const p0 = lash.pts[0];
+            p0.x = p0.px = px2; p0.y = p0.py = py2; p0.z = p0.pz = pz2;
+            for (let it = 0; it < rounds; it++) {
+                for (let i = 0; i < lash.pts.length - 1; i++) {
+                    const A = lash.pts[i], B = lash.pts[i + 1];
+                    let dx = B.x - A.x, dy = B.y - A.y, dz = B.z - A.z;
+                    const d = Math.hypot(dx, dy, dz) || 1e-6;
+                    const f = (d - lash.segLen) / d;
+                    if (i === 0) { B.x -= dx * f; B.y -= dy * f; B.z -= dz * f; }
+                    else {
+                        const hx = dx * f * 0.5, hy = dy * f * 0.5, hz = dz * f * 0.5;
+                        A.x += hx; A.y += hy; A.z += hz;
+                        B.x -= hx; B.y -= hy; B.z -= hz;
+                    }
                 }
             }
+        };
+        if (dt === 0) {
+            relax(4, ax, ay, az);
+        } else for (let s = 1; s <= SUB; s++) {
+            const dts = dt / SUB / 1000;
+            const q = s / SUB;
+            const sx = prev.x + (ax - prev.x) * q,
+                  sy = prev.y + (ay - prev.y) * q,
+                  sz = prev.z + (az - prev.z) * q;
+            for (let i = 1; i < lash.pts.length; i++) {
+                const pt = lash.pts[i];
+                const vx = (pt.x - pt.px) * LASH_DAMP,
+                      vy = (pt.y - pt.py) * LASH_DAMP,
+                      vz = (pt.z - pt.pz) * LASH_DAMP;
+                pt.px = pt.x; pt.py = pt.y; pt.pz = pt.z;
+                pt.x += vx + dvx * dts * dts;
+                pt.y += vy + dvy * dts * dts;
+                pt.z += vz + dvz * dts * dts;
+                if (pt.y < 0.02) { // ground contact: rest + friction drag
+                    pt.y = 0.02;
+                    pt.x += (pt.px - pt.x) * 0.35;
+                    pt.z += (pt.pz - pt.z) * 0.35;
+                }
+            }
+            relax(4, sx, sy, sz);
         }
+        lash.anchor = { x: ax, y: ay, z: az };
     }
 
-    // Tapered two-pass polyline (dark under-stroke for pop on any ground).
+    // Voxel-style rope: the polyline is resampled by arc length into squares
+    // of roughly one voxel, alternating the weapon's light/dark colors
+    // (braided leather) and shading darker with depth like renderModel does.
+    // Samples draw far → near so the rope self-occludes plausibly.
     function drawLash(st, ctx, actor, W, H) {
         const lash = actor.lash;
         if (!lash?.pts || actor.crumbled) return;
+        const vpw = actor.model.height / actor.base.worldH;
         const n = lash.pts.length;
         const scr = lash.pts.map(pt => {
             const p = proj(st, pt.x, pt.z, W, H);
             const ps = CAM_FOV / (CAM_FOV - p.rz);
-            return { x: p.x, y: p.y - pt.y * p.px * ps, w: p.px * ps };
+            return { x: p.x, y: p.y - pt.y * p.px * ps,
+                     rz: p.rz, S: p.px * ps / vpw }; // px per voxel at depth
         });
-        ctx.save();
-        ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-        for (const [color, extra] of [[lash.dark, 1.6], [lash.color, 0]]) {
-            ctx.strokeStyle = color;
-            for (let i = 0; i < n - 1; i++) {
-                const t = 1 - i / (n - 1); // thick at the handle, thin at the tip
-                ctx.lineWidth = Math.max(1, scr[i].w * 0.11 * (0.45 + 0.9 * t)) + extra;
-                ctx.beginPath();
-                ctx.moveTo(scr[i].x, scr[i].y);
-                ctx.lineTo(scr[i + 1].x, scr[i + 1].y);
-                ctx.stroke();
+        const samples = [];
+        let braid = 0;
+        for (let i = 0; i < n - 1; i++) {
+            const A = scr[i], B = scr[i + 1];
+            const t = i / (n - 1);
+            const size = Math.max(1.5, A.S * (1.6 - 0.7 * t)); // taper to the tip
+            const steps = Math.max(1, Math.ceil(Math.hypot(B.x - A.x, B.y - A.y) / size));
+            for (let k = 0; k < steps; k++) {
+                const q = k / steps;
+                samples.push({
+                    x: A.x + (B.x - A.x) * q, y: A.y + (B.y - A.y) * q,
+                    rz: A.rz + (B.rz - A.rz) * q, size,
+                    dark: (braid++ & 1) === 0,
+                });
             }
+        }
+        samples.sort((a, b) => a.rz - b.rz);
+        ctx.save();
+        for (const s of samples) {
+            // depth shade: far samples use the dark tone regardless of braid
+            ctx.fillStyle = (s.dark || s.rz < -0.35) ? lash.dark : lash.color;
+            ctx.fillRect((s.x - s.size / 2) | 0, (s.y - s.size / 2) | 0,
+                         Math.ceil(s.size), Math.ceil(s.size));
         }
         ctx.restore();
     }
