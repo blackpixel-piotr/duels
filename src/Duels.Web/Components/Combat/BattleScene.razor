@@ -215,7 +215,8 @@
                         type = onEnemy ? "playerAttack" : "enemyAttack",
                         style = onEnemy ? PlayerStyle() : null,
                         kind = onEnemy ? PlayerKind() : null,
-                        tier, // 'spec' selects the weapon's special-attack flourish
+                        tier,   // 'spec' selects the weapon's special-attack flourish
+                        weapon = onEnemy ? WeaponId : null, // fresh id — beats any swap race
                     });
             await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
                 new { type = onEnemy ? "enemyHit" : "playerHit", tier, dmg });
