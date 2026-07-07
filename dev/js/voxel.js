@@ -427,6 +427,20 @@
     };
     // Special-attack choreography per weapon (used when the hit tier is 'spec')
     const SPEC_ANIMS = { dragon_dagger: 'ddspec' };
+    // Base AttackType per weapon (mirrors InMemoryItemRepository — this is
+    // what the server sends as evt.kind for weapons with no WEAPON_ANIMS
+    // override) so the client-predicted pre-approach swing (see
+    // maybeStartPreemptiveSwing) guesses the same kind the real event would
+    // carry, instead of defaulting everything to 'slash'.
+    const WEAPON_BASE_KIND = {
+        rune_scimitar: 'slash', dragon_scimitar: 'slash', armadyl_sword: 'slash',
+        bandos_godsword: 'slash', zamorak_godsword: 'slash', saradomin_godsword: 'slash',
+        armadyl_godsword: 'slash', scythe_of_vitur: 'slash',
+        abyssal_whip: 'slash', corrupted_whip: 'slash', dragon_claws: 'slash',
+        granite_maul: 'crush', abyssal_bludgeon: 'crush', elder_maul: 'crush',
+        dragon_dagger: 'stab', zamorakian_hasta: 'stab', ghrazi_rapier: 'stab',
+        venomous_fang: 'stab',
+    };
     const NPC_ANIMS = {
         goblin: 'crush', barbarian: 'crush', berserker: 'crush', warlord: 'crush',
         swashbuckler: 'slash', gladiator: 'slash', corsair: 'slash', champion: 'slash',
@@ -2255,6 +2269,38 @@
     // segment from wherever the actor currently is, covered in exactly one
     // tick — a 2-tile running step just moves twice as fast, and a late
     // update re-anchors mid-stride, so motion never stalls between tiles.
+    // Snappier melee: the sim already lands the hit the instant the
+    // approach step reaches adjacency (see GameTickService.ProcessTick —
+    // movement and the attack check share one tick), but the CLIENT swing
+    // used to start fresh only once that tick's server event arrived —
+    // i.e. after the glide into the final tile had already finished
+    // playing, so the whole anticipation phase read as dead time tacked
+    // on after arrival. Instead, the moment the player is ORDERED onto a
+    // tile that closes them from out-of-range to in-range, start the swing
+    // immediately and stretch it so its strike beat (lerp3's 40–55%
+    // window) lands right as the glide completes — the windup plays out
+    // WHILE closing the gap, and the hit reads as connecting on arrival,
+    // free to kite back next tick. battleEvent's attack() below detects
+    // this predicted anim already in flight and lets it ride instead of
+    // restarting it from t=0 when the authoritative event shows up.
+    const MELEE_RANGE = 1; // Weapon.Range default — every player weapon is melee today
+    function maybeStartPreemptiveSwing(st, nx, nz) {
+        const p = st.player, e = st.enemy;
+        if (!p || !e || p.crumbled || e.crumbled) return;
+        if (p.anims.some(a => a.type === 'attack')) return; // already swinging
+        const cheby = (ax, az, bx, bz) => Math.max(Math.abs(ax - bx), Math.abs(az - bz));
+        const was = cheby(p.target.wx, p.target.wz, e.target.wx, e.target.wz);
+        const will = cheby(nx, nz, e.target.wx, e.target.wz);
+        if (was <= MELEE_RANGE || will > MELEE_RANGE) return; // not a closing-to-range step
+
+        // Same fallback chain the real event uses: per-weapon override, else
+        // the weapon's true AttackType, else bare-fist crush.
+        const kind = WEAPON_ANIMS[st.weaponId] ?? WEAPON_BASE_KIND[st.weaponId] ?? 'crush';
+        const dur = TILE_MS / 0.475; // strike center (lerp3) lands at glide-end
+        p.anims.push({ type: 'attack', t0: st.time, dur, kind, predicted: true });
+        if (kind === 'lash') playWhipCrack(dur * 0.27 / 1000);
+    }
+
     function setBattlePositions(canvasId, pos) {
         const st = battles.get(canvasId);
         if (!st) return;
@@ -2263,7 +2309,10 @@
             actor.target = { wx: x, wz: z };
             actor.seg = { x0: actor.pos.wx, z0: actor.pos.wz, x1: x, z1: z, t0: st.time };
         };
-        if (pos.player) order(st.player, pos.player.x, pos.player.z);
+        if (pos.player) {
+            maybeStartPreemptiveSwing(st, pos.player.x, pos.player.z);
+            order(st.player, pos.player.x, pos.player.z);
+        }
         if (pos.enemy) order(st.enemy, pos.enemy.x, pos.enemy.z);
     }
 
@@ -2372,14 +2421,25 @@
             // whips get a longer envelope so the rope's crack can travel;
             // the dds spec needs a full pass to draw its infinity symbol
             const dur = kind === 'lash' ? 480 : kind === 'ddspec' ? 620 : 340;
-            // a new swing supersedes any still-running one — otherwise
-            // anims.find() keeps playing the old kind (e.g. a whip crack
-            // masking the dds spec fired right after it)
-            attacker.anims = attacker.anims.filter(a => a.type !== 'attack');
-            attacker.anims.push({ type: 'attack', t0: now, dur, kind });
-            // Crack near the tip's peak sling velocity (~60% through the
-            // strike phase, see updateLash), not the swing's start.
-            if (kind === 'lash') playWhipCrack(dur * 0.27 / 1000);
+            // maybeStartPreemptiveSwing (setBattlePositions) may already have
+            // this same swing in flight, timed so its strike beat lands on
+            // this exact tick — let it ride instead of restarting from t=0
+            // (which would snap the pose back to anticipation mid-strike).
+            // A kind mismatch (e.g. a spec fires mid-approach, so the guess
+            // was wrong) still restarts fresh with the correct kind.
+            const existing = attacker.anims.find(a => a.type === 'attack');
+            const ridingPrediction = existing?.predicted && existing.kind === kind
+                && now - existing.t0 < existing.dur;
+            if (!ridingPrediction) {
+                // a new swing supersedes any still-running one — otherwise
+                // anims.find() keeps playing the old kind (e.g. a whip crack
+                // masking the dds spec fired right after it)
+                attacker.anims = attacker.anims.filter(a => a.type !== 'attack');
+                attacker.anims.push({ type: 'attack', t0: now, dur, kind });
+                // Crack near the tip's peak sling velocity (~60% through the
+                // strike phase, see updateLash), not the swing's start.
+                if (kind === 'lash') playWhipCrack(dur * 0.27 / 1000);
+            }
             if (style === 'ranged' || style === 'magic') {
                 // travel time from real distance — shots from across the
                 // arena visibly take longer to arrive
