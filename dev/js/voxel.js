@@ -622,18 +622,17 @@
             t.dz = (1.2 + 1.8 * Math.abs(Math.sin(2 * th))) * w;
         },
         slash:  (p, t) => { t.pitch = lerp3(p, 1.15, 1.25, 0); t.yaw = lerp3(p, -1.15, 1.2, 0); },
-        // whip: an overhand throw. The hand rises in FRONT of the body first
-        // (0→0.22), then continues up and back past overhead until it's
-        // behind the head (0.22→0.4) — the windup; the strike (0.4→0.55)
-        // throws it back down-forward, released as the physics lash
-        // (actor.lash), which follows the hand and cracks out.
+        // whip: a basketball-style overhand throw. The UPPER arm (shoulder)
+        // only rises to roughly vertical and stays there through the whole
+        // swing — the elbow itself never travels behind the body. All the
+        // big cocking motion happens at the elbow (see computePoseV2's
+        // lash-specific RL curve): the forearm keeps rotating past where
+        // the upper arm stopped, swinging the hand back and up above the
+        // shoulder, then snaps straight again for the throw — released as
+        // the physics lash (actor.lash), which follows the hand and cracks.
         lash:   (p, t) => {
-            // Peak pitch stays under pi (a straight-up overhead extension)
-            // so the arm never swings past vertical into a "windmill" —
-            // going further reads as the hand orbiting around the body
-            // instead of a cocked-back throw.
-            t.pitch = lerpKeys(p, [[0, 0], [0.22, 0.9], [0.4, 2.6], [0.55, 0.3], [1, 0]]);
-            t.yaw = lerp3(p, -0.4, 0.3, 0);
+            t.pitch = lerpKeys(p, [[0, 0], [0.25, 1.0], [0.4, 1.5], [0.55, 1.1], [1, 0]]);
+            t.yaw = lerp3(p, -0.3, 0.25, 0);
         },
         crush:  (p, t) => { t.pitch = lerp3(p, 2.5, 0.75, 0); },
         flurry: (p, t) => {
@@ -900,10 +899,13 @@
             if (p >= 0 && p <= 1) {
                 (ATTACK_POSES[atk.kind] ?? ATTACK_POSES.slash)(p, ensure(RU));
                 if (atk.kind === 'lash') {
-                    // Elbow: folds tight while the hand cocks back behind
-                    // the head, then straightens through the release — a
-                    // real throw, not a fixed fraction of the shoulder.
-                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.22, 0.75], [0.4, 1.0], [0.55, 0.05], [1, 0]]);
+                    // RL is relative to the upper arm (RU), which itself
+                    // holds near-vertical through the swing — so this curve
+                    // is what actually swings the hand back behind/above
+                    // the shoulder (adding rotation past where RU stopped)
+                    // while the elbow joint stays fixed in front, then
+                    // straightens out (drops toward 0) for the throw.
+                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.25, 1.1], [0.4, 1.75], [0.55, 0.1], [1, 0]]);
                 } else {
                     ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
                 }
