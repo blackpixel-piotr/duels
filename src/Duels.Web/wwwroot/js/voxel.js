@@ -817,6 +817,48 @@
         const m = Math.hypot(x, y, z);
         return m < 1e-4 ? [0, -L, 0] : [x / m * L, y / m * L, z / m * L];
     }
+    // Constant-velocity spherical interpolation of two equal-length vectors
+    // (from toLen). Interpolating the joint DIRECTION on its bone-length
+    // sphere — instead of lerping the raw offsets and re-normalizing — is what
+    // makes the arm sweep at a steady speed between keyframes. (Lerp-then-
+    // normalize crawls near the keys and whips through the middle: a straight
+    // line between two points on a sphere dips toward the centre, so for
+    // far-apart poses the normalized direction barely moves, then snaps —
+    // which jerked the whip.) θ→0 falls back to lerp; both inputs share L, so
+    // the great-circle blend preserves it.
+    function slerpVec(a, b, t) {
+        const la = Math.hypot(a[0], a[1], a[2]) || 1, lb = Math.hypot(b[0], b[1], b[2]) || 1;
+        let dot = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb);
+        dot = Math.max(-1, Math.min(1, dot));
+        const th = Math.acos(dot);
+        if (th < 1e-4)
+            return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+        const s = Math.sin(th), w0 = Math.sin((1 - t) * th) / s, w1 = Math.sin(t * th) / s;
+        return [w0 * a[0] + w1 * b[0], w0 * a[1] + w1 * b[1], w0 * a[2] + w1 * b[2]];
+    }
+    // Animation editor: interpolate an arm's elbow + hand targets between its
+    // coupled keyframes with slerp (see slerpVec). trk holds per-channel
+    // [[p,v],…] arrays that all share the same key-times (the editor keys the
+    // whole arm at once), so one bracket search on ex indexes every channel.
+    // Each key's elbow/hand offsets are projected to their bone spheres, then
+    // the DIRECTIONS are slerped — giving a steady great-circle sweep that the
+    // lash trails naturally.
+    function interpArm(trk, p, L1, L2) {
+        const kt = trk.ex ?? trk.ey ?? trk.ez ?? trk.hx ?? trk.hy ?? trk.hz;
+        const g = (ch, i) => trk[ch]?.[i]?.[1] ?? 0;
+        const elbowAt = i => toLen(g('ex', i), -L1 + g('ey', i), g('ez', i), L1);
+        const handAt  = i => toLen(g('hx', i), -L2 + g('hy', i), g('hz', i), L2);
+        if (!kt || !kt.length) return { E: toLen(0, -L1, 0, L1), H: toLen(0, -L2, 0, L2) };
+        if (p <= kt[0][0]) return { E: elbowAt(0), H: handAt(0) };
+        for (let i = 1; i < kt.length; i++) {
+            if (p <= kt[i][0]) {
+                const t = (p - kt[i - 1][0]) / (kt[i][0] - kt[i - 1][0]);
+                return { E: slerpVec(elbowAt(i - 1), elbowAt(i), t), H: slerpVec(handAt(i - 1), handAt(i), t) };
+            }
+        }
+        const n = kt.length - 1;
+        return { E: elbowAt(n), H: handAt(n) };
+    }
 
     function computePoseV2(actor, now, windup) {
         const rig = actor.rig, parts = rig.parts;
@@ -862,15 +904,14 @@
                 // at rest. Elbow = offset from rest (0,-L1,0) relative to the
                 // shoulder; hand = the forearm's bend, stored in the UPPER-
                 // ARM-LOCAL frame as an offset from rest (0,-L2,0) relative to
-                // the elbow. Both are projected onto their bone-length spheres
-                // every frame (toLen) — that's the rigid-chain guarantee. And
-                // storing the hand LOCAL to the upper arm is what makes an
-                // elbow drag carry the hand rigidly for free: the bend is
-                // untouched, so the forearm just swings with the upper arm.
-                const val = ch => trk[ch]?.length ? lerpKeys(p, trk[ch]) : 0;
-                const E = toLen(val('ex'), -L1 + val('ey'), val('ez'), L1);
+                // the elbow. interpArm projects both onto their bone-length
+                // spheres (rigid chain) and SLERPS the directions between
+                // keyframes for a steady-speed sweep. Storing the hand LOCAL
+                // to the upper arm is what makes an elbow drag carry the hand
+                // rigidly for free: the bend is untouched, so the forearm just
+                // swings with the upper arm.
+                const { E, H: handLocal } = interpArm(trk, p, L1, L2);
                 const up = aimDown(E[0], E[1], E[2]);
-                const handLocal = toLen(val('hx'), -L2 + val('hy'), val('hz'), L2);
                 const fore = aimDown(handLocal[0], handLocal[1], handLocal[2]);
                 // World hand = elbow + the forearm direction rotated by the
                 // upper arm.

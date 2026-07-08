@@ -442,8 +442,17 @@
         }
     }
 
+    // Bone lengths of the editor's rig (player_sakuna: shoulder y39 → elbow
+    // y29 → hand y18). Used to project arm channels onto their spheres for
+    // slerp — must match voxel.js's L1/L2 (ruPiv[1]-rlPiv[1], rlPiv[1]-hand[1]).
+    private const double L1 = 10.0, L2 = 11.0;
+
     // Interpolate a whole part's coupled pose at timeMs → all its channels.
     // Clamp-holds before the first / after the last key; rest (zeros) if none.
+    // Arm parts blend with slerp (see BlendKeys) so the joints sweep at a
+    // steady speed — the SAME curve voxel.js plays, so the scrubbed working
+    // pose, slider values, "Key pose" snapshots, and the pNorm overlay all sit
+    // on the played arc. Root stays linear.
     private double[] Interpolate(string key, double timeMs)
     {
         var n = PartChannels(key).Length;
@@ -456,12 +465,50 @@
                 var a = list[i - 1];
                 var b = list[i];
                 var t = (timeMs - a.TimeMs) / (b.TimeMs - a.TimeMs);
-                var outv = new double[n];
-                for (int c = 0; c < n; c++) outv[c] = a.Vals[c] + (b.Vals[c] - a.Vals[c]) * t;
-                return outv;
+                return BlendKeys(key, a.Vals, b.Vals, t);
             }
         }
         return (double[])list[^1].Vals.Clone();
+    }
+
+    // Blend two coupled keys. Root: plain per-channel lerp. Arm: reconstruct
+    // the elbow (L1) and hand-local (L2) direction vectors, slerp each, and
+    // write back offset-from-rest channels — matching voxel.js's interpArm.
+    private static double[] BlendKeys(string key, double[] a, double[] b, double t)
+    {
+        if (key == "0")
+        {
+            var outv = new double[a.Length];
+            for (int c = 0; c < a.Length; c++) outv[c] = a[c] + (b[c] - a[c]) * t;
+            return outv;
+        }
+        var ea = ToLen(a[0], -L1 + a[1], a[2], L1);
+        var eb = ToLen(b[0], -L1 + b[1], b[2], L1);
+        var e = Slerp(ea, eb, t);
+        var ha = ToLen(a[3], -L2 + a[4], a[5], L2);
+        var hb = ToLen(b[3], -L2 + b[4], b[5], L2);
+        var h = Slerp(ha, hb, t);
+        return [e[0], e[1] + L1, e[2], h[0], h[1] + L2, h[2]];
+    }
+
+    private static double[] ToLen(double x, double y, double z, double L)
+    {
+        var m = Math.Sqrt(x * x + y * y + z * z);
+        return m < 1e-4 ? [0, -L, 0] : [x / m * L, y / m * L, z / m * L];
+    }
+
+    // Constant-velocity spherical interpolation (mirrors voxel.js slerpVec).
+    private static double[] Slerp(double[] a, double[] b, double t)
+    {
+        var la = Math.Sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+        var lb = Math.Sqrt(b[0] * b[0] + b[1] * b[1] + b[2] * b[2]);
+        if (la < 1e-9 || lb < 1e-9) return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+        var dot = Math.Clamp((a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb), -1.0, 1.0);
+        var th = Math.Acos(dot);
+        if (th < 1e-4) return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+        var s = Math.Sin(th);
+        double w0 = Math.Sin((1 - t) * th) / s, w1 = Math.Sin(t * th) / s;
+        return [w0 * a[0] + w1 * b[0], w0 * a[1] + w1 * b[1], w0 * a[2] + w1 * b[2]];
     }
 
     // Upsert one coupled keyframe for a part at the current time, snapshotting
