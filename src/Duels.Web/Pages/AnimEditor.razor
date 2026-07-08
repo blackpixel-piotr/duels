@@ -68,31 +68,33 @@
                 <label>@ch.Label <span class="ae-val">@_liveValues.GetValueOrDefault(chan, 0).ToString("0.00")</span></label>
                 <input type="range" min="@ch.Min" max="@ch.Max" step="0.05"
                        value="@_liveValues.GetValueOrDefault(chan, 0)"
-                       @oninput="e => OnSliderInput(chan, e)" />
-                <button class="ae-kf-btn" @onclick="() => SetKeyframe(chan)">Set KF</button>
+                       @oninput="e => OnSliderInput(chan, e)"
+                       @onchange="() => KeyCurrent()" />
             </div>
         }
+        <div class="ae-row ae-buttons">
+            <button @onclick="KeyCurrent">Key pose @@ @_scrubMs.ToString("0") ms</button>
+        </div>
         @if (_selectedPart != "0")
         {
-            <p class="ae-hint">The character shows the whole arm: shoulder (fixed) → elbow → hand. Drag the highlighted joint directly (works with touch); the bones stay connected, so you can't pull a joint past the arm's reach. Moving the elbow swings the forearm along; then fine-tune the hand. Tap the other joint to switch to it. Depth (Z) is whatever's "sideways" from the current camera angle, so orbit 90° and drag again to reach it.</p>
+            <p class="ae-hint">The character shows the whole arm: shoulder (fixed) → elbow → hand. Drag the highlighted joint directly (works with touch); the bones stay connected, so you can't pull a joint past the arm's reach. Moving the elbow swings the forearm along; then fine-tune the hand. Tap the other joint to switch to it. <b>Dragging auto-saves a keyframe for the whole arm at the current time</b> — scrub elsewhere and drag again to add the next one. Depth (Z) is whatever's "sideways" from the current camera angle, so orbit 90° and drag again to reach it.</p>
         }
 
         <div class="ae-kf-list">
-            <h4>Keyframes</h4>
+            <h4>Keyframes <span class="ae-hint">(one per part &amp; time — the whole part's pose)</span></h4>
             @if (AllKeyframes().Count == 0)
             {
-                <p class="ae-hint">No keyframes yet — scrub to a time, drag a target/angle, hit "Set KF".</p>
+                <p class="ae-hint">No keyframes yet — scrub to a time and drag a joint (auto-keys), or hit "Key pose".</p>
             }
             @foreach (var row in AllKeyframes())
             {
                 <div class="ae-kf-row">
-                    <span class="ae-kf-label">@PartLabel(row.Part) / @row.Chan</span>
-                    <input type="number" step="1" value="@row.Kf.TimeMs"
-                           @onchange="e => UpdateKfTime(row.Kf, row.Part, row.Chan, e)" />
+                    <span class="ae-kf-label">@PartLabel(row.Part)</span>
+                    <input type="number" step="1" value="@row.Key.TimeMs"
+                           @onchange="e => UpdateKfTime(row.Part, row.Key, e)" />
                     <span>ms</span>
-                    <input type="number" step="0.01" value="@row.Kf.Value"
-                           @onchange="e => UpdateKfValue(row.Kf, e)" />
-                    <button class="ae-del" @onclick="() => DeleteKf(row.Part, row.Chan, row.Kf)">&times;</button>
+                    <span class="ae-kf-summary">@KeySummary(row.Part, row.Key)</span>
+                    <button class="ae-del" @onclick="() => DeleteKf(row.Part, row.Key)">&times;</button>
                 </div>
             }
         </div>
@@ -156,10 +158,15 @@
 @code {
     private const string CanvasId = "anim-editor-canvas";
 
-    private sealed class Keyframe
+    // A keyframe is a COUPLED snapshot of a whole part's pose at a time — all
+    // of the part's channels together (root: yaw,pitch,dy; arm: ex,ey,ez,hx,
+    // hy,hz), never per-channel. That coupling is what makes interpolation
+    // smooth (every channel shares the same key-times) and lets you pose the
+    // elbow and hand independently without one resetting the other.
+    private sealed class PoseKey
     {
         public double TimeMs { get; set; }
-        public double Value { get; set; }
+        public double[] Vals { get; set; } = [];
     }
 
     // Selectable parts. "0" = root (plain FK). Each arm exposes its ELBOW and
@@ -201,20 +208,44 @@
         ("hz", "Z (fwd/back)", -22, 22),
     ];
 
-    // Maps a selection ("R-elbow") to its voxel.js track key ("R"); root and
-    // any unknown value pass through unchanged.
+    // The full, ordered channel set for an arm part ("R"/"L") — elbow first,
+    // then hand. A PoseKey.Vals for an arm is these six values, in this order;
+    // ChanIndex maps a channel key to its slot.
+    private static readonly (string Key, string Label, double Min, double Max)[] ArmChannels =
+        [.. ElbowChannels, .. HandChannels];
+
+    // Maps a selection ("R-elbow") to its part storage key ("R"); root and any
+    // unknown value pass through unchanged. Keyframes and the working pose are
+    // stored per part, so both joints of an arm live under one key.
     private static string StorageKey(string sel) =>
         sel.StartsWith("R-") ? "R" : sel.StartsWith("L-") ? "L" : sel;
 
+    // The full channel set of a part storage key (drives PoseKey.Vals order).
+    private static (string Key, string Label, double Min, double Max)[] PartChannels(string key) =>
+        key == "0" ? RootChannels : ArmChannels;
+
+    private static int ChanIndex(string key, string chan)
+    {
+        var chans = PartChannels(key);
+        for (int i = 0; i < chans.Length; i++) if (chans[i].Key == chan) return i;
+        return -1;
+    }
+
+    // The channels shown as sliders for the current selection: root's three,
+    // or just the selected joint's three (elbow or hand).
     private (string Key, string Label, double Min, double Max)[] CurrentChannels =>
         _selectedPart == "0" ? RootChannels
         : _selectedPart.EndsWith("-elbow") ? ElbowChannels
         : HandChannels;
 
-    // tracks[trackKey][channelKey] = keyframes, times in ms. trackKey is the
-    // JS-facing key ("0"/"R"/"L"); an arm's elbow and hand channels coexist
-    // under one key.
-    private readonly Dictionary<string, Dictionary<string, List<Keyframe>>> _tracks = new();
+    // Every part storage key that can hold keyframes.
+    private static readonly string[] PartKeys = ["0", "R", "L"];
+
+    // keys[partKey] = coupled pose keyframes (sorted by time). working[partKey]
+    // = the part's current channel values (the live/preview pose), refreshed
+    // from the keys on scrub and updated in place while editing.
+    private readonly Dictionary<string, List<PoseKey>> _keys = new();
+    private readonly Dictionary<string, double[]> _working = new();
     private readonly Dictionary<string, double> _liveValues = new();
 
     private string _selectedPart = "R-elbow";
@@ -250,18 +281,24 @@
         await PushPreview();
     }
 
-    // Direct on-canvas manipulation (see voxel.js's editorDrag handling):
-    // the drag runs entirely in JS for smooth per-frame feedback, calling
-    // back here once on release with the moved joint's final channel values
-    // (offset-from-rest). joint is "elbow" or "hand"; the three values map to
-    // that joint's channel set.
+    // Direct on-canvas manipulation (see voxel.js's editorDrag handling): the
+    // drag runs entirely in JS for smooth per-frame feedback, calling back
+    // here once on release with the moved joint's final channel values
+    // (offset-from-rest). joint is "elbow" or "hand". We write those three
+    // into the arm's working pose (leaving the OTHER joint untouched) and
+    // AUTO-KEY the whole arm coupled at the current time — so the elbow
+    // persists when you next drag the hand, and every keyed time carries a
+    // complete pose that interpolates smoothly.
     [JSInvokable]
     public async Task OnJointDrag(string side, string joint, double v0, double v1, double v2)
     {
+        var w = WorkingOf(side);
         var chans = joint == "elbow" ? ElbowChannels : HandChannels;
         var vals = new[] { v0, v1, v2 };
         for (int i = 0; i < 3; i++)
-            _liveValues[chans[i].Key] = Math.Clamp(vals[i], chans[i].Min, chans[i].Max);
+            w[ChanIndex(side, chans[i].Key)] = Math.Clamp(vals[i], chans[i].Min, chans[i].Max);
+        KeyPart(side);
+        SyncLiveFromWorking();
         await PushPreview();
         StateHasChanged();
     }
@@ -317,13 +354,29 @@
         }
     }
 
+    // Slider drag: live-preview into the working pose (no key yet). The
+    // committing key happens on @onchange (release) via KeyCurrent, matching
+    // the drag-to-auto-key model.
     private async Task OnSliderInput(string chan, ChangeEventArgs e)
     {
         if (double.TryParse(e.Value?.ToString(), out var v))
         {
+            var key = StorageKey(_selectedPart);
+            var w = WorkingOf(key);
+            var idx = ChanIndex(key, chan);
+            if (idx >= 0) w[idx] = v;
             _liveValues[chan] = v;
             await PushPreview();
         }
+    }
+
+    // Auto-key the selected part's whole current pose at the current time
+    // (from a slider release, or the explicit "Key pose" button — the latter
+    // pins a pose without moving, e.g. a rest frame at 0 ms).
+    private async Task KeyCurrent()
+    {
+        KeyPart(StorageKey(_selectedPart));
+        await PushPreview();
     }
 
     private async Task TogglePlay()
@@ -360,94 +413,98 @@
         catch (TaskCanceledException) { /* Pause clicked mid-delay */ }
     }
 
-    private List<Keyframe> GetChannelKfs(string part, string chan, bool create)
+    // The part's working (live/preview) pose, created on demand from the
+    // committed keys interpolated at the current time.
+    private double[] WorkingOf(string key)
     {
-        if (!_tracks.TryGetValue(part, out var chans))
-        {
-            if (!create) return [];
-            chans = new();
-            _tracks[part] = chans;
-        }
-        if (!chans.TryGetValue(chan, out var list))
-        {
-            if (!create) return [];
-            list = new();
-            chans[chan] = list;
-        }
-        return list;
+        if (!_working.TryGetValue(key, out var w))
+            _working[key] = w = Interpolate(key, _scrubMs);
+        return w;
     }
 
+    // Refill every part's working pose from its keys at the current time, then
+    // mirror the selected joint's three channels into the slider values.
     private void RefreshLiveValues()
+    {
+        foreach (var key in PartKeys) _working[key] = Interpolate(key, _scrubMs);
+        SyncLiveFromWorking();
+    }
+
+    private void SyncLiveFromWorking()
     {
         _liveValues.Clear();
         var key = StorageKey(_selectedPart);
+        var w = WorkingOf(key);
         foreach (var ch in CurrentChannels)
-            _liveValues[ch.Key] = Interpolate(GetChannelKfs(key, ch.Key, create: false), _scrubMs);
+        {
+            var idx = ChanIndex(key, ch.Key);
+            if (idx >= 0) _liveValues[ch.Key] = w[idx];
+        }
     }
 
-    private static double Interpolate(List<Keyframe> kfs, double timeMs)
+    // Interpolate a whole part's coupled pose at timeMs → all its channels.
+    // Clamp-holds before the first / after the last key; rest (zeros) if none.
+    private double[] Interpolate(string key, double timeMs)
     {
-        if (kfs.Count == 0) return 0;
-        var sorted = kfs.OrderBy(k => k.TimeMs).ToList();
-        if (timeMs <= sorted[0].TimeMs) return sorted[0].Value;
-        for (int i = 1; i < sorted.Count; i++)
+        var n = PartChannels(key).Length;
+        if (!_keys.TryGetValue(key, out var list) || list.Count == 0) return new double[n];
+        if (timeMs <= list[0].TimeMs) return (double[])list[0].Vals.Clone();
+        for (int i = 1; i < list.Count; i++)
         {
-            if (timeMs <= sorted[i].TimeMs)
+            if (timeMs <= list[i].TimeMs)
             {
-                var a = sorted[i - 1];
-                var b = sorted[i];
+                var a = list[i - 1];
+                var b = list[i];
                 var t = (timeMs - a.TimeMs) / (b.TimeMs - a.TimeMs);
-                return a.Value + (b.Value - a.Value) * t;
+                var outv = new double[n];
+                for (int c = 0; c < n; c++) outv[c] = a.Vals[c] + (b.Vals[c] - a.Vals[c]) * t;
+                return outv;
             }
         }
-        return sorted[^1].Value;
+        return (double[])list[^1].Vals.Clone();
     }
 
-    private async Task SetKeyframe(string chan)
+    // Upsert one coupled keyframe for a part at the current time, snapshotting
+    // its whole working pose (all channels together).
+    private void KeyPart(string key)
     {
-        var list = GetChannelKfs(StorageKey(_selectedPart), chan, create: true);
+        if (!_keys.TryGetValue(key, out var list)) _keys[key] = list = new();
         list.RemoveAll(k => Math.Abs(k.TimeMs - _scrubMs) < 1);
-        list.Add(new Keyframe { TimeMs = _scrubMs, Value = _liveValues.GetValueOrDefault(chan, 0) });
-        await PushPreview();
+        list.Add(new PoseKey { TimeMs = _scrubMs, Vals = (double[])WorkingOf(key).Clone() });
+        list.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
     }
 
-    private async Task DeleteKf(string part, string chan, Keyframe kf)
+    private async Task DeleteKf(string part, PoseKey kf)
     {
-        GetChannelKfs(part, chan, create: false).Remove(kf);
+        if (_keys.TryGetValue(part, out var list)) list.Remove(kf);
         RefreshLiveValues();
         await PushPreview();
     }
 
-    private async Task UpdateKfTime(Keyframe kf, string part, string chan, ChangeEventArgs e)
+    private async Task UpdateKfTime(string part, PoseKey kf, ChangeEventArgs e)
     {
         if (double.TryParse(e.Value?.ToString(), out var v))
         {
             kf.TimeMs = Math.Max(0, Math.Min(_durationMs, v));
+            if (_keys.TryGetValue(part, out var list)) list.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
             RefreshLiveValues();
             await PushPreview();
         }
     }
 
-    private async Task UpdateKfValue(Keyframe kf, ChangeEventArgs e)
-    {
-        if (double.TryParse(e.Value?.ToString(), out var v))
-        {
-            kf.Value = v;
-            RefreshLiveValues();
-            await PushPreview();
-        }
-    }
-
-    private sealed record KfRow(string Part, string Chan, Keyframe Kf);
+    private sealed record KfRow(string Part, PoseKey Key);
 
     private List<KfRow> AllKeyframes() =>
-        _tracks
-            .SelectMany(p => p.Value.SelectMany(c => c.Value.Select(kf => new KfRow(p.Key, c.Key, kf))))
-            .OrderBy(r => r.Part).ThenBy(r => r.Chan).ThenBy(r => r.Kf.TimeMs)
+        _keys
+            .SelectMany(p => p.Value.Select(kf => new KfRow(p.Key, kf)))
+            .OrderBy(r => r.Part).ThenBy(r => r.Key.TimeMs)
             .ToList();
 
-    // Labels a track storage key ("0"/"R"/"L") for the keyframe list; the
-    // channel name (ex.. vs hx..) already distinguishes elbow from hand.
+    // Compact one-line preview of a coupled key's values for the list.
+    private static string KeySummary(string part, PoseKey kf) =>
+        string.Join(" ", PartChannels(part).Select((c, i) => $"{c.Key}:{kf.Vals[i]:0.#}"));
+
+    // Labels a part storage key ("0"/"R"/"L") for the keyframe list.
     private static string PartLabel(string key) => key switch
     {
         "0" => "Root (body)",
@@ -456,31 +513,32 @@
         _   => Parts.FirstOrDefault(p => p.Key == key).Label ?? key,
     };
 
-    // Builds the committed-keyframe payload (normalized 0-1 time, matching
-    // voxel.js's lerpKeys convention) for every part/channel that has any
-    // real keyframes.
+    // Expands each part's coupled pose keys into the per-channel JS shape
+    // (voxel.js consumes tracks[key][chan] = [[p,v],…] and interpolates per
+    // channel). Because every channel of a part shares the SAME key-times,
+    // per-channel interpolation reproduces the coupled motion exactly.
     private Dictionary<string, Dictionary<string, double[][]>> BuildPayload()
     {
         var payload = new Dictionary<string, Dictionary<string, double[][]>>();
-        foreach (var (part, chans) in _tracks)
+        foreach (var (part, list) in _keys)
         {
+            if (list.Count == 0) continue;
+            var chans = PartChannels(part);
+            var sorted = list.OrderBy(k => k.TimeMs).ToList();
             var partObj = new Dictionary<string, double[][]>();
-            foreach (var (chan, kfs) in chans)
-            {
-                if (kfs.Count == 0) continue;
-                partObj[chan] = kfs.OrderBy(k => k.TimeMs)
-                                   .Select(k => new[] { k.TimeMs / _durationMs, k.Value })
-                                   .ToArray();
-            }
-            if (partObj.Count > 0) payload[part] = partObj;
+            for (int c = 0; c < chans.Length; c++)
+                partObj[chans[c].Key] = sorted
+                    .Select(k => new[] { k.TimeMs / _durationMs, k.Vals[c] })
+                    .ToArray();
+            payload[part] = partObj;
         }
         return payload;
     }
 
-    // Pushes the committed keyframes to the JS pose override, plus the
-    // selected part's live slider values overlaid at the current scrub
-    // time — so dragging a slider (or just scrubbing) previews instantly
-    // without becoming a permanent keyframe until "Set KF" is clicked.
+    // Pushes the committed keys to the JS pose override, plus the selected
+    // part's whole working pose overlaid at the current scrub time — so a
+    // slider drag (or a scrub) previews instantly. Auto-key already commits
+    // drags, so the overlay mainly covers pre-release slider preview.
     private async Task PushPreview()
     {
         var payload = BuildPayload();
@@ -491,12 +549,14 @@
             payload[key] = partObj;
         }
         var pNorm = _scrubMs / _durationMs;
-        foreach (var ch in CurrentChannels)
+        var chans = PartChannels(key);
+        var w = WorkingOf(key);
+        for (int c = 0; c < chans.Length; c++)
         {
-            var existing = partObj.TryGetValue(ch.Key, out var arr) ? arr.ToList() : new List<double[]>();
+            var existing = partObj.TryGetValue(chans[c].Key, out var arr) ? arr.ToList() : new List<double[]>();
             existing.RemoveAll(pt => Math.Abs(pt[0] - pNorm) < 0.0001);
-            existing.Add([pNorm, _liveValues.GetValueOrDefault(ch.Key, 0)]);
-            partObj[ch.Key] = existing.OrderBy(pt => pt[0]).ToArray();
+            existing.Add([pNorm, w[c]]);
+            partObj[chans[c].Key] = existing.OrderBy(pt => pt[0]).ToArray();
         }
         await JS.InvokeVoidAsync("voxel.setEditorTracks", CanvasId, payload);
         await JS.InvokeVoidAsync("voxel.setEditorTime", CanvasId, _scrubMs, _durationMs);
@@ -504,38 +564,49 @@
 
     private async Task ClearAll()
     {
-        _tracks.Clear();
+        _keys.Clear();
         _exportText = null;
         RefreshLiveValues();
         await PushPreview();
     }
 
     // A rough starting shape for a whip-style overhand throw, authored as
-    // elbow + hand offsets from rest (see computePoseV2's editor branch):
-    // the elbow lifts up and forward, the hand cocks up above the shoulder,
-    // then the forearm snaps forward through the throw before settling back
-    // to hanging. A starting point to tweak live (mostly by dragging), not a
-    // finished curve.
+    // coupled per-part pose keys (elbow + hand offsets from rest, see
+    // computePoseV2's editor branch): the elbow lifts up and forward, the
+    // hand cocks up above the shoulder, then the forearm snaps forward
+    // through the throw before settling back to hanging. A starting point to
+    // tweak live (mostly by dragging), not a finished curve.
     private async Task LoadWhipDefault()
     {
-        _tracks.Clear();
+        _keys.Clear();
         _durationMs = 480;
-        void Seed(string part, string chan, params (double p, double v)[] pts)
+        // Coupled arm keys: [ex,ey,ez, hx,hy,hz] at each normalized time.
+        void SeedArm(string part, params (double p, double[] v)[] pts)
         {
-            var list = GetChannelKfs(part, chan, create: true);
-            foreach (var (p, v) in pts) list.Add(new Keyframe { TimeMs = p * _durationMs, Value = v });
+            var list = _keys[part] = new();
+            foreach (var (p, v) in pts) list.Add(new PoseKey { TimeMs = p * _durationMs, Vals = v });
         }
-        // Weapon arm: elbow raises up/forward; hand curls up (cock) then the
-        // forearm swings forward (throw).
-        Seed("R", "ey", (0, 0), (0.25, 8),  (0.4, 13), (0.55, 10), (1, 0));
-        Seed("R", "ez", (0, 0), (0.25, 3),  (0.4, 5),  (0.55, 7),  (1, 0));
-        Seed("R", "hy", (0, 0), (0.25, 6),  (0.4, 12), (0.55, -2), (1, 0));
-        Seed("R", "hz", (0, 0), (0.25, 4),  (0.4, 2),  (0.55, 14), (1, 0));
-        // Off arm: a small counter-raise of the elbow.
-        Seed("L", "ey", (0, 0), (0.4, 6), (0.55, 3), (1, 0));
-        // Body drive.
-        Seed("0", "yaw", (0, 0), (0.4, 0.28), (0.55, 0.42), (1, 0));
-        Seed("0", "dy",  (0, 0), (0.4, -0.4), (0.55, -1.0), (1, 0));
+        void SeedRoot(params (double p, double[] v)[] pts) // [yaw,pitch,dy]
+        {
+            var list = _keys["0"] = new();
+            foreach (var (p, v) in pts) list.Add(new PoseKey { TimeMs = p * _durationMs, Vals = v });
+        }
+        SeedArm("R",
+            (0,    [0, 0,  0, 0, 0,  0]),
+            (0.25, [0, 8,  3, 0, 6,  4]),
+            (0.4,  [0, 13, 5, 0, 12, 2]),
+            (0.55, [0, 10, 7, 0, -2, 14]),
+            (1,    [0, 0,  0, 0, 0,  0]));
+        SeedArm("L",
+            (0,    [0, 0, 0, 0, 0, 0]),
+            (0.4,  [0, 6, 0, 0, 0, 0]),
+            (0.55, [0, 3, 0, 0, 0, 0]),
+            (1,    [0, 0, 0, 0, 0, 0]));
+        SeedRoot(
+            (0,    [0,    0, 0]),
+            (0.4,  [0.28, 0, -0.4]),
+            (0.55, [0.42, 0, -1.0]),
+            (1,    [0,    0, 0]));
         _selectedPart = "R-elbow";
         RefreshLiveValues();
         await SyncEditorJoint();
@@ -546,16 +617,17 @@
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"// duration: {_durationMs:0} ms");
-        foreach (var (part, chans) in _tracks.OrderBy(p => p.Key))
+        foreach (var (part, list) in _keys.OrderBy(p => p.Key))
         {
-            if (chans.All(c => c.Value.Count == 0)) continue;
+            if (list.Count == 0) continue;
+            var chans = PartChannels(part);
+            var sorted = list.OrderBy(k => k.TimeMs).ToList();
             sb.AppendLine($"// {PartLabel(part)} ({part})");
-            foreach (var (chan, kfs) in chans)
+            for (int c = 0; c < chans.Length; c++)
             {
-                if (kfs.Count == 0) continue;
-                var pts = string.Join(", ", kfs.OrderBy(k => k.TimeMs)
-                    .Select(k => $"[{(k.TimeMs / _durationMs):0.###}, {k.Value:0.###}]"));
-                sb.AppendLine($"{chan} = lerpKeys(p, [{pts}]);");
+                var pts = string.Join(", ", sorted
+                    .Select(k => $"[{(k.TimeMs / _durationMs):0.###}, {k.Vals[c]:0.###}]"));
+                sb.AppendLine($"{chans[c].Key} = lerpKeys(p, [{pts}]);");
             }
         }
         sb.AppendLine();
