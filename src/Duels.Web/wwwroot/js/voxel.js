@@ -900,12 +900,14 @@
                 (ATTACK_POSES[atk.kind] ?? ATTACK_POSES.slash)(p, ensure(RU));
                 if (atk.kind === 'lash') {
                     // RL is relative to the upper arm (RU), which itself
-                    // holds near-vertical through the swing — so this curve
-                    // is what actually swings the hand back behind/above
-                    // the shoulder (adding rotation past where RU stopped)
-                    // while the elbow joint stays fixed in front, then
-                    // straightens out (drops toward 0) for the throw.
-                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.25, 1.1], [0.4, 1.75], [0.55, 0.1], [1, 0]]);
+                    // holds near-vertical through the swing so the elbow
+                    // stays in front of the face. Confirmed empirically
+                    // (calibration harness): NEGATIVE RL pitch is what
+                    // swings the forearm back and up so the hand ends
+                    // above the shoulder — positive curls it forward and
+                    // down toward the hip instead, which was the bug.
+                    // Snaps back toward 0 (straight) for the throw.
+                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.25, -1.5], [0.4, -2.8], [0.55, 0.1], [1, 0]]);
                 } else {
                     ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
                 }
