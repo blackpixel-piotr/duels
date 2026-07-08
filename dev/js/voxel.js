@@ -1084,6 +1084,16 @@
         const ws = actorWorldScale(actor, W, H);
         const psTot = a.scale * ps * ws;
 
+        // Physics whip: simulate against this frame's posed hand, then draw in
+        // two passes straddling the body blit below so the sprite occludes
+        // lash segments that swing behind the actor instead of always
+        // rendering on top — compared per-segment against the actor's own
+        // screen depth (p.rz), the same value the body sprite is anchored at.
+        if (actor.lash) {
+            updateLash(actor, pose, now);
+            drawLash(actor.st, ctx, actor, W, H, p.rz, 'back');
+        }
+
         // Shadow on ground plane (player only — no distracting circle under every NPC).
         if (actor === actor.st.player) {
             ctx.fillStyle = `rgba(0,0,0,${0.30 * a.alpha})`;
@@ -1104,12 +1114,7 @@
             (ay + a.dy - (r.h - actor.model.radius * r.S * TILT - 1) * psTot) | 0,
             bw, bh);
         ctx.globalAlpha = 1;
-        // Physics whip: simulate against this frame's posed hand, then draw
-        // over the actor (the lash spends most of its life on the near side).
-        if (actor.lash) {
-            updateLash(actor, pose, now);
-            drawLash(actor.st, ctx, actor, W, H);
-        }
+        if (actor.lash) drawLash(actor.st, ctx, actor, W, H, p.rz, 'front');
         // Eating: crumbs fall from the mouth on each chew beat; the held
         // food disappears with the anim.
         const eat = actor.anims.find(t => t.type === 'eat');
@@ -1334,19 +1339,14 @@
         lash.anchor = { x: ax, y: ay, z: az };
     }
 
-    // Voxel-style rope, drawn in two passes:
-    //  1. a continuous tapered stroke per inter-node segment (not a sampled
-    //     square) — guarantees no gaps regardless of how close together or
-    //     far apart the physics nodes land on screen (a short 12-segment
-    //     rope can put adjacent nodes just 1-2px apart, which left isolated
-    //     dots under the old point-sampling approach — "pieces" instead of
-    //     a rope);
-    //  2. alternating dark/light ticks perpendicular to the cord (tilted to
-    //     suggest a twist) — a color running the LENGTH of the cord just
-    //     reads as a gradient, not texture; real braid/cord texture crosses
-    //     the WIDTH, so that's what these ticks do.
-    // Segment order is back-to-front by depth so occlusion still reads
-    // correctly; the low-res canvas + nearest-neighbor upscaling keeps
+    // Voxel-style rope: a continuous tapered stroke per inter-node segment
+    // (not a sampled square) guarantees no gaps regardless of how close
+    // together or far apart the physics nodes land on screen (a short
+    // 12-segment rope can put adjacent nodes just 1-2px apart, which left
+    // isolated dots under the old point-sampling approach — "pieces" instead
+    // of a rope). Segment order is back-to-front by depth so occlusion still
+    // reads correctly within the rope itself; the low-res canvas + nearest-
+    // neighbor upscaling keeps
     // everything looking chunky/pixelated, not smooth vector art.
     // Real bitmap texture (a downsampled, palette-quantized photo of woven
     // leather, kept as a small tileable pixel-art swatch to match the
@@ -1363,7 +1363,16 @@
         return lashTexPattern;
     }
 
-    function drawLash(st, ctx, actor, W, H) {
+    // mode 'back'/'front' picks whether the WHOLE rope draws in this pass,
+    // decided by the depth of the end still pinned to the hand (scr[0]) vs
+    // bodyRz — the actor's own screen depth. The two calls straddle the
+    // body blit in drawActor so the sprite occludes the entire lash when
+    // it's swung behind the actor. Deciding per-rope rather than per-segment
+    // matters: splitting individual segments by their own depth could hide
+    // the segments nearest the hand while a mid-swing segment further out
+    // still qualified as "front", leaving a chunk of cord floating on
+    // screen with no visible connection back to the hand.
+    function drawLash(st, ctx, actor, W, H, bodyRz, mode) {
         const lash = actor.lash;
         if (!lash?.pts || actor.crumbled) return;
         const vpw = actor.model.height / actor.base.worldH;
@@ -1374,6 +1383,8 @@
             return { x: p.x, y: p.y - pt.y * p.px * ps,
                      rz: p.rz, S: p.px * ps / vpw }; // px per voxel at depth
         });
+        const isBack = scr[0].rz < bodyRz;
+        if ((mode === 'back') !== isBack) return;
 
         // Base cord: one continuous tapered stroke per inter-node segment
         // (guarantees no gaps regardless of on-screen node spacing), filled
