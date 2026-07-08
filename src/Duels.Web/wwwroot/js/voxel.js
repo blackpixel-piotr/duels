@@ -1393,13 +1393,15 @@
             ctx.stroke();
         }
 
-        // Braid texture: a color running the LENGTH of the cord just reads
-        // as a gradient, not a texture — real braided/corded rope shows as
-        // wraps crossing the WIDTH. Overlay short alternating dark/light
-        // ticks perpendicular to the cord's local direction (tilted to
-        // suggest a twist), spaced by actual on-screen pixels so it reads
-        // the same at any zoom or rope length.
-        let tick = 0;
+        // Rope twist: real twisted rope/leather cord reads as ONE continuous
+        // helical strand line winding along its length — not a repeating
+        // chevron pattern (which reads as "math", not material). Trace a
+        // single sine-offset path (perpendicular to the local tangent,
+        // period tied to the cord's own on-screen width so it reads the
+        // same at any zoom) and stroke it once as a thin dark line over
+        // the solid base — a classic twisted-cord pixel-art technique.
+        const spiral = [];
+        let arc = 0;
         for (let i = 0; i < n - 1; i++) {
             const A = scr[i], B = scr[i + 1];
             const t = i / (n - 1);
@@ -1408,22 +1410,22 @@
             const segLen = Math.hypot(dx, dy) || 1e-6;
             const tx = dx / segLen, ty = dy / segLen;   // tangent
             const px = -ty, py = tx;                    // perpendicular
-            const spacing = Math.max(1.6, width * 0.85);
-            const steps = Math.max(1, Math.round(segLen / spacing));
-            for (let k = (i > 0 ? 1 : 0); k <= steps; k++) {
-                const q = k / steps;
-                const x = A.x + dx * q, y = A.y + dy * q;
-                const half = width * 0.45;
-                const ang = (tick % 2 === 0) ? 0.55 : -0.55; // alternate tilt = twist
-                const ex = px * Math.cos(ang) + tx * Math.sin(ang);
-                const ey = py * Math.cos(ang) + ty * Math.sin(ang);
-                ctx.strokeStyle = (tick++ % 2 === 0) ? lash.dark : lash.light;
-                ctx.lineWidth = Math.max(1, width * 0.24);
-                ctx.beginPath();
-                ctx.moveTo(x - ex * half, y - ey * half);
-                ctx.lineTo(x + ex * half, y + ey * half);
-                ctx.stroke();
+            const period = Math.max(3, width * 1.6);    // one twist per ~1.6 widths
+            const sub = Math.max(1, Math.round(segLen / (period * 0.15)));
+            for (let k = (i > 0 ? 1 : 0); k <= sub; k++) {
+                const q = k / sub;
+                const s = arc + segLen * q;
+                const off = Math.sin((s / period) * 6.2832) * width * 0.3;
+                spiral.push({ x: A.x + dx * q + px * off, y: A.y + dy * q + py * off, width });
             }
+            arc += segLen;
+        }
+        if (spiral.length > 1) {
+            ctx.strokeStyle = lash.dark;
+            ctx.lineWidth = Math.max(1, spiral[0].width * 0.16);
+            ctx.beginPath();
+            spiral.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+            ctx.stroke();
         }
         ctx.restore();
     }

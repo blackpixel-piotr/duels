@@ -655,8 +655,8 @@
     "len": 1.15,
     "segs": 12,
     "top": -2,
-    "color": "#9646be",
-    "dark": "#3c1e50"
+    "color": "#8c5a32",
+    "dark": "#4b2d16"
    }
   },
   "corrupted_whip": {
@@ -669,8 +669,8 @@
     "len": 1.15,
     "segs": 12,
     "top": -2,
-    "color": "#50c878",
-    "dark": "#183c28"
+    "color": "#786437",
+    "dark": "#3c3018"
    }
   },
   "armadyl_sword": {

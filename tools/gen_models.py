@@ -651,8 +651,8 @@ WEAPONS = {
     'dragon_dagger':      lambda: w_dagger((170, 48, 48)),
     'venomous_fang':      lambda: w_dagger((214, 208, 190), jagged=True),
     'ghrazi_rapier':      lambda: w_rapier((215, 220, 228)),
-    'abyssal_whip':       lambda: w_whip((150, 70, 190), (60, 30, 80)),
-    'corrupted_whip':     lambda: w_whip((80, 200, 120), (24, 60, 40)),
+    'abyssal_whip':       lambda: w_whip((140, 90, 50), (75, 45, 22)),   # aged leather
+    'corrupted_whip':     lambda: w_whip((120, 100, 55), (60, 48, 24)), # olive-tinted leather
     'armadyl_sword':      lambda: blade_sword((215, 220, 228), (238, 210, 120), l=14),
     'bandos_godsword':    lambda: w_godsword((205, 210, 218), (150, 130, 60)),
     'zamorak_godsword':   lambda: w_godsword((205, 210, 218), (180, 44, 40)),
