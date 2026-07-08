@@ -1136,15 +1136,6 @@
         return a;
     }
 
-    // Lighten a '#rrggbb' color toward white by fraction amt (0-1) — used to
-    // derive the lash's highlight tone from its base color.
-    function tintHex(hex, amt) {
-        const n = parseInt(hex.slice(1), 16);
-        const f = v => Math.min(255, Math.round(v + (255 - v) * amt));
-        return `#${[f((n >> 16) & 255), f((n >> 8) & 255), f(n & 255)]
-            .map(v => v.toString(16).padStart(2, '0')).join('')}`;
-    }
-
     // Attach a weapon model to an actor's hand: weapon voxels are translated
     // grip→hand, tagged as the weapon arm, and given remapped color indices so
     // they can carry their own shade table into the merged render list. The
@@ -1183,8 +1174,6 @@
             segs: lashCfg.segs ?? 12,
             segLen: (lashCfg.len ?? 1.15) / (lashCfg.segs ?? 12),
             color: lashCfg.color ?? '#a050d8',
-            dark: lashCfg.dark ?? '#503060',
-            light: tintHex(lashCfg.color ?? '#a050d8', 0.4), // braid highlight
             // model-space anchor: top of the handle, riding the arm chain
             anchorM: [hand[0], hand[1] + (lashCfg.top ?? 3), hand[2]],
             pts: null, lastT: 0,
@@ -1359,6 +1348,21 @@
     // Segment order is back-to-front by depth so occlusion still reads
     // correctly; the low-res canvas + nearest-neighbor upscaling keeps
     // everything looking chunky/pixelated, not smooth vector art.
+    // Real bitmap texture (a downsampled, palette-quantized photo of woven
+    // leather, kept as a small tileable pixel-art swatch to match the
+    // game's art style) instead of any procedurally-drawn pattern. Loaded
+    // once and cached as a repeating CanvasPattern.
+    let lashTexImg = null, lashTexPattern = null;
+    function getLashPattern(ctx) {
+        if (!lashTexImg) {
+            lashTexImg = new Image();
+            lashTexImg.src = 'assets/textures/whip_rope.png';
+        }
+        if (!lashTexPattern && lashTexImg.complete && lashTexImg.naturalWidth > 0)
+            lashTexPattern = ctx.createPattern(lashTexImg, 'repeat');
+        return lashTexPattern;
+    }
+
     function drawLash(st, ctx, actor, W, H) {
         const lash = actor.lash;
         if (!lash?.pts || actor.crumbled) return;
@@ -1371,60 +1375,27 @@
                      rz: p.rz, S: p.px * ps / vpw }; // px per voxel at depth
         });
 
-        // Base cord: one continuous tapered stroke per inter-node segment,
-        // solid mid-tone — guarantees no gaps regardless of on-screen node
-        // spacing (see the "isolated dots" bug this replaced).
+        // Base cord: one continuous tapered stroke per inter-node segment
+        // (guarantees no gaps regardless of on-screen node spacing), filled
+        // with the woven-leather pattern — falls back to a flat color for
+        // the handful of frames before the texture image finishes loading.
+        const pattern = getLashPattern(ctx);
         const segsArr = [];
         for (let i = 0; i < n - 1; i++) {
             const A = scr[i], B = scr[i + 1];
             const t = i / (n - 1);
-            const width = Math.max(2.6, A.S * (2.6 - 1.0 * t)); // thicker; tapers to the tip
+            const width = Math.max(2.6, A.S * (2.6 - t));
             segsArr.push({ A, B, width, rz: (A.rz + B.rz) / 2 });
         }
         segsArr.sort((a, b) => a.rz - b.rz);
         ctx.save();
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         for (const s of segsArr) {
-            ctx.strokeStyle = lash.color;
+            ctx.strokeStyle = pattern ?? lash.color;
             ctx.lineWidth = s.width;
             ctx.beginPath();
             ctx.moveTo(s.A.x, s.A.y);
             ctx.lineTo(s.B.x, s.B.y);
-            ctx.stroke();
-        }
-
-        // Rope twist: real twisted rope/leather cord reads as ONE continuous
-        // helical strand line winding along its length — not a repeating
-        // chevron pattern (which reads as "math", not material). Trace a
-        // single sine-offset path (perpendicular to the local tangent,
-        // period tied to the cord's own on-screen width so it reads the
-        // same at any zoom) and stroke it once as a thin dark line over
-        // the solid base — a classic twisted-cord pixel-art technique.
-        const spiral = [];
-        let arc = 0;
-        for (let i = 0; i < n - 1; i++) {
-            const A = scr[i], B = scr[i + 1];
-            const t = i / (n - 1);
-            const width = Math.max(2.6, A.S * (2.6 - 1.0 * t));
-            const dx = B.x - A.x, dy = B.y - A.y;
-            const segLen = Math.hypot(dx, dy) || 1e-6;
-            const tx = dx / segLen, ty = dy / segLen;   // tangent
-            const px = -ty, py = tx;                    // perpendicular
-            const period = Math.max(3, width * 1.6);    // one twist per ~1.6 widths
-            const sub = Math.max(1, Math.round(segLen / (period * 0.15)));
-            for (let k = (i > 0 ? 1 : 0); k <= sub; k++) {
-                const q = k / sub;
-                const s = arc + segLen * q;
-                const off = Math.sin((s / period) * 6.2832) * width * 0.3;
-                spiral.push({ x: A.x + dx * q + px * off, y: A.y + dy * q + py * off, width });
-            }
-            arc += segLen;
-        }
-        if (spiral.length > 1) {
-            ctx.strokeStyle = lash.dark;
-            ctx.lineWidth = Math.max(1, spiral[0].width * 0.16);
-            ctx.beginPath();
-            spiral.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
             ctx.stroke();
         }
         ctx.restore();
