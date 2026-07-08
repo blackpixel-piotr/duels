@@ -587,6 +587,9 @@ html, body {
 .hub-card-beg .hub-card-title { color: var(--text-dim); }
 .hub-card-test { border-color: #1a3a4a; border-style: dashed; }
 .hub-card-test .hub-card-title { color: #4fc3f7; }
+.hub-card-anim-editor { border-color: #3a2a4a; border-style: dashed; text-decoration: none; }
+.hub-card-anim-editor, .hub-card-anim-editor:visited { color: var(--text); }
+.hub-card-anim-editor .hub-card-title { color: var(--purple); }
 
 /* ─── Stats panel ─── */
 .stats-panel, .inventory-panel, .equipment-panel {
