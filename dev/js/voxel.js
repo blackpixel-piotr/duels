@@ -1182,6 +1182,31 @@
         return st;
     }
 
+    // Animation editor (AnimEditor.razor): screen position of a hand-target
+    // IK handle ('R'/'L'), for drawing a grab handle and hit-testing
+    // pointer-down against it. Mirrors renderModel's per-voxel local
+    // rotation + TILT shear followed by the offscreen blit's own scale and
+    // offset — the same pipeline the actual arm voxels go through, so the
+    // handle tracks the rendered hand exactly.
+    function editorHandScreenPos(actor, r, destX, destY, psTot, side) {
+        const parts = actor.rig.parts;
+        const ruPiv = parts[side === 'R' ? 2 : 3].pivot;
+        const cp = actor.customPose;
+        const trk = cp?.tracks?.[side] ?? {};
+        const p = cp?.p ?? 0;
+        const tx = trk.x?.length ? lerpKeys(p, trk.x) : 0;
+        const ty = trk.y?.length ? lerpKeys(p, trk.y) : 0;
+        const tz = trk.z?.length ? lerpKeys(p, trk.z) : 0;
+        const lx = ruPiv[0] + tx, ly = ruPiv[1] + ty, lz = (ruPiv[2] || 0) + tz;
+        const angle = actor.st.camYaw - actor.facing;
+        const c = Math.cos(angle), sn = Math.sin(angle);
+        const rx = lx * c - lz * sn, rz = lx * sn + lz * c;
+        const baseY = r.h - actor.model.radius * TILT * r.S - r.S - 1;
+        const offX = r.w / 2 + rx * r.S;
+        const offY = baseY - ly * r.S + rz * r.S * TILT;
+        return { x: destX + offX * psTot, y: destY + offY * psTot };
+    }
+
     // Draws an actor. Crumbled actors are gone — their voxels are particles.
     function drawActor(ctx, W, H, actor, other, now, windup) {
         if (actor.crumbled) return null;
@@ -1255,6 +1280,24 @@
             }
         } else if (actor.foodVox) {
             attachFood(actor, null);
+        }
+
+        // Animation editor: a draggable handle for the selected hand's IK
+        // target — direct manipulation instead of sliders, since sliders
+        // don't fit (or work well with touch) on a phone screen. Cached on
+        // the actor for onDown's hit-test.
+        if (actor.st.editorMode && actor === actor.st.player && actor.st.editorSelectedJoint) {
+            const hp = editorHandScreenPos(actor, r, destX, destY, psTot, actor.st.editorSelectedJoint);
+            actor.editorHandleScreen = hp;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(hp.x, hp.y, 7, 0, 6.2832);
+            ctx.fillStyle = actor.st.editorDrag ? '#ffe066' : '#4fc3f7';
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#000';
+            ctx.stroke();
+            ctx.restore();
         }
         return a;
     }
@@ -2045,6 +2088,33 @@
             canvas.setPointerCapture(ev.pointerId);
             st.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
             if (st.pointers.size === 1) {
+                // Animation editor: grab the selected joint's handle instead
+                // of orbiting, if the gesture starts on it (see drawActor's
+                // handle draw, editorHandScreenPos, and the pointermove
+                // branch below).
+                if (st.editorMode && st.editorSelectedJoint && st.player.editorHandleScreen) {
+                    const rect = canvas.getBoundingClientRect();
+                    const sx = (ev.clientX - rect.left) / rect.width * canvas.width;
+                    const sy = (ev.clientY - rect.top) / rect.height * canvas.height;
+                    const hp = st.player.editorHandleScreen;
+                    const hitR = 28 * (canvas.width / rect.width); // generous for touch
+                    if (Math.hypot(sx - hp.x, sy - hp.y) < hitR) {
+                        const side = st.editorSelectedJoint;
+                        const cp = (st.player.customPose ??= { p: 0, tracks: {} });
+                        const trk = cp.tracks[side] ?? {};
+                        const p0 = cp.p ?? 0;
+                        st.editorDrag = {
+                            side,
+                            startClientX: ev.clientX, startClientY: ev.clientY,
+                            start: {
+                                x: trk.x?.length ? lerpKeys(p0, trk.x) : 0,
+                                y: trk.y?.length ? lerpKeys(p0, trk.y) : 0,
+                                z: trk.z?.length ? lerpKeys(p0, trk.z) : 0,
+                            },
+                        };
+                        return;
+                    }
+                }
                 st.drag = { x: ev.clientX, y: ev.clientY, yaw0: st.camYaw, moved: 0 };
             } else if (st.pointers.size === 2) {
                 const pts = [...st.pointers.values()];
@@ -2059,6 +2129,38 @@
         };
         st.onMove = ev => {
             st.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+            if (st.editorDrag) {
+                // Screen delta → a target delta in the actor's own
+                // model-local space. Vertical drag maps straight to height
+                // (Y isn't touched by the camera's local-facing rotation);
+                // horizontal drag moves along whatever direction currently
+                // reads as "sideways" on screen, holding depth fixed — so a
+                // depth adjustment is just "orbit 90°, then drag sideways
+                // again." Inverts the same local rotation + TILT shear +
+                // blit-scale pipeline editorHandScreenPos uses to place the
+                // handle, so the drag tracks the cursor exactly.
+                const d = st.editorDrag;
+                const actor = st.player;
+                const W = canvas.width, H = canvas.height;
+                const S = actorScale(actor, W, H);
+                const psTot = actorWorldScale(actor, W, H); // player is always at camera focus: ps=1, a.scale=1
+                const angle = st.camYaw - actor.facing;
+                const c = Math.cos(angle), sn = Math.sin(angle);
+                const rect = canvas.getBoundingClientRect();
+                const pxScale = canvas.width / rect.width; // CSS px → canvas px
+                const dOffX = (ev.clientX - d.startClientX) * pxScale / psTot;
+                const dOffY = (ev.clientY - d.startClientY) * pxScale / psTot;
+                const dRxLocal = dOffX / S;
+                const dY = -dOffY / S;
+                const dX = dRxLocal * c, dZ = -dRxLocal * sn;
+                const nx = d.start.x + dX, ny = d.start.y + dY, nz = d.start.z + dZ;
+                const cp = (actor.customPose ??= { p: 0, tracks: {} });
+                const trk = (cp.tracks[d.side] ??= {});
+                const p0 = cp.p ?? 0;
+                trk.x = [[p0, nx]]; trk.y = [[p0, ny]]; trk.z = [[p0, nz]];
+                d.last = { x: nx, y: ny, z: nz };
+                return;
+            }
             if (st.pointers.size >= 2 && st.pinch) {
                 const pts = [...st.pointers.values()];
                 const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -2077,6 +2179,13 @@
             }
         };
         st.onUp = ev => {
+            if (st.editorDrag) {
+                const d = st.editorDrag;
+                st.pointers.delete(ev.pointerId);
+                if (d.last) st.dotnet?.invokeMethodAsync('OnJointDrag', d.side, d.last.x, d.last.y, d.last.z);
+                st.editorDrag = null;
+                return;
+            }
             const wasSingle = st.pointers.size === 1;
             const d = st.drag;
             st.pointers.delete(ev.pointerId);
@@ -2129,6 +2238,7 @@
             st.pointers.delete(ev.pointerId);
             if (st.pointers.size < 2) st.pinch = null;
             if (st.pointers.size === 0) st.drag = null;
+            st.editorDrag = null;
         };
         // Scroll wheel: zoom in/out.
         st.onWheel = ev => {
@@ -2754,6 +2864,25 @@
             if (!st) return;
             st.player.customPose ??= { p: 0, tracks: {} };
             st.player.customPose.p = Math.min(1, Math.max(0, ms / durationMs));
+        },
+        // Arms the given hand ('R'/'L', or null) for on-canvas drag —
+        // touch/click-dragging its handle repositions the IK target
+        // directly instead of using sliders (see drawActor's handle draw
+        // and initBattle's onDown/onMove/onUp editorDrag handling).
+        setEditorJoint(canvasId, side) {
+            const st = battles.get(canvasId);
+            if (st) st.editorSelectedJoint = side || null;
+        },
+        // Viewport-relative (clientX/Y-compatible) position of the armed
+        // hand's drag handle, for automated testing — the handle's own
+        // logical canvas position (editorHandleScreen) is in canvas pixel
+        // space, not page/CSS space.
+        getEditorHandleScreen(canvasId) {
+            const st = battles.get(canvasId);
+            if (!st?.player?.editorHandleScreen) return null;
+            const rect = st.canvas.getBoundingClientRect();
+            const sx = rect.width / st.canvas.width, sy = rect.height / st.canvas.height;
+            return { x: rect.left + st.player.editorHandleScreen.x * sx, y: rect.top + st.player.editorHandleScreen.y * sy };
         },
     };
 })();
