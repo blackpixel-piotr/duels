@@ -31,6 +31,19 @@
         </span>
     </button>
 
+    @* Relative href (not a leading-slash absolute URL) so Blazor's router
+       intercepts the click for client-side navigation regardless of
+       whether the app is mounted at /duels/ or /duels/dev/ — a direct
+       browser navigation to this URL instead hits GitHub Pages' single
+       site-wide 404.html, which loads the wrong build. *@
+    <a class="hub-card hub-card-anim-editor" href="anim-editor">
+        <span class="hub-card-icon">🎬</span>
+        <span class="hub-card-body">
+            <span class="hub-card-title">ANIM EDITOR</span>
+            <span class="hub-card-sub">Keyframe weapon poses — dev tool</span>
+        </span>
+    </a>
+
     <button class="hub-card" disabled="@Processing" @onclick="() => OnArena.InvokeAsync()">
         <span class="hub-card-icon">🏟</span>
         <span class="hub-card-body">
