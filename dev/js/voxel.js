@@ -783,21 +783,60 @@
         return { shoulderPitch: s.thigh, shoulderYaw: yaw, elbowPitch: s.shin };
     }
 
+    // Per-bone aim for the animation editor's two-handle arm rig (elbow +
+    // hand posed independently, see computePoseV2's editor branch). Returns
+    // the { pitch, yaw } that renderModel's pitch-then-yaw rotation applies
+    // to a bone's rest down-vector (0,-|t|,0) to land it exactly on the
+    // target offset (tx,ty,tz). Verified by substitution against renderModel
+    // (voxel.js:191-192): Yaw(yaw)·Pitch(pitch)·(0,-L,0) = (tx,ty,tz); the
+    // rest target (0,-L,0) gives {0,0}. No elbow bend here — each bone is
+    // aimed on its own, so shoulder→elbow→hand can't stretch or detach.
+    function aimDown(tx, ty, tz) {
+        return { pitch: Math.atan2(Math.hypot(tx, tz), -ty), yaw: Math.atan2(tx, -tz) };
+    }
+    // renderModel's per-part rotation applied to a vector: pitch about X,
+    // then yaw about Y (matches voxel.js:191-192). Used to fold a desired
+    // forearm world-direction back into the upper-arm-local frame so the
+    // child bone can be aimed within it.
+    function rotateVec(pitch, yaw, x, y, z) {
+        const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
+        const y1 = y * cp - z * sp, z1 = y * sp + z * cp;       // pitch about X
+        return [x * cy - z1 * sy, y1, x * sy + z1 * cy];        // yaw about Y
+    }
+    function invRotateVec(pitch, yaw, x, y, z) {
+        const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
+        const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;      // inverse yaw
+        return [x1, y * cp + z1 * sp, -y * sp + z1 * cp];       // inverse pitch
+    }
+    // Clamp a raw offset to an exact length L (fallback: straight down). The
+    // editor's "you can't move a joint farther than the bone allows" rule —
+    // every elbow/hand target is projected onto its bone-length sphere before
+    // it ever reaches the pose, so the chain is rigid everywhere (drag,
+    // slider, and interpolated in-between frames alike).
+    function toLen(x, y, z, L) {
+        const m = Math.hypot(x, y, z);
+        return m < 1e-4 ? [0, -L, 0] : [x / m * L, y / m * L, z / m * L];
+    }
+
     function computePoseV2(actor, now, windup) {
         const rig = actor.rig, parts = rig.parts;
         const T = new Array(parts.length).fill(null);
         // Animation editor override (see AnimEditor.razor): user-authored
         // keyframe tracks replace the normal attack/walk/stance choreography
         // entirely, so the editor can preview exactly what will ship. Each
-        // track is { pitch?, yaw?, roll?, dz?, dy? }, each channel a
-        // lerpKeys-style [[p,v],...] array in the same normalized 0-1 time
-        // used everywhere else (ATTACK_POSES, ATTACK_BODY). Two kinds of
-        // track: plain FK by part index (e.g. "0" for root), and hand IK
-        // targets keyed "R"/"L" — an (x,y,z) point relative to that side's
-        // shoulder pivot, solved each frame via solveArm into the actual
-        // shoulder/elbow angles. IK is what the editor authors against for
-        // arms: dragging a target position in 3D is unambiguous in a way
-        // pitch/yaw sliders never were (see the whip saga).
+        // track is a lerpKeys-style [[p,v],...] array in the same normalized
+        // 0-1 time used everywhere else (ATTACK_POSES, ATTACK_BODY). Two
+        // kinds of track: plain FK by part index (e.g. "0" for root,
+        // channels pitch/yaw/roll/dz/dy), and arm tracks keyed "R"/"L" that
+        // author the ELBOW and HAND positions directly — six channels,
+        // ex,ey,ez (elbow) and hx,hy,hz (hand), all offsets FROM REST in
+        // model-local voxels (see the per-joint frames below). The two joints
+        // are posed independently (drag the elbow, then the hand), but every
+        // frame both are projected onto their bone-length spheres, so the
+        // shoulder→elbow→hand chain is always rigidly connected and can't be
+        // pushed past the arm's reach. (This replaced a single hand IK
+        // target whose auto-solved elbow drifted and detached — see the whip
+        // saga.)
         if (actor.customPose) {
             const { p, tracks } = actor.customPose;
             for (const key of Object.keys(tracks)) {
@@ -809,22 +848,52 @@
                     if (chans[ch]?.length) t[ch] = lerpKeys(p, chans[ch]);
                 T[i] = t;
             }
+            actor.editorJoints = {};
             const armDefs = { R: [2, 6], L: [3, 7] };
             for (const side of ['R', 'L']) {
                 const trk = tracks[side];
                 if (!trk) continue;
                 const [ruIdx, rlIdx] = armDefs[side];
-                const tx = trk.x?.length ? lerpKeys(p, trk.x) : 0;
-                const ty = trk.y?.length ? lerpKeys(p, trk.y) : 0;
-                const tz = trk.z?.length ? lerpKeys(p, trk.z) : 0;
                 const ruPiv = parts[ruIdx].pivot, rlPiv = parts[rlIdx].pivot;
                 const L1 = ruPiv[1] - rlPiv[1];
                 const L2 = rlPiv[1] - (rig.hand ? rig.hand[1] : rlPiv[1] - 7);
-                const sol = solveArm(L1, L2, tx, ty, tz);
-                T[ruIdx] = { pivot: ruPiv, pitch: sol.shoulderPitch, yaw: sol.shoulderYaw, roll: 0, dz: 0, dy: 0 };
-                T[rlIdx] = { pivot: rlPiv, pitch: sol.elbowPitch, yaw: 0, roll: 0, dz: 0, dy: 0 };
+                // Channels are offsets FROM REST (0 = arm hanging straight
+                // down), so an un-keyframed arm rests and the sliders read 0
+                // at rest. Elbow = offset from rest (0,-L1,0) relative to the
+                // shoulder; hand = the forearm's bend, stored in the UPPER-
+                // ARM-LOCAL frame as an offset from rest (0,-L2,0) relative to
+                // the elbow. Both are projected onto their bone-length spheres
+                // every frame (toLen) — that's the rigid-chain guarantee. And
+                // storing the hand LOCAL to the upper arm is what makes an
+                // elbow drag carry the hand rigidly for free: the bend is
+                // untouched, so the forearm just swings with the upper arm.
+                const val = ch => trk[ch]?.length ? lerpKeys(p, trk[ch]) : 0;
+                const E = toLen(val('ex'), -L1 + val('ey'), val('ez'), L1);
+                const up = aimDown(E[0], E[1], E[2]);
+                const handLocal = toLen(val('hx'), -L2 + val('hy'), val('hz'), L2);
+                const fore = aimDown(handLocal[0], handLocal[1], handLocal[2]);
+                // World hand = elbow + the forearm direction rotated by the
+                // upper arm.
+                const HrelWorld = rotateVec(up.pitch, up.yaw, handLocal[0], handLocal[1], handLocal[2]);
+                const Hf = [E[0] + HrelWorld[0], E[1] + HrelWorld[1], E[2] + HrelWorld[2]];
+                T[ruIdx] = { pivot: ruPiv, pitch: up.pitch, yaw: up.yaw, roll: 0, dz: 0, dy: 0 };
+                T[rlIdx] = { pivot: rlPiv, pitch: fore.pitch, yaw: fore.yaw, roll: 0, dz: 0, dy: 0 };
+                // Stash for the drag handles (see editorJointScreenPos,
+                // drawActor, onMove): elbowModel/handModel are model-local
+                // points (shoulder pivot + offset) for screen projection; E/Hf
+                // are the same offsets relative to the shoulder, and up is the
+                // upper-arm rotation — the drag constraint math works in these.
+                actor.editorJoints[side] = {
+                    elbowModel: [ruPiv[0] + E[0], ruPiv[1] + E[1], ruPiv[2] + E[2]],
+                    handModel:  [ruPiv[0] + Hf[0], ruPiv[1] + Hf[1], ruPiv[2] + Hf[2]],
+                    E, Hf, up, L1, L2,
+                };
             }
-            return T;
+            // Link each posed part to its nearest posed ancestor (foot→knee→
+            // hip→root, and crucially forearm→upper arm) so renderModel walks
+            // the joint chain — the forearm inherits the shoulder rotation
+            // instead of pivoting about its rest elbow in isolation.
+            return linkPose(parts, T);
         }
         // Root (part 0) pivots at the model's ground center so its yaw sways
         // the pelvis about the vertical axis and its roll rocks the whole
@@ -1055,8 +1124,15 @@
         }
 
         if (!T.some(t => t)) return null;
-        // Link each part to its nearest posed ancestor so renderModel walks
-        // the joint chain (foot → knee → hip → root).
+        return linkPose(parts, T);
+    }
+
+    // Link each posed part to its nearest posed ancestor (via .up) so
+    // renderModel walks the joint chain: foot → knee → hip → root, and
+    // forearm → upper arm. Without this a child bone rotates about its own
+    // rest pivot in isolation and detaches from its parent when the parent
+    // moves.
+    function linkPose(parts, T) {
         const pose = new Array(parts.length).fill(null);
         const resolve = i => {
             if (i === null || i === undefined) return null;
@@ -1182,22 +1258,13 @@
         return st;
     }
 
-    // Animation editor (AnimEditor.razor): screen position of a hand-target
-    // IK handle ('R'/'L'), for drawing a grab handle and hit-testing
-    // pointer-down against it. Mirrors renderModel's per-voxel local
-    // rotation + TILT shear followed by the offscreen blit's own scale and
-    // offset — the same pipeline the actual arm voxels go through, so the
-    // handle tracks the rendered hand exactly.
-    function editorHandScreenPos(actor, r, destX, destY, psTot, side) {
-        const parts = actor.rig.parts;
-        const ruPiv = parts[side === 'R' ? 2 : 3].pivot;
-        const cp = actor.customPose;
-        const trk = cp?.tracks?.[side] ?? {};
-        const p = cp?.p ?? 0;
-        const tx = trk.x?.length ? lerpKeys(p, trk.x) : 0;
-        const ty = trk.y?.length ? lerpKeys(p, trk.y) : 0;
-        const tz = trk.z?.length ? lerpKeys(p, trk.z) : 0;
-        const lx = ruPiv[0] + tx, ly = ruPiv[1] + ty, lz = (ruPiv[2] || 0) + tz;
+    // Animation editor (AnimEditor.razor): screen position of a model-local
+    // point [lx,ly,lz] (a posed joint), for drawing a grab handle and
+    // hit-testing pointer-down against it. Mirrors renderModel's per-voxel
+    // local rotation + TILT shear followed by the offscreen blit's own scale
+    // and offset — the same pipeline the actual arm voxels go through, so the
+    // handle tracks the rendered joint exactly.
+    function editorJointScreenPos(actor, r, destX, destY, psTot, lx, ly, lz) {
         const angle = actor.st.camYaw - actor.facing;
         const c = Math.cos(angle), sn = Math.sin(angle);
         const rx = lx * c - lz * sn, rz = lx * sn + lz * c;
@@ -1282,22 +1349,49 @@
             attachFood(actor, null);
         }
 
-        // Animation editor: a draggable handle for the selected hand's IK
-        // target — direct manipulation instead of sliders, since sliders
-        // don't fit (or work well with touch) on a phone screen. Cached on
-        // the actor for onDown's hit-test.
-        if (actor.st.editorMode && actor === actor.st.player && actor.st.editorSelectedJoint) {
-            const hp = editorHandScreenPos(actor, r, destX, destY, psTot, actor.st.editorSelectedJoint);
-            actor.editorHandleScreen = hp;
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(hp.x, hp.y, 7, 0, 6.2832);
-            ctx.fillStyle = actor.st.editorDrag ? '#ffe066' : '#4fc3f7';
-            ctx.fill();
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = '#000';
-            ctx.stroke();
-            ctx.restore();
+        // Animation editor: draggable handles for the selected arm's ELBOW
+        // and HAND — direct manipulation instead of sliders (which don't fit,
+        // or work with touch, on a phone). Draws the whole shoulder→elbow→
+        // hand chain so the rig reads at a glance; the selected joint is
+        // bright, its sibling dim, the shoulder a fixed anchor. Screen
+        // positions are cached on the actor for onDown's hit-test.
+        const sel = actor.st.editorSelectedJoint; // 'R-elbow' | 'R-hand' | 'L-…'
+        if (actor.st.editorMode && actor === actor.st.player && sel && sel.includes('-')) {
+            const [side, joint] = sel.split('-');
+            const j = actor.editorJoints?.[side];
+            const parts = actor.rig.parts;
+            const shPiv = parts[side === 'R' ? 2 : 3].pivot;
+            if (j) {
+                const scr = (pt) => editorJointScreenPos(actor, r, destX, destY, psTot, pt[0], pt[1], pt[2]);
+                const shoulder = scr(shPiv), elbow = scr(j.elbowModel), hand = scr(j.handModel);
+                actor.editorHandles = { side, shoulder, elbow, hand };
+                actor.editorHandleScreen = joint === 'hand' ? hand : elbow; // active (test helper)
+                ctx.save();
+                // Chain bones.
+                ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(shoulder.x, shoulder.y);
+                ctx.lineTo(elbow.x, elbow.y);
+                ctx.lineTo(hand.x, hand.y);
+                ctx.stroke();
+                // Shoulder: fixed anchor (small, hollow).
+                ctx.beginPath(); ctx.arc(shoulder.x, shoulder.y, 3.5, 0, 6.2832);
+                ctx.fillStyle = '#222'; ctx.fill();
+                ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff'; ctx.stroke();
+                // Elbow + hand joints; the selected one is brighter/larger and
+                // turns yellow while dragging.
+                const dot = (pos, active) => {
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, active ? 7 : 5, 0, 6.2832);
+                    ctx.fillStyle = active ? (actor.st.editorDrag ? '#ffe066' : '#4fc3f7') : '#7a8a99';
+                    ctx.fill();
+                    ctx.lineWidth = 2; ctx.strokeStyle = '#000'; ctx.stroke();
+                };
+                dot(elbow, joint === 'elbow');
+                dot(hand, joint === 'hand');
+                ctx.restore();
+            }
         }
         return a;
     }
@@ -2088,29 +2182,35 @@
             canvas.setPointerCapture(ev.pointerId);
             st.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
             if (st.pointers.size === 1) {
-                // Animation editor: grab the selected joint's handle instead
-                // of orbiting, if the gesture starts on it (see drawActor's
-                // handle draw, editorHandScreenPos, and the pointermove
-                // branch below).
-                if (st.editorMode && st.editorSelectedJoint && st.player.editorHandleScreen) {
+                // Animation editor: grab the elbow or hand handle of the
+                // active arm instead of orbiting, if the gesture starts on one
+                // (see drawActor's handle draw and the pointermove branch
+                // below). Tapping the sibling joint switches the selection to
+                // it (and tells Blazor so the dropdown follows).
+                const eh = st.editorMode && st.player.editorHandles;
+                if (eh) {
                     const rect = canvas.getBoundingClientRect();
                     const sx = (ev.clientX - rect.left) / rect.width * canvas.width;
                     const sy = (ev.clientY - rect.top) / rect.height * canvas.height;
-                    const hp = st.player.editorHandleScreen;
-                    const hitR = 28 * (canvas.width / rect.width); // generous for touch
-                    if (Math.hypot(sx - hp.x, sy - hp.y) < hitR) {
-                        const side = st.editorSelectedJoint;
-                        const cp = (st.player.customPose ??= { p: 0, tracks: {} });
-                        const trk = cp.tracks[side] ?? {};
-                        const p0 = cp.p ?? 0;
+                    const hitR = 26 * (canvas.width / rect.width); // generous for touch
+                    const dHand = Math.hypot(sx - eh.hand.x, sy - eh.hand.y);
+                    const dElbow = Math.hypot(sx - eh.elbow.x, sy - eh.elbow.y);
+                    let joint = null;
+                    if (dHand < hitR && dHand <= dElbow) joint = 'hand';
+                    else if (dElbow < hitR) joint = 'elbow';
+                    if (joint) {
+                        const side = eh.side;
+                        const sel = side + '-' + joint;
+                        if (st.editorSelectedJoint !== sel) {
+                            st.editorSelectedJoint = sel;
+                            st.dotnet?.invokeMethodAsync('OnJointPicked', sel);
+                        }
+                        const j = st.player.editorJoints[side];
                         st.editorDrag = {
-                            side,
+                            side, joint,
                             startClientX: ev.clientX, startClientY: ev.clientY,
-                            start: {
-                                x: trk.x?.length ? lerpKeys(p0, trk.x) : 0,
-                                y: trk.y?.length ? lerpKeys(p0, trk.y) : 0,
-                                z: trk.z?.length ? lerpKeys(p0, trk.z) : 0,
-                            },
+                            E0: j.E.slice(), Hf0: j.Hf.slice(), up0: j.up,
+                            L1: j.L1, L2: j.L2,
                         };
                         return;
                     }
@@ -2130,15 +2230,16 @@
         st.onMove = ev => {
             st.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
             if (st.editorDrag) {
-                // Screen delta → a target delta in the actor's own
-                // model-local space. Vertical drag maps straight to height
-                // (Y isn't touched by the camera's local-facing rotation);
-                // horizontal drag moves along whatever direction currently
-                // reads as "sideways" on screen, holding depth fixed — so a
-                // depth adjustment is just "orbit 90°, then drag sideways
-                // again." Inverts the same local rotation + TILT shear +
-                // blit-scale pipeline editorHandScreenPos uses to place the
-                // handle, so the drag tracks the cursor exactly.
+                // Screen delta → a delta in the actor's own model-local space.
+                // Vertical drag maps straight to height (Y isn't touched by
+                // the camera's local-facing rotation); horizontal drag moves
+                // along whatever reads as "sideways" on screen, holding depth
+                // fixed — so a depth adjustment is just "orbit 90°, then drag
+                // sideways again." Inverts the same local rotation + TILT
+                // shear + blit-scale pipeline editorJointScreenPos uses, so
+                // the drag tracks the cursor. The moved joint is then clamped
+                // to its bone-length sphere and written as offset-from-rest
+                // channels (see computePoseV2's editor branch).
                 const d = st.editorDrag;
                 const actor = st.player;
                 const W = canvas.width, H = canvas.height;
@@ -2153,12 +2254,28 @@
                 const dRxLocal = dOffX / S;
                 const dY = -dOffY / S;
                 const dX = dRxLocal * c, dZ = -dRxLocal * sn;
-                const nx = d.start.x + dX, ny = d.start.y + dY, nz = d.start.z + dZ;
                 const cp = (actor.customPose ??= { p: 0, tracks: {} });
                 const trk = (cp.tracks[d.side] ??= {});
                 const p0 = cp.p ?? 0;
-                trk.x = [[p0, nx]]; trk.y = [[p0, ny]]; trk.z = [[p0, nz]];
-                d.last = { x: nx, y: ny, z: nz };
+                if (d.joint === 'elbow') {
+                    // Move the elbow on its L1 sphere; the hand rides along
+                    // rigidly because its bend is stored local to the upper arm
+                    // and left untouched here.
+                    const e1 = toLen(d.E0[0] + dX, d.E0[1] + dY, d.E0[2] + dZ, d.L1);
+                    const ex = e1[0], ey = e1[1] + d.L1, ez = e1[2];
+                    trk.ex = [[p0, ex]]; trk.ey = [[p0, ey]]; trk.ez = [[p0, ez]];
+                    d.last = { joint: 'elbow', v: [ex, ey, ez] };
+                } else {
+                    // Move the hand: desired world point → clamp to the L2
+                    // sphere about the elbow → fold back into the upper-arm-
+                    // local frame for storage (so future elbow moves carry it).
+                    const Hw = [d.Hf0[0] + dX, d.Hf0[1] + dY, d.Hf0[2] + dZ];
+                    const hrel = toLen(Hw[0] - d.E0[0], Hw[1] - d.E0[1], Hw[2] - d.E0[2], d.L2);
+                    const hl = invRotateVec(d.up0.pitch, d.up0.yaw, hrel[0], hrel[1], hrel[2]);
+                    const hx = hl[0], hy = hl[1] + d.L2, hz = hl[2];
+                    trk.hx = [[p0, hx]]; trk.hy = [[p0, hy]]; trk.hz = [[p0, hz]];
+                    d.last = { joint: 'hand', v: [hx, hy, hz] };
+                }
                 return;
             }
             if (st.pointers.size >= 2 && st.pinch) {
@@ -2182,7 +2299,8 @@
             if (st.editorDrag) {
                 const d = st.editorDrag;
                 st.pointers.delete(ev.pointerId);
-                if (d.last) st.dotnet?.invokeMethodAsync('OnJointDrag', d.side, d.last.x, d.last.y, d.last.z);
+                if (d.last) st.dotnet?.invokeMethodAsync('OnJointDrag',
+                    d.side, d.last.joint, d.last.v[0], d.last.v[1], d.last.v[2]);
                 st.editorDrag = null;
                 return;
             }
@@ -2847,12 +2965,13 @@
         setBattleOverheads, getCameraDebug, setCameraDebug,
 
         // ── Animation editor (AnimEditor.razor) ────────────────────────────
-        // tracks: { [partIndex]: { pitch?, yaw?, roll?, dz?, dy? } }, each
-        // channel a [[p,v],...] array with p in 0-1 (see computePoseV2's
-        // customPose override). Replaces the player's whole pose — nothing
-        // else (walk, stance, attacks) runs while this is set. Playback
-        // timing lives in AnimEditor.razor (a C# timer repeatedly calling
-        // setEditorTime) rather than duplicated here.
+        // tracks: { [partIndex]: { pitch?, yaw?, roll?, dz?, dy? },
+        //           R/L: { ex?, ey?, ez?, hx?, hy?, hz? } } — each channel a
+        // [[p,v],...] array with p in 0-1. Numeric keys are plain FK parts;
+        // "R"/"L" author the elbow + hand offsets (see computePoseV2's
+        // customPose branch). Replaces the player's whole pose — nothing else
+        // (walk, stance, attacks) runs while this is set. Playback timing
+        // lives in AnimEditor.razor (a C# timer calling setEditorTime).
         setEditorTracks(canvasId, tracks) {
             const st = battles.get(canvasId);
             if (!st) return;
@@ -2865,16 +2984,16 @@
             st.player.customPose ??= { p: 0, tracks: {} };
             st.player.customPose.p = Math.min(1, Math.max(0, ms / durationMs));
         },
-        // Arms the given hand ('R'/'L', or null) for on-canvas drag —
-        // touch/click-dragging its handle repositions the IK target
-        // directly instead of using sliders (see drawActor's handle draw
-        // and initBattle's onDown/onMove/onUp editorDrag handling).
-        setEditorJoint(canvasId, side) {
+        // Selects which arm + joint the on-canvas handles act on:
+        // 'R-elbow' | 'R-hand' | 'L-elbow' | 'L-hand' | null. Drawing shows
+        // that arm's whole chain (shoulder→elbow→hand) with the selected
+        // joint draggable (see drawActor and initBattle's onDown/onMove/onUp).
+        setEditorJoint(canvasId, sel) {
             const st = battles.get(canvasId);
-            if (st) st.editorSelectedJoint = side || null;
+            if (st) st.editorSelectedJoint = sel || null;
         },
-        // Viewport-relative (clientX/Y-compatible) position of the armed
-        // hand's drag handle, for automated testing — the handle's own
+        // Viewport-relative (clientX/Y-compatible) position of the active
+        // joint's drag handle, for automated testing — the handle's own
         // logical canvas position (editorHandleScreen) is in canvas pixel
         // space, not page/CSS space.
         getEditorHandleScreen(canvasId) {
