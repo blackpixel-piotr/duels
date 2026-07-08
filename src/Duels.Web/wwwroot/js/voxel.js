@@ -628,8 +628,12 @@
         // throws it back down-forward, released as the physics lash
         // (actor.lash), which follows the hand and cracks out.
         lash:   (p, t) => {
-            t.pitch = lerpKeys(p, [[0, 0], [0.22, 1.05], [0.4, 3.3], [0.55, 0.3], [1, 0]]);
-            t.yaw = lerp3(p, -0.5, 0.35, 0);
+            // Peak pitch stays under pi (a straight-up overhead extension)
+            // so the arm never swings past vertical into a "windmill" —
+            // going further reads as the hand orbiting around the body
+            // instead of a cocked-back throw.
+            t.pitch = lerpKeys(p, [[0, 0], [0.22, 0.9], [0.4, 2.6], [0.55, 0.3], [1, 0]]);
+            t.yaw = lerp3(p, -0.4, 0.3, 0);
         },
         crush:  (p, t) => { t.pitch = lerp3(p, 2.5, 0.75, 0); },
         flurry: (p, t) => {
@@ -688,7 +692,7 @@
         };
         const dt = Math.min(50, now - (actor._poseAt ?? now));
         actor._poseAt = now;
-        const sb = stanceWeight(actor, now, dt);
+        stanceWeight(actor, now, dt); // advances the blend even though legacy rigs have no stance pose
 
         const atk = actor.anims.find(a => a.type === 'attack');
         if (atk) {
@@ -707,11 +711,9 @@
         } else if (windup) {
             // raise the weapon arm while the attack winds up
             ensure(P_RARM).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
-        } else if (sb > 0.01) {
-            // combat guard: arms up and forward while squared up
-            ensure(P_RARM).pitch = -0.35 * sb;
-            ensure(P_LARM).pitch = -0.3 * sb;
         }
+        // Between swings the arms hang at rest (no standing "guard") — only
+        // the windup cue and the attack's own curve move them.
 
         // Hit flinch (legacy rigs have no root transform — head + arms carry
         // the reaction, the body slide comes from animState's knockback).
@@ -901,7 +903,7 @@
                     // Elbow: folds tight while the hand cocks back behind
                     // the head, then straightens through the release — a
                     // real throw, not a fixed fraction of the shoulder.
-                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.22, 0.9], [0.4, 1.3], [0.55, 0.05], [1, 0]]);
+                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.22, 0.75], [0.4, 1.0], [0.55, 0.05], [1, 0]]);
                 } else {
                     ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
                 }
@@ -947,12 +949,9 @@
                 ensure(1).pitch = -(IK_LEAN + 0.15 * run) * g * 0.4; // back a touch — gaze stays level under the body lean
         } else if (windup) {
             ensure(RU).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
-        } else if (sb > 0.01) {
-            // Combat guard between swings: weapon arm half-raised, off fist
-            // up — instead of arms hanging limp mid-fight.
-            ensure(RU).pitch = -0.45 * sb; ensure(RL).pitch = -0.7 * sb;
-            ensure(LU).pitch = -0.35 * sb; ensure(LL).pitch = -0.9 * sb;
         }
+        // Between swings the arms hang at rest (no standing "guard") — only
+        // the windup cue and the attack's own curve move them.
 
         // Eating: the LEFT arm brings the food to the mouth, two chewing
         // nibbles, then lowers — overrides the walk pump on that arm and
