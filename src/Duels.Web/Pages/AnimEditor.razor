@@ -72,9 +72,9 @@
                 <button class="ae-kf-btn" @onclick="() => SetKeyframe(chan)">Set KF</button>
             </div>
         }
-        @if (_selectedPart is "R" or "L")
+        @if (_selectedPart != "0")
         {
-            <p class="ae-hint">A blue dot on the character marks this hand — drag it directly (works with touch) instead of the sliders below. Sliders still work for fine-tuning. Depth (Z) is whatever's "sideways" from the current camera angle, so orbit 90° and drag again to reach it.</p>
+            <p class="ae-hint">The character shows the whole arm: shoulder (fixed) → elbow → hand. Drag the highlighted joint directly (works with touch); the bones stay connected, so you can't pull a joint past the arm's reach. Moving the elbow swings the forearm along; then fine-tune the hand. Tap the other joint to switch to it. Depth (Z) is whatever's "sideways" from the current camera angle, so orbit 90° and drag again to reach it.</p>
         }
 
         <div class="ae-kf-list">
@@ -162,13 +162,19 @@
         public double Value { get; set; }
     }
 
-    // "0" = root (plain FK). "R"/"L" = hand IK targets, solved into the
-    // shoulder/elbow angles by voxel.js's solveArm.
+    // Selectable parts. "0" = root (plain FK). Each arm exposes its ELBOW and
+    // HAND as separate selections; both feed the same voxel.js arm track
+    // (keyed "R"/"L") but on disjoint channels (ex/ey/ez vs hx/hy/hz), so the
+    // shoulder→elbow→hand chain is authored joint by joint (see
+    // computePoseV2's editor branch). StorageKey maps a selection to its track
+    // key; the "-elbow"/"-hand" suffix picks the channel set.
     private static readonly (string Key, string Label)[] Parts =
     [
-        ("0", "Root (body)"),
-        ("R", "R Hand (weapon)"),
-        ("L", "L Hand (off)"),
+        ("0",       "Root (body)"),
+        ("R-elbow", "R Elbow"),
+        ("R-hand",  "R Hand (weapon)"),
+        ("L-elbow", "L Elbow"),
+        ("L-hand",  "L Hand (off)"),
     ];
 
     private static readonly (string Key, string Label, double Min, double Max)[] RootChannels =
@@ -178,21 +184,40 @@
         ("dy",    "Dy (crouch)",  -3.0, 1.0),
     ];
 
-    private static readonly (string Key, string Label, double Min, double Max)[] HandChannels =
+    // Elbow/hand channels are offsets FROM REST (0 = arm hanging straight
+    // down), in voxels. Range spans the full bone sphere (~±2·bone length);
+    // anything beyond is projected back onto the sphere by voxel.js anyway.
+    private static readonly (string Key, string Label, double Min, double Max)[] ElbowChannels =
     [
-        ("x", "X (side)",    -14, 14),
-        ("y", "Y (height)",  -14, 14),
-        ("z", "Z (fwd/back)", -14, 14),
+        ("ex", "X (side)",     -22, 22),
+        ("ey", "Y (height)",   -22, 22),
+        ("ez", "Z (fwd/back)", -22, 22),
     ];
 
-    private (string Key, string Label, double Min, double Max)[] CurrentChannels =>
-        _selectedPart == "0" ? RootChannels : HandChannels;
+    private static readonly (string Key, string Label, double Min, double Max)[] HandChannels =
+    [
+        ("hx", "X (side)",     -22, 22),
+        ("hy", "Y (height)",   -22, 22),
+        ("hz", "Z (fwd/back)", -22, 22),
+    ];
 
-    // tracks[partKey][channelKey] = keyframes, times in ms.
+    // Maps a selection ("R-elbow") to its voxel.js track key ("R"); root and
+    // any unknown value pass through unchanged.
+    private static string StorageKey(string sel) =>
+        sel.StartsWith("R-") ? "R" : sel.StartsWith("L-") ? "L" : sel;
+
+    private (string Key, string Label, double Min, double Max)[] CurrentChannels =>
+        _selectedPart == "0" ? RootChannels
+        : _selectedPart.EndsWith("-elbow") ? ElbowChannels
+        : HandChannels;
+
+    // tracks[trackKey][channelKey] = keyframes, times in ms. trackKey is the
+    // JS-facing key ("0"/"R"/"L"); an arm's elbow and hand channels coexist
+    // under one key.
     private readonly Dictionary<string, Dictionary<string, List<Keyframe>>> _tracks = new();
     private readonly Dictionary<string, double> _liveValues = new();
 
-    private string _selectedPart = "R";
+    private string _selectedPart = "R-elbow";
     private string _weaponId = "abyssal_whip";
     private double _durationMs = 480;
     private double _scrubMs;
@@ -226,26 +251,33 @@
     }
 
     // Direct on-canvas manipulation (see voxel.js's editorDrag handling):
-    // the drag itself runs entirely in JS for smooth per-frame feedback,
-    // calling back here only once on release with the final target.
+    // the drag runs entirely in JS for smooth per-frame feedback, calling
+    // back here once on release with the moved joint's final channel values
+    // (offset-from-rest). joint is "elbow" or "hand"; the three values map to
+    // that joint's channel set.
     [JSInvokable]
-    public async Task OnJointDrag(string side, double x, double y, double z)
+    public async Task OnJointDrag(string side, string joint, double v0, double v1, double v2)
     {
-        if (_selectedPart != side) return;
-        double Clamp(string key, double v)
-        {
-            var (_, _, min, max) = HandChannels.First(c => c.Key == key);
-            return Math.Clamp(v, min, max);
-        }
-        _liveValues["x"] = Clamp("x", x);
-        _liveValues["y"] = Clamp("y", y);
-        _liveValues["z"] = Clamp("z", z);
+        var chans = joint == "elbow" ? ElbowChannels : HandChannels;
+        var vals = new[] { v0, v1, v2 };
+        for (int i = 0; i < 3; i++)
+            _liveValues[chans[i].Key] = Math.Clamp(vals[i], chans[i].Min, chans[i].Max);
         await PushPreview();
         StateHasChanged();
     }
 
+    // Tapping a joint handle on the canvas selects it (JS already switched the
+    // active handle; sync the dropdown + sliders to match).
+    [JSInvokable]
+    public void OnJointPicked(string sel)
+    {
+        _selectedPart = sel;
+        RefreshLiveValues();
+        StateHasChanged();
+    }
+
     private Task SyncEditorJoint() =>
-        JS.InvokeVoidAsync("voxel.setEditorJoint", CanvasId, _selectedPart is "R" or "L" ? _selectedPart : null).AsTask();
+        JS.InvokeVoidAsync("voxel.setEditorJoint", CanvasId, _selectedPart == "0" ? null : _selectedPart).AsTask();
 
     private async Task OnWeaponChanged() =>
         await JS.InvokeVoidAsync("voxel.setBattleWeapon", CanvasId, string.IsNullOrEmpty(_weaponId) ? null : _weaponId);
@@ -278,6 +310,10 @@
             _selectedPart = s;
             RefreshLiveValues();
             await SyncEditorJoint();
+            // Ensure the newly selected arm has a JS track so its handles
+            // (drawn from actor.editorJoints, populated only for tracked
+            // sides) appear immediately.
+            await PushPreview();
         }
     }
 
@@ -344,8 +380,9 @@
     private void RefreshLiveValues()
     {
         _liveValues.Clear();
+        var key = StorageKey(_selectedPart);
         foreach (var ch in CurrentChannels)
-            _liveValues[ch.Key] = Interpolate(GetChannelKfs(_selectedPart, ch.Key, create: false), _scrubMs);
+            _liveValues[ch.Key] = Interpolate(GetChannelKfs(key, ch.Key, create: false), _scrubMs);
     }
 
     private static double Interpolate(List<Keyframe> kfs, double timeMs)
@@ -368,7 +405,7 @@
 
     private async Task SetKeyframe(string chan)
     {
-        var list = GetChannelKfs(_selectedPart, chan, create: true);
+        var list = GetChannelKfs(StorageKey(_selectedPart), chan, create: true);
         list.RemoveAll(k => Math.Abs(k.TimeMs - _scrubMs) < 1);
         list.Add(new Keyframe { TimeMs = _scrubMs, Value = _liveValues.GetValueOrDefault(chan, 0) });
         await PushPreview();
@@ -409,7 +446,15 @@
             .OrderBy(r => r.Part).ThenBy(r => r.Chan).ThenBy(r => r.Kf.TimeMs)
             .ToList();
 
-    private static string PartLabel(string key) => Parts.FirstOrDefault(p => p.Key == key).Label ?? key;
+    // Labels a track storage key ("0"/"R"/"L") for the keyframe list; the
+    // channel name (ex.. vs hx..) already distinguishes elbow from hand.
+    private static string PartLabel(string key) => key switch
+    {
+        "0" => "Root (body)",
+        "R" => "R Arm",
+        "L" => "L Arm",
+        _   => Parts.FirstOrDefault(p => p.Key == key).Label ?? key,
+    };
 
     // Builds the committed-keyframe payload (normalized 0-1 time, matching
     // voxel.js's lerpKeys convention) for every part/channel that has any
@@ -439,10 +484,11 @@
     private async Task PushPreview()
     {
         var payload = BuildPayload();
-        if (!payload.TryGetValue(_selectedPart, out var partObj))
+        var key = StorageKey(_selectedPart);
+        if (!payload.TryGetValue(key, out var partObj))
         {
             partObj = new();
-            payload[_selectedPart] = partObj;
+            payload[key] = partObj;
         }
         var pNorm = _scrubMs / _durationMs;
         foreach (var ch in CurrentChannels)
@@ -464,10 +510,12 @@
         await PushPreview();
     }
 
-    // A rough starting shape for a whip-style overhand throw, authored
-    // directly in hand-target space: rises forward, cocks up above the
-    // shoulder, throws forward-and-down, settles back to hanging. Meant
-    // as a starting point to tweak live, not a finished curve.
+    // A rough starting shape for a whip-style overhand throw, authored as
+    // elbow + hand offsets from rest (see computePoseV2's editor branch):
+    // the elbow lifts up and forward, the hand cocks up above the shoulder,
+    // then the forearm snaps forward through the throw before settling back
+    // to hanging. A starting point to tweak live (mostly by dragging), not a
+    // finished curve.
     private async Task LoadWhipDefault()
     {
         _tracks.Clear();
@@ -477,13 +525,18 @@
             var list = GetChannelKfs(part, chan, create: true);
             foreach (var (p, v) in pts) list.Add(new Keyframe { TimeMs = p * _durationMs, Value = v });
         }
-        Seed("R", "y", (0, -13), (0.25, -4), (0.4, 9), (0.55, -3), (1, -13));
-        Seed("R", "z", (0, 0), (0.25, 7), (0.4, 3), (0.55, 12), (1, 0));
-        Seed("L", "y", (0, -13), (0.4, -2), (0.55, -6), (1, -13));
-        Seed("L", "z", (0, 0), (0.4, 5), (0.55, 2), (1, 0));
+        // Weapon arm: elbow raises up/forward; hand curls up (cock) then the
+        // forearm swings forward (throw).
+        Seed("R", "ey", (0, 0), (0.25, 8),  (0.4, 13), (0.55, 10), (1, 0));
+        Seed("R", "ez", (0, 0), (0.25, 3),  (0.4, 5),  (0.55, 7),  (1, 0));
+        Seed("R", "hy", (0, 0), (0.25, 6),  (0.4, 12), (0.55, -2), (1, 0));
+        Seed("R", "hz", (0, 0), (0.25, 4),  (0.4, 2),  (0.55, 14), (1, 0));
+        // Off arm: a small counter-raise of the elbow.
+        Seed("L", "ey", (0, 0), (0.4, 6), (0.55, 3), (1, 0));
+        // Body drive.
         Seed("0", "yaw", (0, 0), (0.4, 0.28), (0.55, 0.42), (1, 0));
-        Seed("0", "dy", (0, 0), (0.4, -0.4), (0.55, -1.0), (1, 0));
-        _selectedPart = "R";
+        Seed("0", "dy",  (0, 0), (0.4, -0.4), (0.55, -1.0), (1, 0));
+        _selectedPart = "R-elbow";
         RefreshLiveValues();
         await SyncEditorJoint();
         await PushPreview();
