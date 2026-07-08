@@ -1,0 +1,471 @@
+@page "/anim-editor"
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* Standalone animation authoring tool: a stationary, spin-able player
+   model whose pose is driven entirely by hand-placed keyframes instead
+   of the normal attack/walk/stance choreography. Arms are posed by IK —
+   you set a 3D target for the hand (relative to its shoulder) at a few
+   points in time, and the game interpolates the TARGET POSITION between
+   them, solving the shoulder/elbow angles each frame (see solveArm in
+   voxel.js). That's deliberately different from earlier attempts that
+   interpolated joint angles directly: dragging "hand is here in space"
+   is unambiguous, where pitch/yaw signs kept reading backwards. Root
+   motion (body lean/turn/crouch) stays plain FK — the torso doesn't
+   need IK. Export when it looks right and paste the result into
+   voxel.js. *@
+
+<div class="ae-wrap">
+    <div class="ae-canvas-col">
+        <div class="ae-canvas-box"><canvas id="@CanvasId"></canvas></div>
+        <p class="ae-hint">Drag to orbit &middot; scroll to zoom</p>
+    </div>
+
+    <div class="ae-panel">
+        <div class="ae-row">
+            <label>Weapon</label>
+            <select @bind="_weaponId" @bind:after="OnWeaponChanged">
+                <option value="">(none)</option>
+                <option value="abyssal_whip">Abyssal whip</option>
+                <option value="corrupted_whip">Corrupted whip</option>
+                <option value="dragon_dagger">Dragon dagger</option>
+                <option value="rune_scimitar">Rune scimitar</option>
+                <option value="dragon_scimitar">Dragon scimitar</option>
+            </select>
+        </div>
+
+        <div class="ae-row">
+            <label>Duration</label>
+            <input type="number" min="50" max="5000" step="10" value="@_durationMs"
+                   @onchange="OnDurationChanged" /> <span>ms</span>
+        </div>
+
+        <div class="ae-row ae-transport">
+            <button @onclick="TogglePlay">@(_playing ? "Pause" : "Play")</button>
+            <label class="ae-inline"><input type="checkbox" @bind="_loop" /> Loop</label>
+        </div>
+
+        <div class="ae-row">
+            <label>Time: @_scrubMs.ToString("0") / @_durationMs.ToString("0") ms</label>
+            <input type="range" min="0" max="@_durationMs" step="1" value="@_scrubMs"
+                   @oninput="OnScrubInput" class="ae-scrub" />
+        </div>
+
+        <div class="ae-row">
+            <label>Part</label>
+            <select value="@_selectedPart" @onchange="OnPartChanged">
+                @foreach (var part in Parts)
+                {
+                    <option value="@part.Key">@part.Label</option>
+                }
+            </select>
+        </div>
+
+        @foreach (var ch in CurrentChannels)
+        {
+            var chan = ch.Key;
+            <div class="ae-row ae-channel">
+                <label>@ch.Label <span class="ae-val">@_liveValues.GetValueOrDefault(chan, 0).ToString("0.00")</span></label>
+                <input type="range" min="@ch.Min" max="@ch.Max" step="0.05"
+                       value="@_liveValues.GetValueOrDefault(chan, 0)"
+                       @oninput="e => OnSliderInput(chan, e)" />
+                <button class="ae-kf-btn" @onclick="() => SetKeyframe(chan)">Set KF</button>
+            </div>
+        }
+        @if (_selectedPart is "R" or "L")
+        {
+            <p class="ae-hint">Target is relative to the shoulder: X = sideways, Y = up, Z = forward/back. Rest (arm hanging) is roughly (0, -13, 0).</p>
+        }
+
+        <div class="ae-kf-list">
+            <h4>Keyframes</h4>
+            @if (AllKeyframes().Count == 0)
+            {
+                <p class="ae-hint">No keyframes yet — scrub to a time, drag a target/angle, hit "Set KF".</p>
+            }
+            @foreach (var row in AllKeyframes())
+            {
+                <div class="ae-kf-row">
+                    <span class="ae-kf-label">@PartLabel(row.Part) / @row.Chan</span>
+                    <input type="number" step="1" value="@row.Kf.TimeMs"
+                           @onchange="e => UpdateKfTime(row.Kf, row.Part, row.Chan, e)" />
+                    <span>ms</span>
+                    <input type="number" step="0.01" value="@row.Kf.Value"
+                           @onchange="e => UpdateKfValue(row.Kf, e)" />
+                    <button class="ae-del" @onclick="() => DeleteKf(row.Part, row.Chan, row.Kf)">&times;</button>
+                </div>
+            }
+        </div>
+
+        <div class="ae-row ae-buttons">
+            <button @onclick="LoadWhipDefault">Load whip (starter)</button>
+            <button @onclick="ClearAll">Clear all</button>
+            <button @onclick="ExportSnippet">Export</button>
+        </div>
+
+        @if (_exportText is not null)
+        {
+            <textarea readonly class="ae-export" rows="16">@_exportText</textarea>
+        }
+    </div>
+</div>
+
+<style>
+    .ae-wrap { display: flex; gap: 16px; padding: 16px; min-height: 100vh; background: var(--bg); color: var(--text); font-family: var(--font); }
+    .ae-canvas-col { flex: 0 0 auto; }
+    .ae-canvas-box { width: 480px; height: 420px; background: var(--bg-panel); border: var(--border-w) solid var(--border); }
+    .ae-canvas-box canvas { width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; }
+    .ae-hint { color: var(--text-dim); font-size: 0.8em; margin: 4px 0; }
+    .ae-panel { flex: 1 1 380px; max-width: 460px; display: flex; flex-direction: column; gap: 8px; }
+    .ae-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .ae-row label { min-width: 90px; color: var(--text-dim); }
+    .ae-inline { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    .ae-val { color: var(--amber); }
+    select, input[type=number] { background: var(--bg-input); color: var(--text); border: 1px solid var(--border); font-family: var(--font); padding: 2px 4px; }
+    input[type=number] { width: 70px; }
+    input[type=range] { flex: 1 1 auto; }
+    button { background: var(--bg-panel); color: var(--text); border: 1px solid var(--border); font-family: var(--font); padding: 4px 10px; cursor: pointer; }
+    button:hover { border-color: var(--amber); color: var(--amber); }
+    .ae-channel { background: var(--bg-panel); padding: 6px 8px; border: 1px solid var(--border); }
+    .ae-kf-btn { padding: 2px 8px; font-size: 0.85em; }
+    .ae-kf-list { border-top: 1px solid var(--border); padding-top: 8px; }
+    .ae-kf-list h4 { margin: 0 0 6px; color: var(--text-dim); font-weight: normal; }
+    .ae-kf-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.85em; }
+    .ae-kf-label { flex: 1 1 auto; color: var(--text-dim); }
+    .ae-del { color: var(--red); padding: 2px 8px; }
+    .ae-buttons { justify-content: flex-start; }
+    .ae-export { width: 100%; background: var(--bg-input); color: var(--green); border: 1px solid var(--border); font-family: var(--font); font-size: 0.8em; }
+</style>
+
+@code {
+    private const string CanvasId = "anim-editor-canvas";
+
+    private sealed class Keyframe
+    {
+        public double TimeMs { get; set; }
+        public double Value { get; set; }
+    }
+
+    // "0" = root (plain FK). "R"/"L" = hand IK targets, solved into the
+    // shoulder/elbow angles by voxel.js's solveArm.
+    private static readonly (string Key, string Label)[] Parts =
+    [
+        ("0", "Root (body)"),
+        ("R", "R Hand (weapon)"),
+        ("L", "L Hand (off)"),
+    ];
+
+    private static readonly (string Key, string Label, double Min, double Max)[] RootChannels =
+    [
+        ("yaw",   "Yaw",          -1.5, 1.5),
+        ("pitch", "Pitch",        -1.0, 1.0),
+        ("dy",    "Dy (crouch)",  -3.0, 1.0),
+    ];
+
+    private static readonly (string Key, string Label, double Min, double Max)[] HandChannels =
+    [
+        ("x", "X (side)",    -14, 14),
+        ("y", "Y (height)",  -14, 14),
+        ("z", "Z (fwd/back)", -14, 14),
+    ];
+
+    private (string Key, string Label, double Min, double Max)[] CurrentChannels =>
+        _selectedPart == "0" ? RootChannels : HandChannels;
+
+    // tracks[partKey][channelKey] = keyframes, times in ms.
+    private readonly Dictionary<string, Dictionary<string, List<Keyframe>>> _tracks = new();
+    private readonly Dictionary<string, double> _liveValues = new();
+
+    private string _selectedPart = "R";
+    private string _weaponId = "abyssal_whip";
+    private double _durationMs = 480;
+    private double _scrubMs;
+    private bool _playing;
+    private bool _loop = true;
+    private string? _exportText;
+    private CancellationTokenSource? _playCts;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await JS.InvokeVoidAsync("voxel.initBattle", CanvasId, new
+        {
+            playerUrl = "assets/player_sakuna.vox",
+            playerRigId = "player_sakuna",
+            enemyId = "goblin",
+            scene = "field",
+            editorMode = true,
+        });
+        await JS.InvokeVoidAsync("voxel.setBattleWeapon", CanvasId, _weaponId);
+        RefreshLiveValues();
+        await PushPreview();
+    }
+
+    private async Task OnWeaponChanged() =>
+        await JS.InvokeVoidAsync("voxel.setBattleWeapon", CanvasId, string.IsNullOrEmpty(_weaponId) ? null : _weaponId);
+
+    private async Task OnDurationChanged(ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v) && v > 0)
+        {
+            _durationMs = v;
+            _scrubMs = Math.Min(_scrubMs, _durationMs);
+            RefreshLiveValues();
+            await PushPreview();
+        }
+    }
+
+    private async Task OnScrubInput(ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v))
+        {
+            _scrubMs = v;
+            RefreshLiveValues();
+            await PushPreview();
+        }
+    }
+
+    private void OnPartChanged(ChangeEventArgs e)
+    {
+        if (e.Value is string s)
+        {
+            _selectedPart = s;
+            RefreshLiveValues();
+        }
+    }
+
+    private async Task OnSliderInput(string chan, ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v))
+        {
+            _liveValues[chan] = v;
+            await PushPreview();
+        }
+    }
+
+    private async Task TogglePlay()
+    {
+        if (_playing)
+        {
+            _playing = false;
+            _playCts?.Cancel();
+            return;
+        }
+        _playing = true;
+        _playCts = new CancellationTokenSource();
+        var token = _playCts.Token;
+        var last = DateTime.UtcNow;
+        try
+        {
+            while (!token.IsCancellationRequested && _playing)
+            {
+                await Task.Delay(33, token);
+                var now = DateTime.UtcNow;
+                var dt = (now - last).TotalMilliseconds;
+                last = now;
+                _scrubMs += dt;
+                if (_scrubMs >= _durationMs)
+                {
+                    if (_loop) _scrubMs %= _durationMs;
+                    else { _scrubMs = _durationMs; _playing = false; }
+                }
+                RefreshLiveValues();
+                await PushPreview();
+                StateHasChanged();
+            }
+        }
+        catch (TaskCanceledException) { /* Pause clicked mid-delay */ }
+    }
+
+    private List<Keyframe> GetChannelKfs(string part, string chan, bool create)
+    {
+        if (!_tracks.TryGetValue(part, out var chans))
+        {
+            if (!create) return [];
+            chans = new();
+            _tracks[part] = chans;
+        }
+        if (!chans.TryGetValue(chan, out var list))
+        {
+            if (!create) return [];
+            list = new();
+            chans[chan] = list;
+        }
+        return list;
+    }
+
+    private void RefreshLiveValues()
+    {
+        _liveValues.Clear();
+        foreach (var ch in CurrentChannels)
+            _liveValues[ch.Key] = Interpolate(GetChannelKfs(_selectedPart, ch.Key, create: false), _scrubMs);
+    }
+
+    private static double Interpolate(List<Keyframe> kfs, double timeMs)
+    {
+        if (kfs.Count == 0) return 0;
+        var sorted = kfs.OrderBy(k => k.TimeMs).ToList();
+        if (timeMs <= sorted[0].TimeMs) return sorted[0].Value;
+        for (int i = 1; i < sorted.Count; i++)
+        {
+            if (timeMs <= sorted[i].TimeMs)
+            {
+                var a = sorted[i - 1];
+                var b = sorted[i];
+                var t = (timeMs - a.TimeMs) / (b.TimeMs - a.TimeMs);
+                return a.Value + (b.Value - a.Value) * t;
+            }
+        }
+        return sorted[^1].Value;
+    }
+
+    private async Task SetKeyframe(string chan)
+    {
+        var list = GetChannelKfs(_selectedPart, chan, create: true);
+        list.RemoveAll(k => Math.Abs(k.TimeMs - _scrubMs) < 1);
+        list.Add(new Keyframe { TimeMs = _scrubMs, Value = _liveValues.GetValueOrDefault(chan, 0) });
+        await PushPreview();
+    }
+
+    private async Task DeleteKf(string part, string chan, Keyframe kf)
+    {
+        GetChannelKfs(part, chan, create: false).Remove(kf);
+        RefreshLiveValues();
+        await PushPreview();
+    }
+
+    private async Task UpdateKfTime(Keyframe kf, string part, string chan, ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v))
+        {
+            kf.TimeMs = Math.Max(0, Math.Min(_durationMs, v));
+            RefreshLiveValues();
+            await PushPreview();
+        }
+    }
+
+    private async Task UpdateKfValue(Keyframe kf, ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v))
+        {
+            kf.Value = v;
+            RefreshLiveValues();
+            await PushPreview();
+        }
+    }
+
+    private sealed record KfRow(string Part, string Chan, Keyframe Kf);
+
+    private List<KfRow> AllKeyframes() =>
+        _tracks
+            .SelectMany(p => p.Value.SelectMany(c => c.Value.Select(kf => new KfRow(p.Key, c.Key, kf))))
+            .OrderBy(r => r.Part).ThenBy(r => r.Chan).ThenBy(r => r.Kf.TimeMs)
+            .ToList();
+
+    private static string PartLabel(string key) => Parts.FirstOrDefault(p => p.Key == key).Label ?? key;
+
+    // Builds the committed-keyframe payload (normalized 0-1 time, matching
+    // voxel.js's lerpKeys convention) for every part/channel that has any
+    // real keyframes.
+    private Dictionary<string, Dictionary<string, double[][]>> BuildPayload()
+    {
+        var payload = new Dictionary<string, Dictionary<string, double[][]>>();
+        foreach (var (part, chans) in _tracks)
+        {
+            var partObj = new Dictionary<string, double[][]>();
+            foreach (var (chan, kfs) in chans)
+            {
+                if (kfs.Count == 0) continue;
+                partObj[chan] = kfs.OrderBy(k => k.TimeMs)
+                                   .Select(k => new[] { k.TimeMs / _durationMs, k.Value })
+                                   .ToArray();
+            }
+            if (partObj.Count > 0) payload[part] = partObj;
+        }
+        return payload;
+    }
+
+    // Pushes the committed keyframes to the JS pose override, plus the
+    // selected part's live slider values overlaid at the current scrub
+    // time — so dragging a slider (or just scrubbing) previews instantly
+    // without becoming a permanent keyframe until "Set KF" is clicked.
+    private async Task PushPreview()
+    {
+        var payload = BuildPayload();
+        if (!payload.TryGetValue(_selectedPart, out var partObj))
+        {
+            partObj = new();
+            payload[_selectedPart] = partObj;
+        }
+        var pNorm = _scrubMs / _durationMs;
+        foreach (var ch in CurrentChannels)
+        {
+            var existing = partObj.TryGetValue(ch.Key, out var arr) ? arr.ToList() : new List<double[]>();
+            existing.RemoveAll(pt => Math.Abs(pt[0] - pNorm) < 0.0001);
+            existing.Add([pNorm, _liveValues.GetValueOrDefault(ch.Key, 0)]);
+            partObj[ch.Key] = existing.OrderBy(pt => pt[0]).ToArray();
+        }
+        await JS.InvokeVoidAsync("voxel.setEditorTracks", CanvasId, payload);
+        await JS.InvokeVoidAsync("voxel.setEditorTime", CanvasId, _scrubMs, _durationMs);
+    }
+
+    private async Task ClearAll()
+    {
+        _tracks.Clear();
+        _exportText = null;
+        RefreshLiveValues();
+        await PushPreview();
+    }
+
+    // A rough starting shape for a whip-style overhand throw, authored
+    // directly in hand-target space: rises forward, cocks up above the
+    // shoulder, throws forward-and-down, settles back to hanging. Meant
+    // as a starting point to tweak live, not a finished curve.
+    private async Task LoadWhipDefault()
+    {
+        _tracks.Clear();
+        _durationMs = 480;
+        void Seed(string part, string chan, params (double p, double v)[] pts)
+        {
+            var list = GetChannelKfs(part, chan, create: true);
+            foreach (var (p, v) in pts) list.Add(new Keyframe { TimeMs = p * _durationMs, Value = v });
+        }
+        Seed("R", "y", (0, -13), (0.25, -4), (0.4, 9), (0.55, -3), (1, -13));
+        Seed("R", "z", (0, 0), (0.25, 7), (0.4, 3), (0.55, 12), (1, 0));
+        Seed("L", "y", (0, -13), (0.4, -2), (0.55, -6), (1, -13));
+        Seed("L", "z", (0, 0), (0.4, 5), (0.55, 2), (1, 0));
+        Seed("0", "yaw", (0, 0), (0.4, 0.28), (0.55, 0.42), (1, 0));
+        Seed("0", "dy", (0, 0), (0.4, -0.4), (0.55, -1.0), (1, 0));
+        _selectedPart = "R";
+        RefreshLiveValues();
+        await PushPreview();
+    }
+
+    private void ExportSnippet()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"// duration: {_durationMs:0} ms");
+        foreach (var (part, chans) in _tracks.OrderBy(p => p.Key))
+        {
+            if (chans.All(c => c.Value.Count == 0)) continue;
+            sb.AppendLine($"// {PartLabel(part)} ({part})");
+            foreach (var (chan, kfs) in chans)
+            {
+                if (kfs.Count == 0) continue;
+                var pts = string.Join(", ", kfs.OrderBy(k => k.TimeMs)
+                    .Select(k => $"[{(k.TimeMs / _durationMs):0.###}, {k.Value:0.###}]"));
+                sb.AppendLine($"{chan} = lerpKeys(p, [{pts}]);");
+            }
+        }
+        sb.AppendLine();
+        sb.AppendLine("// raw JSON (paste back in later to keep editing):");
+        sb.AppendLine(System.Text.Json.JsonSerializer.Serialize(BuildPayload()));
+        _exportText = sb.ToString();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _playCts?.Cancel();
+        try { await JS.InvokeVoidAsync("voxel.destroyBattle", CanvasId); } catch { /* page already unloading */ }
+    }
+}

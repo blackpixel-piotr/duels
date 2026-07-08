@@ -631,7 +631,7 @@
         // shoulder, then snaps straight again for the throw — released as
         // the physics lash (actor.lash), which follows the hand and cracks.
         lash:   (p, t) => {
-            t.pitch = lerpKeys(p, [[0, 0], [0.25, 1.0], [0.4, 1.5], [0.55, 1.1], [1, 0]]);
+            t.pitch = lerpKeys(p, [[0, 0], [0.25, 1.5], [0.4, 2.2], [0.55, 1.8], [1, 0]]);
             t.yaw = lerp3(p, -0.3, 0.25, 0);
         },
         crush:  (p, t) => { t.pitch = lerp3(p, 2.5, 0.75, 0); },
@@ -765,9 +765,67 @@
         return { thigh, shin, foot: -(thigh + shin) };
     }
 
+    // 2-bone arm IK, for the animation editor (see AnimEditor.razor):
+    // aims the shoulder and bends the elbow so the hand reaches a target
+    // given relative to the shoulder pivot, in the same model-local space
+    // the FK pose transform uses. This rig's shoulder→elbow→hand chain has
+    // the identical "bones hang straight down at rest, pivots share X/Z"
+    // shape as hip→knee→foot (confirmed against rigs.json), so a yaw
+    // pre-rotation to face the target's horizontal direction, followed by
+    // solveLeg's exact planar solve for the now in-plane reach, gives the
+    // shoulder pitch+yaw and elbow pitch directly — no separate pole/swivel
+    // needed, since (like a real elbow) the fixed sign in solveLeg's
+    // formula always bends the same physically-natural way.
+    function solveArm(L1, L2, tx, ty, tz) {
+        const yaw = Math.atan2(tx, tz);
+        const horiz = Math.hypot(tx, tz);
+        const s = solveLeg(0, L1, L2, horiz, ty);
+        return { shoulderPitch: s.thigh, shoulderYaw: yaw, elbowPitch: s.shin };
+    }
+
     function computePoseV2(actor, now, windup) {
         const rig = actor.rig, parts = rig.parts;
         const T = new Array(parts.length).fill(null);
+        // Animation editor override (see AnimEditor.razor): user-authored
+        // keyframe tracks replace the normal attack/walk/stance choreography
+        // entirely, so the editor can preview exactly what will ship. Each
+        // track is { pitch?, yaw?, roll?, dz?, dy? }, each channel a
+        // lerpKeys-style [[p,v],...] array in the same normalized 0-1 time
+        // used everywhere else (ATTACK_POSES, ATTACK_BODY). Two kinds of
+        // track: plain FK by part index (e.g. "0" for root), and hand IK
+        // targets keyed "R"/"L" — an (x,y,z) point relative to that side's
+        // shoulder pivot, solved each frame via solveArm into the actual
+        // shoulder/elbow angles. IK is what the editor authors against for
+        // arms: dragging a target position in 3D is unambiguous in a way
+        // pitch/yaw sliders never were (see the whip saga).
+        if (actor.customPose) {
+            const { p, tracks } = actor.customPose;
+            for (const key of Object.keys(tracks)) {
+                if (key === 'R' || key === 'L') continue;
+                const i = +key;
+                const t = { pivot: i === 0 ? [0, 0, 0] : parts[i].pivot, pitch: 0, yaw: 0, roll: 0, dz: 0, dy: 0 };
+                const chans = tracks[key];
+                for (const ch of ['pitch', 'yaw', 'roll', 'dz', 'dy'])
+                    if (chans[ch]?.length) t[ch] = lerpKeys(p, chans[ch]);
+                T[i] = t;
+            }
+            const armDefs = { R: [2, 6], L: [3, 7] };
+            for (const side of ['R', 'L']) {
+                const trk = tracks[side];
+                if (!trk) continue;
+                const [ruIdx, rlIdx] = armDefs[side];
+                const tx = trk.x?.length ? lerpKeys(p, trk.x) : 0;
+                const ty = trk.y?.length ? lerpKeys(p, trk.y) : 0;
+                const tz = trk.z?.length ? lerpKeys(p, trk.z) : 0;
+                const ruPiv = parts[ruIdx].pivot, rlPiv = parts[rlIdx].pivot;
+                const L1 = ruPiv[1] - rlPiv[1];
+                const L2 = rlPiv[1] - (rig.hand ? rig.hand[1] : rlPiv[1] - 7);
+                const sol = solveArm(L1, L2, tx, ty, tz);
+                T[ruIdx] = { pivot: ruPiv, pitch: sol.shoulderPitch, yaw: sol.shoulderYaw, roll: 0, dz: 0, dy: 0 };
+                T[rlIdx] = { pivot: rlPiv, pitch: sol.elbowPitch, yaw: 0, roll: 0, dz: 0, dy: 0 };
+            }
+            return T;
+        }
         // Root (part 0) pivots at the model's ground center so its yaw sways
         // the pelvis about the vertical axis and its roll rocks the whole
         // body over the planted feet (weight shift) without skating them.
@@ -907,7 +965,7 @@
                     // above the shoulder — positive curls it forward and
                     // down toward the hip instead, which was the bug.
                     // Snaps back toward 0 (straight) for the throw.
-                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.25, -1.5], [0.4, -2.8], [0.55, 0.1], [1, 0]]);
+                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.25, -0.5], [0.4, -1.0], [0.55, 0.3], [1, 0]]);
                 } else {
                     ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
                 }
@@ -1944,6 +2002,15 @@
         st.player.st = st;
         st.enemy.st = st;
 
+        // Animation editor (see AnimEditor.razor): a stationary player with
+        // no opponent to react to — park the enemy far off-screen instead
+        // of touching the render loop's shared player/enemy iteration.
+        if (opts.editorMode) {
+            st.editorMode = true;
+            st.enemy.pos = { wx: 200, wz: 200 };
+            st.enemy.target = { wx: 200, wz: 200 };
+        }
+
         // Field props load in the background and pop in as they arrive.
         if (st.scene === 'field') {
             for (const spec of FIELD_PROPS) {
@@ -2668,5 +2735,25 @@
         initBattle, destroyBattle, setBattleEnemy, setBattleFlags, battleEvent,
         setBattleVitals, setBattleWeapon, setBattlePositions, resetBattle,
         setBattleOverheads, getCameraDebug, setCameraDebug,
+
+        // ── Animation editor (AnimEditor.razor) ────────────────────────────
+        // tracks: { [partIndex]: { pitch?, yaw?, roll?, dz?, dy? } }, each
+        // channel a [[p,v],...] array with p in 0-1 (see computePoseV2's
+        // customPose override). Replaces the player's whole pose — nothing
+        // else (walk, stance, attacks) runs while this is set. Playback
+        // timing lives in AnimEditor.razor (a C# timer repeatedly calling
+        // setEditorTime) rather than duplicated here.
+        setEditorTracks(canvasId, tracks) {
+            const st = battles.get(canvasId);
+            if (!st) return;
+            st.player.customPose ??= { p: 0, tracks: {} };
+            st.player.customPose.tracks = tracks;
+        },
+        setEditorTime(canvasId, ms, durationMs) {
+            const st = battles.get(canvasId);
+            if (!st) return;
+            st.player.customPose ??= { p: 0, tracks: {} };
+            st.player.customPose.p = Math.min(1, Math.max(0, ms / durationMs));
+        },
     };
 })();
