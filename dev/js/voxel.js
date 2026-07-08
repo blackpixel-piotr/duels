@@ -1084,15 +1084,13 @@
         const ws = actorWorldScale(actor, W, H);
         const psTot = a.scale * ps * ws;
 
-        // Physics whip: simulate against this frame's posed hand, then draw in
-        // two passes straddling the body blit below so the sprite occludes
-        // lash segments that swing behind the actor instead of always
-        // rendering on top — compared per-segment against the actor's own
-        // screen depth (p.rz), the same value the body sprite is anchored at.
-        if (actor.lash) {
-            updateLash(actor, pose, now);
-            drawLash(actor.st, ctx, actor, W, H, p.rz, 'back');
-        }
+        // Physics whip: simulate against this frame's posed hand. Drawing it
+        // is deferred until after the body blit below (see drawLash) — the
+        // body sprite is a flat pre-rendered cutout with no per-pixel depth
+        // of its own, so there's no way to occlude just the part of the
+        // rope that's actually behind an arm/torso voxel; the only options
+        // are "fully in front" or "fully hidden this frame."
+        if (actor.lash) updateLash(actor, pose, now);
 
         // Shadow on ground plane (player only — no distracting circle under every NPC).
         if (actor === actor.st.player) {
@@ -1114,7 +1112,7 @@
             (ay + a.dy - (r.h - actor.model.radius * r.S * TILT - 1) * psTot) | 0,
             bw, bh);
         ctx.globalAlpha = 1;
-        if (actor.lash) drawLash(actor.st, ctx, actor, W, H, p.rz, 'front');
+        if (actor.lash) drawLash(actor.st, ctx, actor, W, H, p.rz);
         // Eating: crumbs fall from the mouth on each chew beat; the held
         // food disappears with the anim.
         const eat = actor.anims.find(t => t.type === 'eat');
@@ -1363,16 +1361,17 @@
         return lashTexPattern;
     }
 
-    // mode 'back'/'front' picks whether the WHOLE rope draws in this pass,
-    // decided by the depth of the end still pinned to the hand (scr[0]) vs
-    // bodyRz — the actor's own screen depth. The two calls straddle the
-    // body blit in drawActor so the sprite occludes the entire lash when
-    // it's swung behind the actor. Deciding per-rope rather than per-segment
-    // matters: splitting individual segments by their own depth could hide
-    // the segments nearest the hand while a mid-swing segment further out
-    // still qualified as "front", leaving a chunk of cord floating on
-    // screen with no visible connection back to the hand.
-    function drawLash(st, ctx, actor, W, H, bodyRz, mode) {
+    // Suppresses the whole rope for this frame when the end still pinned to
+    // the hand (scr[0]) is farther than bodyRz — the actor's own screen
+    // depth. The body sprite is a flat pre-rendered cutout with no per-pixel
+    // depth of its own, so there's no way to occlude just the part of the
+    // rope behind an arm/torso voxel; culling individual segments by their
+    // own depth was tried and looked worse than always-on-top: it could
+    // draw a mid-swing segment while hiding the ones nearer the hand,
+    // leaving a chunk of cord floating with no visible tie back to the
+    // hand. Hiding the entire rope when its hand end is behind the actor is
+    // the closest a flat-sprite renderer can get without that artifact.
+    function drawLash(st, ctx, actor, W, H, bodyRz) {
         const lash = actor.lash;
         if (!lash?.pts || actor.crumbled) return;
         const vpw = actor.model.height / actor.base.worldH;
@@ -1383,8 +1382,7 @@
             return { x: p.x, y: p.y - pt.y * p.px * ps,
                      rz: p.rz, S: p.px * ps / vpw }; // px per voxel at depth
         });
-        const isBack = scr[0].rz < bodyRz;
-        if ((mode === 'back') !== isBack) return;
+        if (scr[0].rz < bodyRz) return; // hand end is behind the body this frame
 
         // Base cord: one continuous tapered stroke per inter-node segment
         // (guarantees no gaps regardless of on-screen node spacing), filled
