@@ -36,6 +36,8 @@ public sealed class StartTestFightHandler : ICommandHandler<StartTestFightComman
             ?? throw new InvalidOperationException("barbarian template missing");
         state.StartDuel(new NpcInstance(template));
         state.SetTestScene(true); // open-field scene instead of the arena ring
+        state.FreezeEnemy(true); // enemy starts frozen — no auto-chase/attack
+        state.HoldPositionAtSpawn(); // player starts holding — no auto-chase/attack
 
         state.AppendLog("[TEST] Whip + DDS loaded. Fight!", LogEntryKind.System);
 

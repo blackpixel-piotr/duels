@@ -48,9 +48,9 @@
     }
     @if (State?.TestScene == true)
     {
-        <button class="freeze-btn @(_enemyFrozen ? "freeze-btn-on" : "")"
+        <button class="freeze-btn @(EnemyFrozen ? "freeze-btn-on" : "")"
                 @onclick="ToggleFreezeEnemy">
-            @(_enemyFrozen ? "UNFREEZE" : "FREEZE ENEMY")
+            @(EnemyFrozen ? "UNFREEZE" : "FREEZE ENEMY")
         </button>
 
         <button class="cam-toggle-btn" @onclick="() => _camPanelOpen = !_camPanelOpen">
@@ -103,7 +103,7 @@
     private string? _enemyId;
     private string _enemyName = "";
     private int _enemyMaxHp = 1;
-    private bool _enemyFrozen;
+    private bool EnemyFrozen => State?.EnemyFrozen ?? false;
 
     // Admin camera debug panel (test fights only) — mirrors the JS defaults
     // in voxel.js (CAM_FOV, TILT, POS_TILT, camZoom=1) so the sliders start
@@ -309,9 +309,8 @@
     // (disengaging), an enemy tap re-engages the chase.
     private async Task ToggleFreezeEnemy()
     {
-        _enemyFrozen = !_enemyFrozen;
         if (GameSvc.PlayerId is { } pid)
-            await GameSvc.DispatchAsync(new FreezeEnemyCommand(pid, _enemyFrozen));
+            await GameSvc.DispatchAsync(new FreezeEnemyCommand(pid, !EnemyFrozen));
     }
 
     // Camera debug panel: each slider pushes the full set of four values —

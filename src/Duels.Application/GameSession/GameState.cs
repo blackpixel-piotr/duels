@@ -71,6 +71,10 @@ public sealed class GameState
         HoldPosition = false;
     }
 
+    // Test-fight convenience: spawn holding position (no auto-chase/attack)
+    // so an admin can inspect animations before manually engaging.
+    public void HoldPositionAtSpawn() => HoldPosition = true;
+
     // Test-fight duels render the open-field scene instead of the arena ring.
     public bool TestScene { get; private set; }
     public void SetTestScene(bool on) => TestScene = on;
