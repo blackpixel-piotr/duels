@@ -593,6 +593,20 @@
         const q = (p - 0.55) / 0.45;
         return b + (c - b) * q * (2 - q);
     }
+    // General keyframe curve for choreography with more shape than lerp3's
+    // single anticipation/strike/settle points can hold — e.g. the whip's
+    // two-stage windup (rises in front, THEN arcs behind the head) before
+    // the strike. keys: [[p0,v0],[p1,v1],...] sorted ascending by p.
+    function lerpKeys(p, keys) {
+        if (p <= keys[0][0]) return keys[0][1];
+        for (let i = 1; i < keys.length; i++) {
+            if (p <= keys[i][0]) {
+                const [p0, v0] = keys[i - 1], [p1, v1] = keys[i];
+                return v0 + (v1 - v0) * (p - p0) / (p1 - p0);
+            }
+        }
+        return keys[keys.length - 1][1];
+    }
     const ATTACK_POSES = {
         stab:   (p, t) => { t.pitch = lerp3(p, -0.55, 1.45, 0); t.dz = lerp3(p, -1.5, 3.5, 0); },
         // reverse-grip dagger: cock the fist high behind, rip down-forward
@@ -608,9 +622,15 @@
             t.dz = (1.2 + 1.8 * Math.abs(Math.sin(2 * th))) * w;
         },
         slash:  (p, t) => { t.pitch = lerp3(p, 1.15, 1.25, 0); t.yaw = lerp3(p, -1.15, 1.2, 0); },
-        // whip: cock the arm high overhead, then snap it down-forward — the
-        // physics lash (actor.lash) follows the hand and cracks out
-        lash:   (p, t) => { t.pitch = lerp3(p, 2.3, 0.4, 0); t.yaw = lerp3(p, -0.5, 0.35, 0); },
+        // whip: an overhand throw. The hand rises in FRONT of the body first
+        // (0→0.22), then continues up and back past overhead until it's
+        // behind the head (0.22→0.4) — the windup; the strike (0.4→0.55)
+        // throws it back down-forward, released as the physics lash
+        // (actor.lash), which follows the hand and cracks out.
+        lash:   (p, t) => {
+            t.pitch = lerpKeys(p, [[0, 0], [0.22, 1.05], [0.4, 3.3], [0.55, 0.3], [1, 0]]);
+            t.yaw = lerp3(p, -0.5, 0.35, 0);
+        },
         crush:  (p, t) => { t.pitch = lerp3(p, 2.5, 0.75, 0); },
         flurry: (p, t) => {
             t.pitch = lerp3(p, 1.2, 1.3, 0);
@@ -877,7 +897,14 @@
             const p = (now - atk.t0) / atk.dur;
             if (p >= 0 && p <= 1) {
                 (ATTACK_POSES[atk.kind] ?? ATTACK_POSES.slash)(p, ensure(RU));
-                ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
+                if (atk.kind === 'lash') {
+                    // Elbow: folds tight while the hand cocks back behind
+                    // the head, then straightens through the release — a
+                    // real throw, not a fixed fraction of the shoulder.
+                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.22, 0.9], [0.4, 1.3], [0.55, 0.05], [1, 0]]);
+                } else {
+                    ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
+                }
                 if (atk.kind === 'bow') ensure(LU).pitch = lerp3(p, 1.35, 1.35, 0);
                 if (atk.kind === 'cast') ensure(LU).pitch = lerp3(p, 0.9, 0.5, 0);
                 // Full-body drive: hips wind back through the anticipation
@@ -886,11 +913,22 @@
                 // the head counter-yaws to stay on target.
                 const b = ATTACK_BODY[atk.kind] ?? ATTACK_BODY.slash;
                 const root = ensure(0);
-                const wy = lerp3(p, -b.yaw, b.yaw * 0.8, 0);
+                let wy;
+                if (atk.kind === 'lash') {
+                    // No opposite wind-back: the body rotates TOWARD the
+                    // weapon side as the arm cocks back overhead and holds
+                    // through the release. The off arm raises to counter-
+                    // balance while the main hand is up, and lowers as the
+                    // main hand comes back down.
+                    wy = lerpKeys(p, [[0, 0], [0.4, 0.28], [0.55, 0.42], [1, 0]]);
+                    ensure(LU).pitch += lerpKeys(p, [[0, 0], [0.4, -0.63], [0.55, -0.25], [1, 0]]);
+                } else {
+                    wy = lerp3(p, -b.yaw, b.yaw * 0.8, 0);
+                    ensure(LU).pitch += lerp3(p, b.yaw * 0.7, -b.yaw * 0.5, 0);
+                }
                 root.yaw += wy;
                 root.pitch += lerp3(p, -b.lunge * 0.5, b.lunge, 0);
                 root.dy -= lerp3(p, b.dip * 0.4, b.dip, 0);
-                ensure(LU).pitch += lerp3(p, b.yaw * 0.7, -b.yaw * 0.5, 0);
                 ensure(1).yaw -= wy * 0.5;
             }
         } else if (g > 0.001) {
