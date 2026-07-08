@@ -74,7 +74,7 @@
         }
         @if (_selectedPart is "R" or "L")
         {
-            <p class="ae-hint">Target is relative to the shoulder: X = sideways, Y = up, Z = forward/back. Rest (arm hanging) is roughly (0, -13, 0).</p>
+            <p class="ae-hint">A blue dot on the character marks this hand — drag it directly (works with touch) instead of the sliders below. Sliders still work for fine-tuning. Depth (Z) is whatever's "sideways" from the current camera angle, so orbit 90° and drag again to reach it.</p>
         }
 
         <div class="ae-kf-list">
@@ -111,14 +111,30 @@
 </div>
 
 <style>
-    .ae-wrap { display: flex; gap: 16px; padding: 16px; min-height: 100vh; background: var(--bg); color: var(--text); font-family: var(--font); }
-    .ae-canvas-col { flex: 0 0 auto; }
-    .ae-canvas-box { width: 480px; height: 420px; background: var(--bg-panel); border: var(--border-w) solid var(--border); }
+    /* html/body are overflow:hidden site-wide (the game shell is a fixed-
+       viewport terminal UI) — fine for every other page, but this editor's
+       control panel is taller than one phone screen. Make .ae-wrap its own
+       scroll container instead of relying on document scroll, which a
+       touch/wheel gesture on body can't move. */
+    .ae-wrap { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; height: 100vh; overflow-y: auto; background: var(--bg); color: var(--text); font-family: var(--font); box-sizing: border-box; }
+    /* Sticky: dragging a slider or tapping "Set KF" lives below the fold on
+       a phone screen, and scrolling to reach those controls (or a browser
+       auto-scrolling a just-tapped button into view) would otherwise carry
+       the canvas off-screen with it — exactly when the live preview matters
+       most. align-self:flex-start keeps its box sized to its own content
+       instead of stretching to match the taller panel column, so sticky has
+       room to engage. */
+    .ae-canvas-col { flex: 1 1 320px; min-width: 0; max-width: 480px; position: sticky; top: 8px; align-self: flex-start; z-index: 2; }
+    .ae-canvas-box { width: 100%; aspect-ratio: 480 / 500; background: var(--bg-panel); border: var(--border-w) solid var(--border); box-sizing: border-box; }
     .ae-canvas-box canvas { width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; }
     .ae-hint { color: var(--text-dim); font-size: 0.8em; margin: 4px 0; }
-    .ae-panel { flex: 1 1 380px; max-width: 460px; display: flex; flex-direction: column; gap: 8px; }
+    .ae-panel { flex: 1 1 320px; min-width: 0; max-width: 460px; display: flex; flex-direction: column; gap: 8px; }
     .ae-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .ae-row label { min-width: 90px; color: var(--text-dim); }
+    @@media (max-width: 700px) {
+        .ae-wrap { padding: 8px; gap: 10px; }
+        .ae-canvas-col, .ae-panel { flex-basis: 100%; max-width: 100%; }
+    }
     .ae-inline { display: flex; align-items: center; gap: 4px; min-width: 0; }
     .ae-val { color: var(--amber); }
     select, input[type=number] { background: var(--bg-input); color: var(--text); border: 1px solid var(--border); font-family: var(--font); padding: 2px 4px; }
@@ -185,9 +201,12 @@
     private string? _exportText;
     private CancellationTokenSource? _playCts;
 
+    private DotNetObjectReference<AnimEditor>? _selfRef;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
+        _selfRef = DotNetObjectReference.Create(this);
         await JS.InvokeVoidAsync("voxel.initBattle", CanvasId, new
         {
             playerUrl = "assets/player_sakuna.vox",
@@ -195,11 +214,38 @@
             enemyId = "goblin",
             scene = "field",
             editorMode = true,
+            dotnetRef = _selfRef,
         });
         await JS.InvokeVoidAsync("voxel.setBattleWeapon", CanvasId, _weaponId);
+        // Zoom out a bit from the battle default so a fully raised hand
+        // target still sits comfortably inside the frame with margin to spare.
+        await JS.InvokeVoidAsync("voxel.setCameraDebug", CanvasId, new { zoom = 0.72 });
+        await SyncEditorJoint();
         RefreshLiveValues();
         await PushPreview();
     }
+
+    // Direct on-canvas manipulation (see voxel.js's editorDrag handling):
+    // the drag itself runs entirely in JS for smooth per-frame feedback,
+    // calling back here only once on release with the final target.
+    [JSInvokable]
+    public async Task OnJointDrag(string side, double x, double y, double z)
+    {
+        if (_selectedPart != side) return;
+        double Clamp(string key, double v)
+        {
+            var (_, _, min, max) = HandChannels.First(c => c.Key == key);
+            return Math.Clamp(v, min, max);
+        }
+        _liveValues["x"] = Clamp("x", x);
+        _liveValues["y"] = Clamp("y", y);
+        _liveValues["z"] = Clamp("z", z);
+        await PushPreview();
+        StateHasChanged();
+    }
+
+    private Task SyncEditorJoint() =>
+        JS.InvokeVoidAsync("voxel.setEditorJoint", CanvasId, _selectedPart is "R" or "L" ? _selectedPart : null).AsTask();
 
     private async Task OnWeaponChanged() =>
         await JS.InvokeVoidAsync("voxel.setBattleWeapon", CanvasId, string.IsNullOrEmpty(_weaponId) ? null : _weaponId);
@@ -225,12 +271,13 @@
         }
     }
 
-    private void OnPartChanged(ChangeEventArgs e)
+    private async Task OnPartChanged(ChangeEventArgs e)
     {
         if (e.Value is string s)
         {
             _selectedPart = s;
             RefreshLiveValues();
+            await SyncEditorJoint();
         }
     }
 
@@ -438,6 +485,7 @@
         Seed("0", "dy", (0, 0), (0.4, -0.4), (0.55, -1.0), (1, 0));
         _selectedPart = "R";
         RefreshLiveValues();
+        await SyncEditorJoint();
         await PushPreview();
     }
 
@@ -467,5 +515,6 @@
     {
         _playCts?.Cancel();
         try { await JS.InvokeVoidAsync("voxel.destroyBattle", CanvasId); } catch { /* page already unloading */ }
+        _selfRef?.Dispose();
     }
 }
