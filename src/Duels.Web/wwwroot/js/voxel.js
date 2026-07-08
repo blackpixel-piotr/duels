@@ -166,7 +166,12 @@
     // translate it. `up` chains to the parent joint's transform — a foot
     // voxel rotates about the ankle, then the knee, then the hip, then takes
     // the root offset (leg IK).
-    function renderModel(ctx, model, angle, S, cx, baseY, pose) {
+    // depthBuf (optional): a Float32Array(bufW*bufH) sibling to ctx's pixels,
+    // stamped with each voxel's local rz in the same painter's-algorithm
+    // order — so after the loop it holds, per screen pixel, the rz of the
+    // nearest body voxel drawn there. Lets drawLash test the lash against the
+    // actor's real rasterized silhouette instead of a single whole-body depth.
+    function renderModel(ctx, model, angle, S, cx, baseY, pose, depthBuf, bufW, bufH) {
         const c = Math.cos(angle), sn = Math.sin(angle);
         const vs = model.voxels, out = model.scratch;
         if (pose) // precompute trig once per transform, following up-chains
@@ -202,7 +207,16 @@
             let lvl = ((v.rz + model.radius) * invSpan * SHADES) | 0;
             if (lvl < 0) lvl = 0; else if (lvl >= SHADES) lvl = SHADES - 1;
             ctx.fillStyle = model.shadeTable[v.ci][lvl];
-            ctx.fillRect((cx + v.rx * S) | 0, (baseY - v.y * S + v.rz * S * TILT) | 0, S + 1, S + 1);
+            const px = (cx + v.rx * S) | 0, py = (baseY - v.y * S + v.rz * S * TILT) | 0;
+            ctx.fillRect(px, py, S + 1, S + 1);
+            if (depthBuf) {
+                const x0 = Math.max(0, px), x1 = Math.min(bufW, px + S + 1);
+                const y0 = Math.max(0, py), y1 = Math.min(bufH, py + S + 1);
+                for (let yy = y0; yy < y1; yy++) {
+                    const row = yy * bufW;
+                    for (let xx = x0; xx < x1; xx++) depthBuf[row + xx] = v.rz;
+                }
+            }
         }
     }
 
@@ -992,7 +1006,17 @@
             }
             view = actor.combined.view;
         }
-        renderModel(ctx, view, angle ?? (actor.st.camYaw - actor.facing), S, w / 2, h - m.radius * TILT * S - S - 1, pose);
+        // Only actors wielding a physics lash need a depth buffer (drawLash's
+        // per-pixel occlusion test) — skip the extra per-voxel stamping cost
+        // for everyone else.
+        let depthBuf = null;
+        if (actor.lash) {
+            if (!actor.depthBuf || actor.depthBuf.length !== w * h) actor.depthBuf = new Float32Array(w * h);
+            actor.depthBuf.fill(-1e9);
+            actor.depthW = w; actor.depthH = h;
+            depthBuf = actor.depthBuf;
+        }
+        renderModel(ctx, view, angle ?? (actor.st.camYaw - actor.facing), S, w / 2, h - m.radius * TILT * S - S - 1, pose, depthBuf, w, h);
         const tint = flashTint ?? actor.tint;
         if (tint) {
             ctx.globalCompositeOperation = 'source-atop';
@@ -1084,12 +1108,10 @@
         const ws = actorWorldScale(actor, W, H);
         const psTot = a.scale * ps * ws;
 
-        // Physics whip: simulate against this frame's posed hand. Drawing it
-        // is deferred until after the body blit below (see drawLash) — the
-        // body sprite is a flat pre-rendered cutout with no per-pixel depth
-        // of its own, so there's no way to occlude just the part of the
-        // rope that's actually behind an arm/torso voxel; the only options
-        // are "fully in front" or "fully hidden this frame."
+        // Physics whip: simulate against this frame's posed hand; drawing is
+        // deferred until after the body blit below (see drawLash), which
+        // samples the depth buffer built alongside that blit's sprite to
+        // occlude the rope against the actor's actual rasterized silhouette.
         if (actor.lash) updateLash(actor, pose, now);
 
         // Shadow on ground plane (player only — no distracting circle under every NPC).
@@ -1106,13 +1128,12 @@
         // Place that pixel exactly at ay (ground), solving the "floating" offset.
         const bw = (r.w * psTot) | 0;
         const bh = (r.h * psTot) | 0;
+        const destX = (ax + a.dx - r.w / 2 * psTot) | 0;
+        const destY = (ay + a.dy - (r.h - actor.model.radius * r.S * TILT - 1) * psTot) | 0;
         ctx.globalAlpha = a.alpha;
-        ctx.drawImage(actor.off,
-            (ax + a.dx - r.w / 2 * psTot) | 0,
-            (ay + a.dy - (r.h - actor.model.radius * r.S * TILT - 1) * psTot) | 0,
-            bw, bh);
+        ctx.drawImage(actor.off, destX, destY, bw, bh);
         ctx.globalAlpha = 1;
-        if (actor.lash) drawLash(actor.st, ctx, actor, W, H, p.rz);
+        if (actor.lash) drawLash(actor.st, ctx, actor, W, H, p.rz, { destX, destY, psTot });
         // Eating: crumbs fall from the mouth on each chew beat; the held
         // food disappears with the anim.
         const eat = actor.anims.find(t => t.type === 'eat');
@@ -1361,41 +1382,61 @@
         return lashTexPattern;
     }
 
-    // Suppresses the whole rope for this frame when the end still pinned to
-    // the hand (scr[0]) is farther than bodyRz — the actor's own screen
-    // depth. The body sprite is a flat pre-rendered cutout with no per-pixel
-    // depth of its own, so there's no way to occlude just the part of the
-    // rope behind an arm/torso voxel; culling individual segments by their
-    // own depth was tried and looked worse than always-on-top: it could
-    // draw a mid-swing segment while hiding the ones nearer the hand,
-    // leaving a chunk of cord floating with no visible tie back to the
-    // hand. Hiding the entire rope when its hand end is behind the actor is
-    // the closest a flat-sprite renderer can get without that artifact.
-    function drawLash(st, ctx, actor, W, H, bodyRz) {
+    // Per-pixel occlusion against the actor's own rasterized silhouette:
+    // each node pair is cut into SUB sub-segments, and each sub-segment's
+    // midpoint is looked up in the depth buffer renderActorOffscreen stamped
+    // alongside the body sprite (same painter's-algorithm order, so it holds
+    // the nearest body voxel's local rz at every screen pixel). A sub-segment
+    // draws only where the rope is nearer than whatever body voxel (if any)
+    // occupies that pixel — real masking instead of an all-or-nothing guess,
+    // so the whip can correctly duck behind an arm or the torso and re-emerge
+    // without either always winning (the original bug) or vanishing whole.
+    //
+    // depthBuf's rz is in the actor's local voxel space (same rotation used
+    // for the body sprite), while the lash's rz is world-space relative to
+    // the camera focus — converted via (rz - bodyRz) * vpw, since bodyRz
+    // (the actor's own screen depth) is local-rz-zero by construction and
+    // vpw is voxels-per-world-unit.
+    const LASH_SUB = 3;
+    function drawLash(st, ctx, actor, W, H, bodyRz, blit) {
         const lash = actor.lash;
         if (!lash?.pts || actor.crumbled) return;
         const vpw = actor.model.height / actor.base.worldH;
         const n = lash.pts.length;
-        const scr = lash.pts.map(pt => {
+        const scr = lash.pts.map((pt, i) => {
             const p = proj(st, pt.x, pt.z, W, H);
             const ps = CAM_FOV / (CAM_FOV - p.rz);
-            return { x: p.x, y: p.y - pt.y * p.px * ps,
-                     rz: p.rz, S: p.px * ps / vpw }; // px per voxel at depth
+            const S = p.px * ps / vpw; // px per voxel at depth
+            return { x: p.x, y: p.y - pt.y * p.px * ps, rz: p.rz,
+                     width: Math.max(2.6, S * (2.6 - i / (n - 1))) };
         });
-        if (scr[0].rz < bodyRz) return; // hand end is behind the body this frame
 
-        // Base cord: one continuous tapered stroke per inter-node segment
+        // Base cord: one continuous tapered stroke per (sub-)segment
         // (guarantees no gaps regardless of on-screen node spacing), filled
         // with the woven-leather pattern — falls back to a flat color for
         // the handful of frames before the texture image finishes loading.
         const pattern = getLashPattern(ctx);
+        const depthBuf = actor.depthBuf, bufW = actor.depthW, bufH = actor.depthH;
         const segsArr = [];
         for (let i = 0; i < n - 1; i++) {
             const A = scr[i], B = scr[i + 1];
-            const t = i / (n - 1);
-            const width = Math.max(2.6, A.S * (2.6 - t));
-            segsArr.push({ A, B, width, rz: (A.rz + B.rz) / 2 });
+            for (let k = 0; k < LASH_SUB; k++) {
+                const u0 = k / LASH_SUB, u1 = (k + 1) / LASH_SUB, um = (u0 + u1) / 2;
+                const x0 = A.x + (B.x - A.x) * u0, y0 = A.y + (B.y - A.y) * u0;
+                const x1 = A.x + (B.x - A.x) * u1, y1 = A.y + (B.y - A.y) * u1;
+                const rz = A.rz + (B.rz - A.rz) * um;
+                const width = A.width + (B.width - A.width) * um;
+
+                if (depthBuf) {
+                    const ox = (((x0 + x1) / 2 - blit.destX) / blit.psTot) | 0;
+                    const oy = (((y0 + y1) / 2 - blit.destY) / blit.psTot) | 0;
+                    if (ox >= 0 && ox < bufW && oy >= 0 && oy < bufH
+                        && depthBuf[oy * bufW + ox] > (rz - bodyRz) * vpw) continue; // body pixel is nearer
+                }
+                segsArr.push({ x0, y0, x1, y1, width, rz });
+            }
         }
+        if (!segsArr.length) return;
         segsArr.sort((a, b) => a.rz - b.rz);
         ctx.save();
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -1403,8 +1444,8 @@
             ctx.strokeStyle = pattern ?? lash.color;
             ctx.lineWidth = s.width;
             ctx.beginPath();
-            ctx.moveTo(s.A.x, s.A.y);
-            ctx.lineTo(s.B.x, s.B.y);
+            ctx.moveTo(s.x0, s.y0);
+            ctx.lineTo(s.x1, s.y1);
             ctx.stroke();
         }
         ctx.restore();
