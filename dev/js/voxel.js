@@ -602,6 +602,7 @@
         for (let i = 1; i < keys.length; i++) {
             if (p <= keys[i][0]) {
                 const [p0, v0] = keys[i - 1], [p1, v1] = keys[i];
+                if (p1 <= p0) return v1;            // coincident keys: avoid /0
                 return v0 + (v1 - v0) * (p - p0) / (p1 - p0);
             }
         }
@@ -890,7 +891,8 @@
         if (p <= kt[0][0]) return { E: elbowAt(0), H: handAt(0) };
         for (let i = 1; i < kt.length; i++) {
             if (p <= kt[i][0]) {
-                const t = (p - kt[i - 1][0]) / (kt[i][0] - kt[i - 1][0]);
+                const span = kt[i][0] - kt[i - 1][0];
+                const t = span > 1e-9 ? (p - kt[i - 1][0]) / span : 1; // coincident keys: take the later
                 return { E: slerpVec(elbowAt(i - 1), elbowAt(i), t), H: slerpVec(handAt(i - 1), handAt(i), t) };
             }
         }
@@ -3132,6 +3134,15 @@
             const rect = st.canvas.getBoundingClientRect();
             const sx = rect.width / st.canvas.width, sy = rect.height / st.canvas.height;
             return { x: rect.left + st.player.editorHandleScreen.x * sx, y: rect.top + st.player.editorHandleScreen.y * sy };
+        },
+        // Keyframe timeline drag (AnimEditor.razor): capture the pointer on the
+        // track so moves keep firing off-marker/off-edge, and return its
+        // client rect so Blazor can map clientX → time (PointerEventArgs has no
+        // element width).
+        timelineGrab(el, pointerId) {
+            try { el.setPointerCapture(pointerId); } catch { /* capture optional */ }
+            const r = el.getBoundingClientRect();
+            return { left: r.left, width: r.width };
         },
     };
 })();
