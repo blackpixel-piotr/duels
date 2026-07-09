@@ -607,6 +607,22 @@
         }
         return keys[keys.length - 1][1];
     }
+    // Loop-aware lerpKeys for the animation editor: when looping, the region
+    // past the last key and before the first is one cyclic segment blending the
+    // last key back to the first across the duration boundary (span W), so a
+    // repeating animation joins seamlessly instead of snapping at the wrap.
+    // Off (or <2 keys) it's plain lerpKeys (clamp-hold).
+    function lerpKeysLoop(p, keys, loop) {
+        const n = keys.length;
+        if (loop && n >= 2) {
+            const tFirst = keys[0][0], tLast = keys[n - 1][0], W = tFirst + 1 - tLast;
+            if (W > 1e-6 && (p >= tLast || p < tFirst)) {
+                const local = (p >= tLast ? p - tLast : p + 1 - tLast) / W;
+                return keys[n - 1][1] + (keys[0][1] - keys[n - 1][1]) * local;
+            }
+        }
+        return lerpKeys(p, keys);
+    }
     const ATTACK_POSES = {
         stab:   (p, t) => { t.pitch = lerp3(p, -0.55, 1.45, 0); t.dz = lerp3(p, -1.5, 3.5, 0); },
         // reverse-grip dagger: cock the fist high behind, rip down-forward
@@ -830,11 +846,22 @@
         const la = Math.hypot(a[0], a[1], a[2]) || 1, lb = Math.hypot(b[0], b[1], b[2]) || 1;
         let dot = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb);
         dot = Math.max(-1, Math.min(1, dot));
-        const th = Math.acos(dot);
-        if (th < 1e-4)
-            return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-        const s = Math.sin(th), w0 = Math.sin((1 - t) * th) / s, w1 = Math.sin(t * th) / s;
-        return [w0 * a[0] + w1 * b[0], w0 * a[1] + w1 * b[1], w0 * a[2] + w1 * b[2]];
+        const th = Math.acos(dot), s = Math.sin(th);
+        if (s > 1e-4) {
+            const w0 = Math.sin((1 - t) * th) / s, w1 = Math.sin(t * th) / s;
+            return [w0 * a[0] + w1 * b[0], w0 * a[1] + w1 * b[1], w0 * a[2] + w1 * b[2]];
+        }
+        // Parallel: plain lerp. Antipodal (θ≈π): the great circle is undefined
+        // (sin θ → 0), so sweep a half-turn around an arbitrary axis ⟂ a via
+        // Rodrigues, keeping length — otherwise the arm would NaN-explode when
+        // two keyframes point exactly opposite (e.g. hand left ↔ hand right).
+        if (dot > 0) return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+        let ax = Math.abs(a[0]) / la > 0.9 ? [0, 1, 0] : [1, 0, 0];
+        let px = a[1] * ax[2] - a[2] * ax[1], py = a[2] * ax[0] - a[0] * ax[2], pz = a[0] * ax[1] - a[1] * ax[0];
+        const pm = Math.hypot(px, py, pz) || 1; px /= pm; py /= pm; pz /= pm;
+        const ang = t * Math.PI, c = Math.cos(ang), sn = Math.sin(ang);
+        const cx = py * a[2] - pz * a[1], cy = pz * a[0] - px * a[2], cz = px * a[1] - py * a[0];
+        return [a[0] * c + cx * sn, a[1] * c + cy * sn, a[2] * c + cz * sn]; // a·cos + (axis×a)·sin
     }
     // Animation editor: interpolate an arm's elbow + hand targets between its
     // coupled keyframes with slerp (see slerpVec). trk holds per-channel
@@ -843,12 +870,23 @@
     // Each key's elbow/hand offsets are projected to their bone spheres, then
     // the DIRECTIONS are slerped — giving a steady great-circle sweep that the
     // lash trails naturally.
-    function interpArm(trk, p, L1, L2) {
+    function interpArm(trk, p, L1, L2, loop) {
         const kt = trk.ex ?? trk.ey ?? trk.ez ?? trk.hx ?? trk.hy ?? trk.hz;
         const g = (ch, i) => trk[ch]?.[i]?.[1] ?? 0;
         const elbowAt = i => toLen(g('ex', i), -L1 + g('ey', i), g('ez', i), L1);
         const handAt  = i => toLen(g('hx', i), -L2 + g('hy', i), g('hz', i), L2);
         if (!kt || !kt.length) return { E: toLen(0, -L1, 0, L1), H: toLen(0, -L2, 0, L2) };
+        const last = kt.length - 1;
+        // Seamless loop: past the last key / before the first is one cyclic
+        // segment slerping the last arm pose back to the first across the
+        // duration boundary (span W), so a repeating swing joins smoothly.
+        if (loop && kt.length >= 2) {
+            const tFirst = kt[0][0], tLast = kt[last][0], W = tFirst + 1 - tLast;
+            if (W > 1e-6 && (p >= tLast || p < tFirst)) {
+                const t = (p >= tLast ? p - tLast : p + 1 - tLast) / W;
+                return { E: slerpVec(elbowAt(last), elbowAt(0), t), H: slerpVec(handAt(last), handAt(0), t) };
+            }
+        }
         if (p <= kt[0][0]) return { E: elbowAt(0), H: handAt(0) };
         for (let i = 1; i < kt.length; i++) {
             if (p <= kt[i][0]) {
@@ -856,8 +894,7 @@
                 return { E: slerpVec(elbowAt(i - 1), elbowAt(i), t), H: slerpVec(handAt(i - 1), handAt(i), t) };
             }
         }
-        const n = kt.length - 1;
-        return { E: elbowAt(n), H: handAt(n) };
+        return { E: elbowAt(last), H: handAt(last) };
     }
 
     function computePoseV2(actor, now, windup) {
@@ -880,14 +917,14 @@
         // target whose auto-solved elbow drifted and detached — see the whip
         // saga.)
         if (actor.customPose) {
-            const { p, tracks } = actor.customPose;
+            const { p, tracks, loop } = actor.customPose;
             for (const key of Object.keys(tracks)) {
                 if (key === 'R' || key === 'L') continue;
                 const i = +key;
                 const t = { pivot: i === 0 ? [0, 0, 0] : parts[i].pivot, pitch: 0, yaw: 0, roll: 0, dz: 0, dy: 0 };
                 const chans = tracks[key];
                 for (const ch of ['pitch', 'yaw', 'roll', 'dz', 'dy'])
-                    if (chans[ch]?.length) t[ch] = lerpKeys(p, chans[ch]);
+                    if (chans[ch]?.length) t[ch] = lerpKeysLoop(p, chans[ch], loop);
                 T[i] = t;
             }
             actor.editorJoints = {};
@@ -910,7 +947,7 @@
                 // to the upper arm is what makes an elbow drag carry the hand
                 // rigidly for free: the bend is untouched, so the forearm just
                 // swings with the upper arm.
-                const { E, H: handLocal } = interpArm(trk, p, L1, L2);
+                const { E, H: handLocal } = interpArm(trk, p, L1, L2, loop);
                 const up = aimDown(E[0], E[1], E[2]);
                 const fore = aimDown(handLocal[0], handLocal[1], handLocal[2]);
                 // World hand = elbow + the forearm direction rotated by the
@@ -3070,11 +3107,12 @@
             st.player.customPose ??= { p: 0, tracks: {} };
             st.player.customPose.tracks = tracks;
         },
-        setEditorTime(canvasId, ms, durationMs) {
+        setEditorTime(canvasId, ms, durationMs, loop) {
             const st = battles.get(canvasId);
             if (!st) return;
             st.player.customPose ??= { p: 0, tracks: {} };
             st.player.customPose.p = Math.min(1, Math.max(0, ms / durationMs));
+            st.player.customPose.loop = !!loop;
         },
         // Selects which arm + joint the on-canvas handles act on:
         // 'R-elbow' | 'R-hand' | 'L-elbow' | 'L-hand' | null. Drawing shows

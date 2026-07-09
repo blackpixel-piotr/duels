@@ -58,7 +58,7 @@
 
         <div class="ae-row ae-transport">
             <button @onclick="TogglePlay">@(_playing ? "Pause" : "Play")</button>
-            <label class="ae-inline"><input type="checkbox" @bind="_loop" /> Loop</label>
+            <label class="ae-inline"><input type="checkbox" @bind="_loop" @bind:after="PushPreview" /> Loop</label>
         </div>
 
         <div class="ae-row">
@@ -523,7 +523,22 @@
     {
         var n = PartChannels(key).Length;
         if (!_keys.TryGetValue(key, out var list) || list.Count == 0) return new double[n];
-        if (timeMs <= list[0].TimeMs) return (double[])list[0].Vals.Clone();
+        // Seamless loop: outside the keyed span, blend the last key back to the
+        // first across the duration boundary (span W) so a repeating animation
+        // joins smoothly — the same cyclic wrap voxel.js plays. Off (or <2 keys)
+        // it clamp-holds. Must match interpArm/lerpKeysLoop.
+        var first = list[0];
+        var lastKf = list[^1];
+        if (_loop && list.Count >= 2)
+        {
+            var w = (first.TimeMs + _durationMs) - lastKf.TimeMs;
+            if (w > 1e-6 && (timeMs >= lastKf.TimeMs || timeMs < first.TimeMs))
+            {
+                var lt = (timeMs >= lastKf.TimeMs ? timeMs - lastKf.TimeMs : timeMs + _durationMs - lastKf.TimeMs) / w;
+                return BlendKeys(key, lastKf.Vals, first.Vals, lt);
+            }
+        }
+        if (timeMs <= first.TimeMs) return (double[])first.Vals.Clone();
         for (int i = 1; i < list.Count; i++)
         {
             if (timeMs <= list[i].TimeMs)
@@ -534,7 +549,7 @@
                 return BlendKeys(key, a.Vals, b.Vals, t);
             }
         }
-        return (double[])list[^1].Vals.Clone();
+        return (double[])lastKf.Vals.Clone();
     }
 
     // Blend two coupled keys. Root: plain per-channel lerp. Arm: reconstruct
@@ -563,7 +578,8 @@
         return m < 1e-4 ? [0, -L, 0] : [x / m * L, y / m * L, z / m * L];
     }
 
-    // Constant-velocity spherical interpolation (mirrors voxel.js slerpVec).
+    // Constant-velocity spherical interpolation (mirrors voxel.js slerpVec,
+    // including the antipodal Rodrigues fallback).
     private static double[] Slerp(double[] a, double[] b, double t)
     {
         var la = Math.Sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
@@ -571,10 +587,22 @@
         if (la < 1e-9 || lb < 1e-9) return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
         var dot = Math.Clamp((a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb), -1.0, 1.0);
         var th = Math.Acos(dot);
-        if (th < 1e-4) return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
         var s = Math.Sin(th);
-        double w0 = Math.Sin((1 - t) * th) / s, w1 = Math.Sin(t * th) / s;
-        return [w0 * a[0] + w1 * b[0], w0 * a[1] + w1 * b[1], w0 * a[2] + w1 * b[2]];
+        if (s > 1e-4)
+        {
+            double w0 = Math.Sin((1 - t) * th) / s, w1 = Math.Sin(t * th) / s;
+            return [w0 * a[0] + w1 * b[0], w0 * a[1] + w1 * b[1], w0 * a[2] + w1 * b[2]];
+        }
+        if (dot > 0) return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+        // Antipodal: half-turn around an arbitrary axis ⟂ a (Rodrigues).
+        double[] ax = Math.Abs(a[0]) / la > 0.9 ? [0, 1, 0] : [1, 0, 0];
+        double px = a[1] * ax[2] - a[2] * ax[1], py = a[2] * ax[0] - a[0] * ax[2], pz = a[0] * ax[1] - a[1] * ax[0];
+        var pm = Math.Sqrt(px * px + py * py + pz * pz);
+        if (pm < 1e-9) pm = 1;
+        px /= pm; py /= pm; pz /= pm;
+        double ang = t * Math.PI, c = Math.Cos(ang), sn = Math.Sin(ang);
+        double cx = py * a[2] - pz * a[1], cy = pz * a[0] - px * a[2], cz = px * a[1] - py * a[0];
+        return [a[0] * c + cx * sn, a[1] * c + cy * sn, a[2] * c + cz * sn];
     }
 
     // Upsert one coupled keyframe for a part at the current time, snapshotting
@@ -655,24 +683,32 @@
     private async Task PushPreview()
     {
         var payload = BuildPayload();
-        var key = StorageKey(_selectedPart);
-        if (!payload.TryGetValue(key, out var partObj))
+        // While playing, push only the committed keys: the render is
+        // authoritative from them, and an overlay point injected at the moving
+        // scrub time would land inside the loop's wrap region and corrupt the
+        // last→first blend (it would become the "last" key). Overlay only when
+        // paused (live slider/scrub preview), where the wrap isn't traversed.
+        if (!_playing)
         {
-            partObj = new();
-            payload[key] = partObj;
-        }
-        var pNorm = _scrubMs / _durationMs;
-        var chans = PartChannels(key);
-        var w = WorkingOf(key);
-        for (int c = 0; c < chans.Length; c++)
-        {
-            var existing = partObj.TryGetValue(chans[c].Key, out var arr) ? arr.ToList() : new List<double[]>();
-            existing.RemoveAll(pt => Math.Abs(pt[0] - pNorm) < 0.0001);
-            existing.Add([pNorm, w[c]]);
-            partObj[chans[c].Key] = existing.OrderBy(pt => pt[0]).ToArray();
+            var key = StorageKey(_selectedPart);
+            if (!payload.TryGetValue(key, out var partObj))
+            {
+                partObj = new();
+                payload[key] = partObj;
+            }
+            var pNorm = _scrubMs / _durationMs;
+            var chans = PartChannels(key);
+            var w = WorkingOf(key);
+            for (int c = 0; c < chans.Length; c++)
+            {
+                var existing = partObj.TryGetValue(chans[c].Key, out var arr) ? arr.ToList() : new List<double[]>();
+                existing.RemoveAll(pt => Math.Abs(pt[0] - pNorm) < 0.0001);
+                existing.Add([pNorm, w[c]]);
+                partObj[chans[c].Key] = existing.OrderBy(pt => pt[0]).ToArray();
+            }
         }
         await JS.InvokeVoidAsync("voxel.setEditorTracks", CanvasId, payload);
-        await JS.InvokeVoidAsync("voxel.setEditorTime", CanvasId, _scrubMs, _durationMs);
+        await JS.InvokeVoidAsync("voxel.setEditorTime", CanvasId, _scrubMs, _durationMs, _loop);
     }
 
     private async Task ClearAll()
