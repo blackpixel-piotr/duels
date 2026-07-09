@@ -96,6 +96,40 @@
             <p class="ae-hint">The character shows the whole arm: shoulder (fixed) → elbow → hand. Drag the highlighted joint directly (works with touch); the bones stay connected, so you can't pull a joint past the arm's reach. Moving the elbow swings the forearm along; then fine-tune the hand. Tap the other joint to switch to it. <b>Dragging auto-saves a keyframe for the whole arm at the current time</b> — scrub elsewhere and drag again to add the next one. Depth (Z) is whatever's "sideways" from the current camera angle, so orbit 90° and drag again to reach it.</p>
         }
 
+        @{ var lanes = PartKeys.Where(k => _keys.TryGetValue(k, out var l) && l.Count > 0).ToList(); }
+        <div class="ae-timeline">
+            <h4>Timeline <span class="ae-hint">(drag a marker to retime)</span></h4>
+            <div class="ae-tl-track" @ref="_tlTrack"
+                 @onpointermove="TlMove" @onpointerup="TlUp" @onpointercancel="TlUp">
+                <div class="ae-tl-ruler"><span>0</span><span>@_durationMs.ToString("0") ms</span></div>
+                @if (lanes.Count == 0)
+                {
+                    <p class="ae-hint">No keyframes yet.</p>
+                }
+                @foreach (var part in lanes)
+                {
+                    <div class="ae-tl-lane">
+                        <div class="ae-tl-label">@PartLabel(part)</div>
+                        <div class="ae-tl-rail">
+                            @foreach (var kf in _keys[part])
+                            {
+                                var pct = (_durationMs > 0 ? kf.TimeMs / _durationMs * 100 : 0)
+                                    .ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+                                var active = _tlDrag is not null && ReferenceEquals(_tlDrag.Key, kf);
+                                <div class="ae-tl-marker @(active ? "active" : "")"
+                                     style="left:@(pct)%"
+                                     title="@kf.TimeMs.ToString("0") ms"
+                                     @onpointerdown="e => TlDown(part, kf, e)"
+                                     @onpointerdown:preventDefault="true"></div>
+                            }
+                        </div>
+                    </div>
+                }
+                <div class="ae-tl-playhead"
+                     style="left:@((_durationMs > 0 ? _scrubMs / _durationMs * 100 : 0).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+            </div>
+        </div>
+
         <div class="ae-kf-list">
             <h4>Keyframes <span class="ae-hint">(one per part &amp; time — the whole part's pose)</span></h4>
             @if (AllKeyframes().Count == 0)
@@ -164,6 +198,18 @@
     .ae-kf-btn { padding: 2px 8px; font-size: 0.85em; }
     .ae-whip { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 6px 0; display: flex; flex-direction: column; gap: 6px; }
     .ae-whip h4 { margin: 0; color: var(--purple); font-weight: normal; }
+    /* Keyframe timeline */
+    .ae-timeline { border-top: 1px solid var(--border); padding-top: 8px; }
+    .ae-timeline h4 { margin: 0 0 6px; color: var(--text-dim); font-weight: normal; }
+    .ae-tl-track { position: relative; padding: 0; touch-action: none; user-select: none; }
+    .ae-tl-ruler { display: flex; justify-content: space-between; font-size: 0.7em; color: var(--text-dim); margin-bottom: 2px; }
+    .ae-tl-lane { margin-bottom: 6px; }
+    .ae-tl-label { font-size: 0.72em; color: var(--text-dim); margin-bottom: 1px; }
+    .ae-tl-rail { position: relative; height: 16px; background: var(--bg-input); border: 1px solid var(--border); box-sizing: border-box; }
+    .ae-tl-marker { position: absolute; top: 50%; width: 11px; height: 11px; background: var(--amber); border: 1px solid #000; transform: translate(-50%, -50%) rotate(45deg); cursor: ew-resize; touch-action: none; }
+    .ae-tl-marker::after { content: ""; position: absolute; inset: -8px; } /* fat touch/hit area */
+    .ae-tl-marker:hover, .ae-tl-marker.active { background: var(--yellow); width: 13px; height: 13px; z-index: 3; }
+    .ae-tl-playhead { position: absolute; top: 14px; bottom: 0; width: 1px; background: var(--blue); pointer-events: none; z-index: 2; }
     .ae-kf-list { border-top: 1px solid var(--border); padding-top: 8px; }
     .ae-kf-list h4 { margin: 0 0 6px; color: var(--text-dim); font-weight: normal; }
     .ae-kf-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.85em; }
@@ -545,7 +591,8 @@
             {
                 var a = list[i - 1];
                 var b = list[i];
-                var t = (timeMs - a.TimeMs) / (b.TimeMs - a.TimeMs);
+                var span = b.TimeMs - a.TimeMs;
+                var t = span > 1e-9 ? (timeMs - a.TimeMs) / span : 1; // coincident keys: avoid /0
                 return BlendKeys(key, a.Vals, b.Vals, t);
             }
         }
@@ -626,12 +673,65 @@
     {
         if (double.TryParse(e.Value?.ToString(), out var v))
         {
-            kf.TimeMs = Math.Max(0, Math.Min(_durationMs, v));
-            if (_keys.TryGetValue(part, out var list)) list.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+            RetimeKey(part, kf, v);
             RefreshLiveValues();
             await PushPreview();
         }
     }
+
+    // ── Keyframe timeline (drag markers to retime) ──────────────────────────
+    private ElementReference _tlTrack;
+    private sealed record TlDrag(string Part, PoseKey Key);
+    private TlDrag? _tlDrag;
+    private double _tlLeft, _tlWidth;
+    private sealed record TlRect(double left, double width);
+
+    // Clamp a key to [0, duration] and keep it ≥1 ms from its part's siblings
+    // (two keys at the same time would divide-by-zero in the interpolators),
+    // then re-sort so ordering stays valid.
+    private void RetimeKey(string part, PoseKey kf, double ms)
+    {
+        ms = Math.Round(Math.Max(0, Math.Min(_durationMs, ms)));
+        if (_keys.TryGetValue(part, out var list))
+        {
+            foreach (var other in list)
+                if (!ReferenceEquals(other, kf) && Math.Abs(other.TimeMs - ms) < 1)
+                    ms = other.TimeMs + (ms >= other.TimeMs ? 1 : -1);
+            ms = Math.Max(0, Math.Min(_durationMs, ms));
+            kf.TimeMs = ms;
+            list.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+        }
+        else kf.TimeMs = ms;
+    }
+
+    private async Task TlDown(string part, PoseKey kf, PointerEventArgs e)
+    {
+        _tlDrag = new TlDrag(part, kf);
+        // Synchronous interop so the track rect is ready before the first
+        // pointermove (an awaited call leaves _tlWidth=0 during a fast drag).
+        var r = ((IJSInProcessRuntime)JS).Invoke<TlRect>("voxel.timelineGrab", _tlTrack, e.PointerId);
+        _tlLeft = r.left; _tlWidth = r.width;
+        // Grabbing a key selects its part and scrubs to it, so the live preview
+        // shows the pose you're moving.
+        _selectedPart = part switch { "R" => "R-elbow", "L" => "L-elbow", _ => "0" };
+        await SyncEditorJoint();
+        _scrubMs = kf.TimeMs;
+        RefreshLiveValues();
+        await PushPreview();
+    }
+
+    private async Task TlMove(PointerEventArgs e)
+    {
+        if (_tlDrag is null || _tlWidth <= 0) return;
+        var frac = Math.Max(0, Math.Min(1, (e.ClientX - _tlLeft) / _tlWidth));
+        RetimeKey(_tlDrag.Part, _tlDrag.Key, frac * _durationMs);
+        _scrubMs = _tlDrag.Key.TimeMs; // playhead + preview follow the moving key
+        RefreshLiveValues();
+        await PushPreview();
+        StateHasChanged();
+    }
+
+    private void TlUp(PointerEventArgs e) => _tlDrag = null;
 
     private sealed record KfRow(string Part, PoseKey Key);
 
