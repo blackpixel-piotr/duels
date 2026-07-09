@@ -98,7 +98,7 @@
 
         @{ var lanes = PartKeys.Where(k => _keys.TryGetValue(k, out var l) && l.Count > 0).ToList(); }
         <div class="ae-timeline">
-            <h4>Timeline <span class="ae-hint">(drag a marker to retime)</span></h4>
+            <h4>Timeline <span class="ae-hint">(click to select, drag to retime)</span></h4>
             <div class="ae-tl-track" @ref="_tlTrack"
                  @onpointermove="TlMove" @onpointerup="TlUp" @onpointercancel="TlUp">
                 <div class="ae-tl-ruler"><span>0</span><span>@_durationMs.ToString("0") ms</span></div>
@@ -116,7 +116,8 @@
                                 var pct = (_durationMs > 0 ? kf.TimeMs / _durationMs * 100 : 0)
                                     .ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
                                 var active = _tlDrag is not null && ReferenceEquals(_tlDrag.Key, kf);
-                                <div class="ae-tl-marker @(active ? "active" : "")"
+                                var selected = _selKey is not null && ReferenceEquals(_selKey.Key, kf);
+                                <div class="ae-tl-marker @(active ? "active" : "") @(selected ? "selected" : "")"
                                      style="left:@(pct)%"
                                      title="@kf.TimeMs.ToString("0") ms"
                                      @onpointerdown="e => TlDown(part, kf, e)"
@@ -127,6 +128,10 @@
                 }
                 <div class="ae-tl-playhead"
                      style="left:@((_durationMs > 0 ? _scrubMs / _durationMs * 100 : 0).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+            </div>
+            <div class="ae-row ae-buttons">
+                <button disabled="@(_selKey is null)" @onclick="DuplicateSelectedKey">Duplicate key →</button>
+                <span class="ae-hint">copies the selected marker ~@DupOffsetMs.ToString("0") ms forward</span>
             </div>
         </div>
 
@@ -209,6 +214,7 @@
     .ae-tl-marker { position: absolute; top: 50%; width: 11px; height: 11px; background: var(--amber); border: 1px solid #000; transform: translate(-50%, -50%) rotate(45deg); cursor: ew-resize; touch-action: none; }
     .ae-tl-marker::after { content: ""; position: absolute; inset: -8px; } /* fat touch/hit area */
     .ae-tl-marker:hover, .ae-tl-marker.active { background: var(--yellow); width: 13px; height: 13px; z-index: 3; }
+    .ae-tl-marker.selected { outline: 2px solid var(--yellow); outline-offset: 1px; z-index: 4; }
     .ae-tl-playhead { position: absolute; top: 14px; bottom: 0; width: 1px; background: var(--blue); pointer-events: none; z-index: 2; }
     .ae-kf-list { border-top: 1px solid var(--border); padding-top: 8px; }
     .ae-kf-list h4 { margin: 0 0 6px; color: var(--text-dim); font-weight: normal; }
@@ -665,6 +671,7 @@
     private async Task DeleteKf(string part, PoseKey kf)
     {
         if (_keys.TryGetValue(part, out var list)) list.Remove(kf);
+        if (_selKey is not null && ReferenceEquals(_selKey.Key, kf)) _selKey = null;
         RefreshLiveValues();
         await PushPreview();
     }
@@ -685,6 +692,13 @@
     private TlDrag? _tlDrag;
     private double _tlLeft, _tlWidth;
     private sealed record TlRect(double left, double width);
+
+    // The persistently-selected keyframe (last one grabbed/clicked on the
+    // timeline) — target of the Duplicate button. Kept after the drag ends.
+    private sealed record SelKey(string Part, PoseKey Key);
+    private SelKey? _selKey;
+    private const double DupOffsetMs = 40; // duplicate lands this far forward
+                                           // (small, just enough to grab)
 
     // Clamp a key to [0, duration] and keep it ≥1 ms from its part's siblings
     // (two keys at the same time would divide-by-zero in the interpolators),
@@ -707,6 +721,7 @@
     private async Task TlDown(string part, PoseKey kf, PointerEventArgs e)
     {
         _tlDrag = new TlDrag(part, kf);
+        _selKey = new SelKey(part, kf); // grabbing/clicking a marker selects it
         // Synchronous interop so the track rect is ready before the first
         // pointermove (an awaited call leaves _tlWidth=0 during a fast drag).
         var r = ((IJSInProcessRuntime)JS).Invoke<TlRect>("voxel.timelineGrab", _tlTrack, e.PointerId);
@@ -732,6 +747,23 @@
     }
 
     private void TlUp(PointerEventArgs e) => _tlDrag = null;
+
+    // Copy the selected keyframe and drop it a short step forward (or backward
+    // if that runs past the end) so its marker sits just clear of the original
+    // and is easy to grab. The copy becomes the new selection so repeats chain.
+    private async Task DuplicateSelectedKey()
+    {
+        if (_selKey is null || !_keys.TryGetValue(_selKey.Part, out var list)) return;
+        var src = _selKey.Key;
+        var ms = src.TimeMs + DupOffsetMs > _durationMs ? src.TimeMs - DupOffsetMs : src.TimeMs + DupOffsetMs;
+        var copy = new PoseKey { TimeMs = src.TimeMs, Vals = (double[])src.Vals.Clone() };
+        list.Add(copy);
+        RetimeKey(_selKey.Part, copy, ms); // clamp + nudge off collisions + re-sort
+        _selKey = new SelKey(_selKey.Part, copy);
+        _scrubMs = copy.TimeMs;
+        RefreshLiveValues();
+        await PushPreview();
+    }
 
     private sealed record KfRow(string Part, PoseKey Key);
 
@@ -814,6 +846,7 @@
     private async Task ClearAll()
     {
         _keys.Clear();
+        _selKey = null;
         _exportText = null;
         RefreshLiveValues();
         await PushPreview();
@@ -828,6 +861,7 @@
     private async Task LoadWhipDefault()
     {
         _keys.Clear();
+        _selKey = null;
         _durationMs = 480;
         // Coupled arm keys: [ex,ey,ez, hx,hy,hz] at each normalized time.
         void SeedArm(string part, params (double p, double[] v)[] pts)
