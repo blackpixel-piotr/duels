@@ -1484,6 +1484,8 @@
             g: lashCfg.g ?? LASH_G,
             damp: lashCfg.damp ?? LASH_DAMP,
             thick: lashCfg.thick ?? 2.6,
+            stiff: lashCfg.stiff ?? 0, // bending resistance: 0 = floppy, →1 = rigid
+
             // model-space anchor: top of the handle, riding the arm chain
             anchorM: [hand[0], hand[1] + (lashCfg.top ?? 3), hand[2]],
             pts: null, lastT: 0,
@@ -1599,6 +1601,12 @@
         // (hit-stop) skips integration entirely — re-pin only — so frozen
         // frames don't keep feeding stale per-frame velocity into the rope.
         const SUB = 3;
+        // Bending resistance: pull each interior node toward the midpoint of
+        // its two neighbours, which flattens local curvature; interleaved with
+        // the distance pass (which re-expands the segments) the rope holds a
+        // straighter, more rod-like line the higher `stiff` is. 0 = today's
+        // floppy chain. The 0.5 keeps high values stable across the rounds.
+        const bend = (lash.stiff ?? 0) * 0.5;
         const relax = (rounds, px2, py2, pz2) => {
             const p0 = lash.pts[0];
             p0.x = p0.px = px2; p0.y = p0.py = py2; p0.z = p0.pz = pz2;
@@ -1613,6 +1621,14 @@
                         const hx = dx * f * 0.5, hy = dy * f * 0.5, hz = dz * f * 0.5;
                         A.x += hx; A.y += hy; A.z += hz;
                         B.x -= hx; B.y -= hy; B.z -= hz;
+                    }
+                }
+                if (bend > 0) {
+                    for (let i = 1; i < lash.pts.length - 1; i++) {
+                        const A = lash.pts[i - 1], B = lash.pts[i], C = lash.pts[i + 1];
+                        B.x += ((A.x + C.x) * 0.5 - B.x) * bend;
+                        B.y += ((A.y + C.y) * 0.5 - B.y) * bend;
+                        B.z += ((A.z + C.z) * 0.5 - B.z) * bend;
                     }
                 }
             }
@@ -2651,7 +2667,7 @@
     // into rigs.json.
     function getLashDebug(canvasId) {
         const lash = battles.get(canvasId)?.player?.lash;
-        return lash ? { len: lash.len, g: lash.g, damp: lash.damp, thick: lash.thick } : null;
+        return lash ? { len: lash.len, g: lash.g, damp: lash.damp, thick: lash.thick, stiff: lash.stiff } : null;
     }
     function setLashDebug(canvasId, d) {
         const lash = battles.get(canvasId)?.player?.lash;
@@ -2659,6 +2675,7 @@
         if (typeof d.g === 'number') lash.g = d.g;
         if (typeof d.damp === 'number') lash.damp = Math.max(0.5, Math.min(0.999, d.damp));
         if (typeof d.thick === 'number') lash.thick = Math.max(0.5, d.thick);
+        if (typeof d.stiff === 'number') lash.stiff = Math.max(0, Math.min(1, d.stiff));
         if (typeof d.len === 'number' && d.len > 0.01 && d.len !== lash.len) {
             lash.len = d.len;
             lash.segLen = d.len / lash.segs;
