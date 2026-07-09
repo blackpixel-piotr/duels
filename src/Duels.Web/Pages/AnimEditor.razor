@@ -267,10 +267,11 @@
         ("len",   "Length",              0.3,  2.0,  0.01,  "0.00"),
         ("g",     "Weight (gravity)",    5,    60,   1,     "0"),
         ("damp",  "Whippiness (damping)",0.90, 0.995,0.001, "0.000"),
+        ("stiff", "Stiffness",           0,    1,    0.01,  "0.00"),
         ("thick", "Thickness",           1.5,  5.0,  0.1,   "0.0"),
     ];
     private readonly Dictionary<string, double> _lash = new()
-        { ["len"] = 0.85, ["g"] = 19, ["damp"] = 0.965, ["thick"] = 2.6 };
+        { ["len"] = 0.85, ["g"] = 19, ["damp"] = 0.965, ["stiff"] = 0, ["thick"] = 2.6 };
     private bool HasLash => _weaponId is "abyssal_whip" or "corrupted_whip";
 
     // keys[partKey] = coupled pose keyframes (sorted by time). working[partKey]
@@ -365,7 +366,8 @@
             var d = await JS.InvokeAsync<LashCfg?>("voxel.getLashDebug", CanvasId);
             if (d is { len: > 0 })
             {
-                _lash["len"] = d.len; _lash["g"] = d.g; _lash["damp"] = d.damp; _lash["thick"] = d.thick;
+                _lash["len"] = d.len; _lash["g"] = d.g; _lash["damp"] = d.damp;
+                _lash["stiff"] = d.stiff; _lash["thick"] = d.thick;
                 StateHasChanged();
                 return;
             }
@@ -378,10 +380,10 @@
         if (!double.TryParse(e.Value?.ToString(), out var v)) return;
         _lash[key] = v;
         await JS.InvokeVoidAsync("voxel.setLashDebug", CanvasId,
-            new { len = _lash["len"], g = _lash["g"], damp = _lash["damp"], thick = _lash["thick"] });
+            new { len = _lash["len"], g = _lash["g"], damp = _lash["damp"], stiff = _lash["stiff"], thick = _lash["thick"] });
     }
 
-    private sealed record LashCfg(double len, double g, double damp, double thick);
+    private sealed record LashCfg(double len, double g, double damp, double thick, double stiff);
 
     private async Task OnDurationChanged(ChangeEventArgs e)
     {
@@ -742,7 +744,7 @@
             }
         }
         if (HasLash)
-            sb.AppendLine($"// lash: {{ len: {_lash["len"]:0.###}, segs: 12, g: {_lash["g"]:0.#}, damp: {_lash["damp"]:0.###}, thick: {_lash["thick"]:0.#} }}");
+            sb.AppendLine($"// lash: {{ len: {_lash["len"]:0.###}, segs: 12, g: {_lash["g"]:0.#}, damp: {_lash["damp"]:0.###}, stiff: {_lash["stiff"]:0.##}, thick: {_lash["thick"]:0.#} }}");
         sb.AppendLine();
         sb.AppendLine("// raw JSON (paste back in later to keep editing):");
         sb.AppendLine(System.Text.Json.JsonSerializer.Serialize(BuildPayload()));
