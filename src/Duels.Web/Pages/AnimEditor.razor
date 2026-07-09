@@ -34,6 +34,22 @@
             </select>
         </div>
 
+        @if (HasLash)
+        {
+            <div class="ae-whip">
+                <h4>Whip physics <span class="ae-hint">(live — tune, then tell me)</span></h4>
+                @foreach (var k in LashKnobs)
+                {
+                    var key = k.Key;
+                    <div class="ae-row ae-channel">
+                        <label>@k.Label <span class="ae-val">@_lash[key].ToString(k.Fmt)</span></label>
+                        <input type="range" min="@k.Min" max="@k.Max" step="@k.Step"
+                               value="@_lash[key]" @oninput="e => OnLashInput(key, e)" />
+                    </div>
+                }
+            </div>
+        }
+
         <div class="ae-row">
             <label>Duration</label>
             <input type="number" min="50" max="5000" step="10" value="@_durationMs"
@@ -146,6 +162,8 @@
     button:hover { border-color: var(--amber); color: var(--amber); }
     .ae-channel { background: var(--bg-panel); padding: 6px 8px; border: 1px solid var(--border); }
     .ae-kf-btn { padding: 2px 8px; font-size: 0.85em; }
+    .ae-whip { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 6px 0; display: flex; flex-direction: column; gap: 6px; }
+    .ae-whip h4 { margin: 0; color: var(--purple); font-weight: normal; }
     .ae-kf-list { border-top: 1px solid var(--border); padding-top: 8px; }
     .ae-kf-list h4 { margin: 0 0 6px; color: var(--text-dim); font-weight: normal; }
     .ae-kf-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.85em; }
@@ -241,6 +259,20 @@
     // Every part storage key that can hold keyframes.
     private static readonly string[] PartKeys = ["0", "R", "L"];
 
+    // Live whip-physics knobs (see voxel.js get/setLashDebug). Shown only for
+    // lash weapons; tune against the playing swing, then bake the chosen values
+    // into rigs.json + gen_models.py.
+    private static readonly (string Key, string Label, double Min, double Max, double Step, string Fmt)[] LashKnobs =
+    [
+        ("len",   "Length",              0.3,  2.0,  0.01,  "0.00"),
+        ("g",     "Weight (gravity)",    5,    60,   1,     "0"),
+        ("damp",  "Whippiness (damping)",0.90, 0.995,0.001, "0.000"),
+        ("thick", "Thickness",           1.5,  5.0,  0.1,   "0.0"),
+    ];
+    private readonly Dictionary<string, double> _lash = new()
+        { ["len"] = 0.85, ["g"] = 19, ["damp"] = 0.965, ["thick"] = 2.6 };
+    private bool HasLash => _weaponId is "abyssal_whip" or "corrupted_whip";
+
     // keys[partKey] = coupled pose keyframes (sorted by time). working[partKey]
     // = the part's current channel values (the live/preview pose), refreshed
     // from the keys on scrub and updated in place while editing.
@@ -279,6 +311,7 @@
         await SyncEditorJoint();
         RefreshLiveValues();
         await PushPreview();
+        await InitLash();
     }
 
     // Direct on-canvas manipulation (see voxel.js's editorDrag handling): the
@@ -316,8 +349,39 @@
     private Task SyncEditorJoint() =>
         JS.InvokeVoidAsync("voxel.setEditorJoint", CanvasId, _selectedPart == "0" ? null : _selectedPart).AsTask();
 
-    private async Task OnWeaponChanged() =>
+    private async Task OnWeaponChanged()
+    {
         await JS.InvokeVoidAsync("voxel.setBattleWeapon", CanvasId, string.IsNullOrEmpty(_weaponId) ? null : _weaponId);
+        await InitLash();
+    }
+
+    // Pull the freshly-attached lash's knobs into the sliders (the weapon load
+    // is async, so poll briefly until the lash exists).
+    private async Task InitLash()
+    {
+        if (!HasLash) return;
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            var d = await JS.InvokeAsync<LashCfg?>("voxel.getLashDebug", CanvasId);
+            if (d is { len: > 0 })
+            {
+                _lash["len"] = d.len; _lash["g"] = d.g; _lash["damp"] = d.damp; _lash["thick"] = d.thick;
+                StateHasChanged();
+                return;
+            }
+            await Task.Delay(50);
+        }
+    }
+
+    private async Task OnLashInput(string key, ChangeEventArgs e)
+    {
+        if (!double.TryParse(e.Value?.ToString(), out var v)) return;
+        _lash[key] = v;
+        await JS.InvokeVoidAsync("voxel.setLashDebug", CanvasId,
+            new { len = _lash["len"], g = _lash["g"], damp = _lash["damp"], thick = _lash["thick"] });
+    }
+
+    private sealed record LashCfg(double len, double g, double damp, double thick);
 
     private async Task OnDurationChanged(ChangeEventArgs e)
     {
@@ -677,6 +741,8 @@
                 sb.AppendLine($"{chans[c].Key} = lerpKeys(p, [{pts}]);");
             }
         }
+        if (HasLash)
+            sb.AppendLine($"// lash: {{ len: {_lash["len"]:0.###}, segs: 12, g: {_lash["g"]:0.#}, damp: {_lash["damp"]:0.###}, thick: {_lash["thick"]:0.#} }}");
         sb.AppendLine();
         sb.AppendLine("// raw JSON (paste back in later to keep editing):");
         sb.AppendLine(System.Text.Json.JsonSerializer.Serialize(BuildPayload()));

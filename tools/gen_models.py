@@ -548,7 +548,7 @@ def w_whip(color, dark):
     w.extra = {'lash': {
         # rope exits just BELOW the fist (top: -2 relative to the grip) so
         # the hanging lash reads as connected to the hand, not the hip
-        'len': 1.15, 'segs': 12, 'top': -2,
+        'len': 0.85, 'segs': 12, 'top': -2,
         'color': '#%02x%02x%02x' % color, 'dark': '#%02x%02x%02x' % dark,
     }}
     return w
