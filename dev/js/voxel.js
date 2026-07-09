@@ -1473,8 +1473,17 @@
         actor.combined = null;
         actor.lash = lashCfg ? {
             segs: lashCfg.segs ?? 12,
+            len: lashCfg.len ?? 1.15,
             segLen: (lashCfg.len ?? 1.15) / (lashCfg.segs ?? 12),
             color: lashCfg.color ?? '#a050d8',
+            // Per-lash "feel" knobs (defaults = the global tunings). Kept on
+            // the lash so different whips can weigh differently and the anim
+            // editor can tune them live (see get/setLashDebug): g = gravity
+            // (heavier hang), damp = velocity kept per substep (lower =
+            // calmer/heavier), thick = base render width.
+            g: lashCfg.g ?? LASH_G,
+            damp: lashCfg.damp ?? LASH_DAMP,
+            thick: lashCfg.thick ?? 2.6,
             // model-space anchor: top of the handle, riding the arm chain
             anchorM: [hand[0], hand[1] + (lashCfg.top ?? 3), hand[2]],
             pts: null, lastT: 0,
@@ -1565,13 +1574,14 @@
         lash.lastT = now;
 
         // Attack drive (accel field on every free node)
-        let dvx = 0, dvy = -LASH_G, dvz = 0;
+        const G = lash.g ?? LASH_G;
+        let dvx = 0, dvy = -G, dvz = 0;
         const atk = actor.anims.find(t => t.type === 'attack' && t.kind === 'lash');
         if (atk) {
             const p = (now - atk.t0) / atk.dur;
             if (p >= 0 && p < 0.34) {           // wind up: gather high behind
                 const w = p / 0.34;
-                dvx += -sF * 55 * w; dvz += -cF * 55 * w; dvy += LASH_G + 45 * w;
+                dvx += -sF * 55 * w; dvz += -cF * 55 * w; dvy += G + 45 * w;
             } else if (p >= 0.34 && p < 0.64) { // strike: sling at the target
                 const other = actor === st.player ? st.enemy : st.player;
                 const pulse = Math.sin((p - 0.34) / 0.30 * Math.PI);
@@ -1615,11 +1625,12 @@
             const sx = prev.x + (ax - prev.x) * q,
                   sy = prev.y + (ay - prev.y) * q,
                   sz = prev.z + (az - prev.z) * q;
+            const damp = lash.damp ?? LASH_DAMP;
             for (let i = 1; i < lash.pts.length; i++) {
                 const pt = lash.pts[i];
-                const vx = (pt.x - pt.px) * LASH_DAMP,
-                      vy = (pt.y - pt.py) * LASH_DAMP,
-                      vz = (pt.z - pt.pz) * LASH_DAMP;
+                const vx = (pt.x - pt.px) * damp,
+                      vy = (pt.y - pt.py) * damp,
+                      vz = (pt.z - pt.pz) * damp;
                 pt.px = pt.x; pt.py = pt.y; pt.pz = pt.z;
                 pt.x += vx + dvx * dts * dts;
                 pt.y += vy + dvy * dts * dts;
@@ -1680,12 +1691,13 @@
         if (!lash?.pts || actor.crumbled) return;
         const vpw = actor.model.height / actor.base.worldH;
         const n = lash.pts.length;
+        const bw = lash.thick ?? 2.6; // base render width (taper floor + scale)
         const scr = lash.pts.map((pt, i) => {
             const p = proj(st, pt.x, pt.z, W, H);
             const ps = CAM_FOV / (CAM_FOV - p.rz);
             const S = p.px * ps / vpw; // px per voxel at depth
             return { x: p.x, y: p.y - pt.y * p.px * ps, rz: p.rz,
-                     width: Math.max(2.6, S * (2.6 - i / (n - 1))) };
+                     width: Math.max(bw, S * (bw - i / (n - 1))) };
         });
 
         // Base cord: one continuous tapered stroke per (sub-)segment
@@ -2633,6 +2645,27 @@
         if (typeof d.zoom === 'number') st.camZoom = Math.max(0.05, d.zoom);
     }
 
+    // Live whip-physics tuning for the anim editor (see AnimEditor.razor):
+    // read/write the player lash's per-lash "feel" knobs so a whip's length
+    // and weight can be dialled in against the authored swing and then baked
+    // into rigs.json.
+    function getLashDebug(canvasId) {
+        const lash = battles.get(canvasId)?.player?.lash;
+        return lash ? { len: lash.len, g: lash.g, damp: lash.damp, thick: lash.thick } : null;
+    }
+    function setLashDebug(canvasId, d) {
+        const lash = battles.get(canvasId)?.player?.lash;
+        if (!lash) return;
+        if (typeof d.g === 'number') lash.g = d.g;
+        if (typeof d.damp === 'number') lash.damp = Math.max(0.5, Math.min(0.999, d.damp));
+        if (typeof d.thick === 'number') lash.thick = Math.max(0.5, d.thick);
+        if (typeof d.len === 'number' && d.len > 0.01 && d.len !== lash.len) {
+            lash.len = d.len;
+            lash.segLen = d.len / lash.segs;
+            lash.pts = null; // re-hang at the new length
+        }
+    }
+
     function destroyBattle(canvasId) {
         const st = battles.get(canvasId);
         if (!st) return;
@@ -3004,6 +3037,7 @@
         initBattle, destroyBattle, setBattleEnemy, setBattleFlags, battleEvent,
         setBattleVitals, setBattleWeapon, setBattlePositions, resetBattle,
         setBattleOverheads, getCameraDebug, setCameraDebug,
+        getLashDebug, setLashDebug,
 
         // ── Animation editor (AnimEditor.razor) ────────────────────────────
         // tracks: { [partIndex]: { pitch?, yaw?, roll?, dz?, dy? },
