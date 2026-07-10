@@ -647,8 +647,8 @@
         // physics lash (actor.lash) out ahead of the player where it cracks. It
         // must NEVER cock behind the head — that reads as a backwards swing.
         lash:   (p, t) => {
-            t.pitch = lerpKeys(p, [[0, 0], [0.3, -2.0], [0.55, -0.6], [1, 0]]);
-            t.yaw = lerp3(p, 0.15, -0.15, 0);
+            t.pitch = lerpKeys(p, [[0, 0], [0.34, -2.5], [0.6, -0.6], [1, 0]]);
+            t.yaw = lerp3(p, 0.12, -0.12, 0);
         },
         crush:  (p, t) => { t.pitch = lerp3(p, 2.5, 0.75, 0); },
         flurry: (p, t) => {
@@ -667,7 +667,7 @@
         stab:   { yaw: 0.18, lunge: 0.10, dip: 1.2 },
         rstab:  { yaw: 0.22, lunge: 0.12, dip: 1.4 },
         slash:  { yaw: 0.30, lunge: 0.08, dip: 1.0 },
-        lash:   { yaw: 0.42, lunge: 0.18, dip: 1.4 },
+        lash:   { yaw: 0.42, lunge: 0.0, dip: 0.9 },
         crush:  { yaw: 0.15, lunge: 0.14, dip: 2.2 },
         flurry: { yaw: 0.25, lunge: 0.06, dip: 0.8 },
         ddspec: { yaw: 0.35, lunge: 0.10, dip: 1.4 },
@@ -1106,12 +1106,13 @@
                 (ATTACK_POSES[atk.kind] ?? ATTACK_POSES.slash)(p, ensure(RU));
                 if (atk.kind === 'lash') {
                     // RL is relative to the upper arm (RU). For the overhead-
-                    // FORWARD crack: a slight cock at the top (negative bends the
-                    // forearm back/up as the arm reaches overhead), then a strong
+                    // FORWARD crack: the forearm cocks well BACK at the top
+                    // (negative bends it back/up so the hand ends high behind the
+                    // head — the farthest, most-loaded position), then a strong
                     // forward extension on the down-snap (positive curls the
-                    // forearm forward-and-down) to whip the hand out ahead of the
+                    // forearm forward-and-down) whips the hand out ahead of the
                     // player, releasing the lash toward the target.
-                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.3, -0.4], [0.55, 0.9], [1, 0]]);
+                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.34, -1.3], [0.6, 0.9], [1, 0]]);
                 } else {
                     ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
                 }
