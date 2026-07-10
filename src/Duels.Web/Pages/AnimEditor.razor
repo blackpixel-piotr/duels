@@ -47,6 +47,10 @@
                                value="@_lash[key]" @oninput="e => OnLashInput(key, e)" />
                     </div>
                 }
+                <div class="ae-row ae-crack-row">
+                    <button class="ae-crack" disabled="@_previewing" @onclick="PreviewWhipCrack">⚡ Preview whip crack</button>
+                    <span class="ae-hint">plays the real attack — tune Strike power / Tip snap against it</span>
+                </div>
             </div>
         }
 
@@ -203,6 +207,9 @@
     .ae-kf-btn { padding: 2px 8px; font-size: 0.85em; }
     .ae-whip { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 6px 0; display: flex; flex-direction: column; gap: 6px; }
     .ae-whip h4 { margin: 0; color: var(--purple); font-weight: normal; }
+    .ae-crack-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+    .ae-crack { align-self: stretch; background: var(--purple); color: #fff; border: none; padding: 5px 8px; cursor: pointer; font: inherit; }
+    .ae-crack:disabled { opacity: 0.55; cursor: default; }
     /* Keyframe timeline */
     .ae-timeline { border-top: 1px solid var(--border); padding-top: 8px; }
     .ae-timeline h4 { margin: 0 0 6px; color: var(--text-dim); font-weight: normal; }
@@ -321,9 +328,13 @@
         ("damp",  "Whippiness (damping)",0.90, 0.995,0.001, "0.000"),
         ("stiff", "Stiffness",           0,    1,    0.01,  "0.00"),
         ("thick", "Thickness",           1.5,  5.0,  0.1,   "0.0"),
+        // Attack-only (drives the crack, not the hang): strike push + tip snap.
+        ("power", "Strike power",        0,    3,    0.05,  "0.00"),
+        ("taper", "Tip snap (taper)",    0,    8,    0.1,   "0.0"),
     ];
     private readonly Dictionary<string, double> _lash = new()
-        { ["len"] = 0.85, ["g"] = 19, ["damp"] = 0.965, ["stiff"] = 0, ["thick"] = 2.6 };
+        { ["len"] = 0.85, ["g"] = 19, ["damp"] = 0.965, ["stiff"] = 0, ["thick"] = 2.6,
+          ["power"] = 1.5, ["taper"] = 4.5 };
     private bool HasLash => _weaponId is "abyssal_whip" or "corrupted_whip";
 
     // keys[partKey] = coupled pose keyframes (sorted by time). working[partKey]
@@ -338,6 +349,7 @@
     private double _durationMs = 480;
     private double _scrubMs;
     private bool _playing;
+    private bool _previewing;
     private bool _loop = true;
     private string? _exportText;
     private CancellationTokenSource? _playCts;
@@ -420,6 +432,7 @@
             {
                 _lash["len"] = d.len; _lash["g"] = d.g; _lash["damp"] = d.damp;
                 _lash["stiff"] = d.stiff; _lash["thick"] = d.thick;
+                _lash["power"] = d.power; _lash["taper"] = d.taper;
                 StateHasChanged();
                 return;
             }
@@ -432,10 +445,11 @@
         if (!double.TryParse(e.Value?.ToString(), out var v)) return;
         _lash[key] = v;
         await JS.InvokeVoidAsync("voxel.setLashDebug", CanvasId,
-            new { len = _lash["len"], g = _lash["g"], damp = _lash["damp"], stiff = _lash["stiff"], thick = _lash["thick"] });
+            new { len = _lash["len"], g = _lash["g"], damp = _lash["damp"], stiff = _lash["stiff"],
+                  thick = _lash["thick"], power = _lash["power"], taper = _lash["taper"] });
     }
 
-    private sealed record LashCfg(double len, double g, double damp, double thick, double stiff);
+    private sealed record LashCfg(double len, double g, double damp, double thick, double stiff, double power, double taper);
 
     private async Task OnDurationChanged(ChangeEventArgs e)
     {
@@ -529,6 +543,31 @@
             }
         }
         catch (TaskCanceledException) { /* Pause clicked mid-delay */ }
+    }
+
+    // Play the SHIPPED whip attack (with the crack physics) in the preview so
+    // the crack — and the Strike power / Tip snap sliders — can be tuned live.
+    // The authored keyframes normally suppress all built-in choreography, so we
+    // pause playback (its scrub timer re-pushes the authored pose every frame),
+    // hand off to voxel.previewWhipAttack (clears customPose, plays a real lash
+    // attack), then restore the authored preview once the swing has finished.
+    private async Task PreviewWhipCrack()
+    {
+        if (_previewing || !HasLash) return;
+        _previewing = true;
+        if (_playing) { _playing = false; _playCts?.Cancel(); }
+        StateHasChanged();
+        try
+        {
+            var dur = await JS.InvokeAsync<double>("voxel.previewWhipAttack", CanvasId);
+            await Task.Delay((int)Math.Max(1, dur) + 80);
+        }
+        finally
+        {
+            _previewing = false;
+            await PushPreview();   // restore the authored pose
+            StateHasChanged();
+        }
     }
 
     // The part's working (live/preview) pose, created on demand from the
@@ -914,7 +953,7 @@
             }
         }
         if (HasLash)
-            sb.AppendLine($"// lash: {{ len: {_lash["len"]:0.###}, segs: 12, g: {_lash["g"]:0.#}, damp: {_lash["damp"]:0.###}, stiff: {_lash["stiff"]:0.##}, thick: {_lash["thick"]:0.#} }}");
+            sb.AppendLine($"// lash: {{ len: {_lash["len"]:0.###}, segs: 12, g: {_lash["g"]:0.#}, damp: {_lash["damp"]:0.###}, stiff: {_lash["stiff"]:0.##}, thick: {_lash["thick"]:0.#}, power: {_lash["power"]:0.##}, taper: {_lash["taper"]:0.#} }}");
         sb.AppendLine();
         sb.AppendLine("// raw JSON (paste back in later to keep editing):");
         sb.AppendLine(System.Text.Json.JsonSerializer.Serialize(BuildPayload()));
