@@ -639,17 +639,16 @@
             t.dz = (1.2 + 1.8 * Math.abs(Math.sin(2 * th))) * w;
         },
         slash:  (p, t) => { t.pitch = lerp3(p, 1.15, 1.25, 0); t.yaw = lerp3(p, -1.15, 1.2, 0); },
-        // whip: a basketball-style overhand throw. The UPPER arm (shoulder)
-        // only rises to roughly vertical and stays there through the whole
-        // swing — the elbow itself never travels behind the body. All the
-        // big cocking motion happens at the elbow (see computePoseV2's
-        // lash-specific RL curve): the forearm keeps rotating past where
-        // the upper arm stopped, swinging the hand back and up above the
-        // shoulder, then snaps straight again for the throw — released as
-        // the physics lash (actor.lash), which follows the hand and cracks.
+        // whip: an OVERHEAD FORWARD crack. Small cock, mostly forward — the
+        // upper arm raises up-and-FORWARD (negative pitch swings the arm toward
+        // the front; positive would fold it behind the back, see computePoseV2's
+        // pitch convention) to roughly overhead by p≈0.3, then drives down-and-
+        // forward through the strike (0.34-0.64) toward the target, snapping the
+        // physics lash (actor.lash) out ahead of the player where it cracks. It
+        // must NEVER cock behind the head — that reads as a backwards swing.
         lash:   (p, t) => {
-            t.pitch = lerpKeys(p, [[0, 0], [0.25, 1.5], [0.4, 2.2], [0.55, 1.8], [1, 0]]);
-            t.yaw = lerp3(p, -0.3, 0.25, 0);
+            t.pitch = lerpKeys(p, [[0, 0], [0.3, -2.0], [0.55, -0.6], [1, 0]]);
+            t.yaw = lerp3(p, 0.15, -0.15, 0);
         },
         crush:  (p, t) => { t.pitch = lerp3(p, 2.5, 0.75, 0); },
         flurry: (p, t) => {
@@ -668,7 +667,7 @@
         stab:   { yaw: 0.18, lunge: 0.10, dip: 1.2 },
         rstab:  { yaw: 0.22, lunge: 0.12, dip: 1.4 },
         slash:  { yaw: 0.30, lunge: 0.08, dip: 1.0 },
-        lash:   { yaw: 0.42, lunge: 0.10, dip: 1.6 },
+        lash:   { yaw: 0.42, lunge: 0.18, dip: 1.4 },
         crush:  { yaw: 0.15, lunge: 0.14, dip: 2.2 },
         flurry: { yaw: 0.25, lunge: 0.06, dip: 0.8 },
         ddspec: { yaw: 0.35, lunge: 0.10, dip: 1.4 },
@@ -1106,15 +1105,13 @@
             if (p >= 0 && p <= 1) {
                 (ATTACK_POSES[atk.kind] ?? ATTACK_POSES.slash)(p, ensure(RU));
                 if (atk.kind === 'lash') {
-                    // RL is relative to the upper arm (RU), which itself
-                    // holds near-vertical through the swing so the elbow
-                    // stays in front of the face. Confirmed empirically
-                    // (calibration harness): NEGATIVE RL pitch is what
-                    // swings the forearm back and up so the hand ends
-                    // above the shoulder — positive curls it forward and
-                    // down toward the hip instead, which was the bug.
-                    // Snaps back toward 0 (straight) for the throw.
-                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.25, -0.5], [0.4, -1.0], [0.55, 0.3], [1, 0]]);
+                    // RL is relative to the upper arm (RU). For the overhead-
+                    // FORWARD crack: a slight cock at the top (negative bends the
+                    // forearm back/up as the arm reaches overhead), then a strong
+                    // forward extension on the down-snap (positive curls the
+                    // forearm forward-and-down) to whip the hand out ahead of the
+                    // player, releasing the lash toward the target.
+                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.3, -0.4], [0.55, 0.9], [1, 0]]);
                 } else {
                     ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
                 }
@@ -1128,13 +1125,13 @@
                 const root = ensure(0);
                 let wy;
                 if (atk.kind === 'lash') {
-                    // No opposite wind-back: the body rotates TOWARD the
-                    // weapon side as the arm cocks back overhead and holds
-                    // through the release. The off arm raises to counter-
-                    // balance while the main hand is up, and lowers as the
-                    // main hand comes back down.
-                    wy = lerpKeys(p, [[0, 0], [0.4, 0.28], [0.55, 0.42], [1, 0]]);
-                    ensure(LU).pitch += lerpKeys(p, [[0, 0], [0.4, -0.63], [0.55, -0.25], [1, 0]]);
+                    // Overhead-forward crack: only a small hip turn toward the
+                    // weapon side (the drive is the forward lunge below, not a
+                    // rotation — a big turn would sling the whip sideways/back).
+                    // The off arm raises to counterbalance while the main hand is
+                    // overhead, and lowers as it snaps down and forward.
+                    wy = lerpKeys(p, [[0, 0], [0.3, 0.15], [0.55, 0.1], [1, 0]]);
+                    ensure(LU).pitch += lerpKeys(p, [[0, 0], [0.3, -0.5], [0.55, -0.2], [1, 0]]);
                 } else {
                     wy = lerp3(p, -b.yaw, b.yaw * 0.8, 0);
                     ensure(LU).pitch += lerp3(p, b.yaw * 0.7, -b.yaw * 0.5, 0);
@@ -1633,25 +1630,25 @@
         const dt = Math.max(0, Math.min(40, now - lash.lastT));
         lash.lastT = now;
 
-        // Attack drive. Shoving every node equally billows; instead the
-        // wind-up gathers the rope up and behind the shoulder, then the strike
-        // flings it forward with the push CONCENTRATED at the base — a wave the
-        // tip-taper below carries out and amplifies into a crack.
+        // Attack drive. Shoving every node equally billows; instead the wind-up
+        // lifts the rope up OVERHEAD (in front, not behind), then the strike
+        // flings it forward-and-down at the target with the push CONCENTRATED at
+        // the base — a wave the tip-taper below carries out into a crack.
         const G = lash.g ?? LASH_G;
         const power = lash.power ?? LASH_POWER;
         let sdx = 0, sdy = 0, sdz = 0, strikeMag = 0, strikeProg = 0, windMag = 0, windLift = 0;
         if (winding) {
             const w = ap / 0.34;
-            windMag = 55 * w;          // horizontal gather, back behind the shoulder
-            windLift = G + 45 * w;     // cancel gravity + raise (cock the whip up)
+            windMag = 18 * w;          // small FORWARD drape as it lifts (never behind)
+            windLift = G + 55 * w;     // cancel gravity + raise the rope overhead
         } else if (striking) {
             strikeProg = (ap - 0.34) / 0.30; // 0 → 1: the crest travels base → tip
             let tx, ty, tz;
-            if (st.editorMode) {       // no live opponent: crack straight ahead
-                tx = ax + sF * 3; tz = az + cF * 3; ty = ay - 0.4;
+            if (st.editorMode) {       // no live opponent: crack forward-and-down
+                tx = ax + sF * 3; tz = az + cF * 3; ty = ay - 0.6;
             } else {
                 const other = actor === st.player ? st.enemy : st.player;
-                tx = other.pos.wx; tz = other.pos.wz; ty = other.base.worldH * 0.5;
+                tx = other.pos.wx; tz = other.pos.wz; ty = other.base.worldH * 0.3;
             }
             const dx = tx - ax, dy = ty - ay, dz = tz - az;
             const dl = Math.hypot(dx, dy, dz) || 1;
@@ -1725,7 +1722,7 @@
                 let dvx = 0, dvy = -G, dvz = 0;
                 if (winding) {
                     const wgt = 0.6 + 0.8 * frac;  // tail lifts highest
-                    dvx += -sF * windMag * wgt; dvz += -cF * windMag * wgt;
+                    dvx += sF * windMag * wgt; dvz += cF * windMag * wgt; // +fwd drape
                     dvy += windLift * wgt;
                 } else if (striking) {
                     // A forward push localised at a crest that sweeps from the
