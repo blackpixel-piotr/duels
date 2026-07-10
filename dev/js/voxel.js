@@ -1524,6 +1524,11 @@
             damp: lashCfg.damp ?? LASH_DAMP,
             thick: lashCfg.thick ?? 2.6,
             stiff: lashCfg.stiff ?? 0, // bending resistance: 0 = floppy, →1 = rigid
+            // Attack "power": strike-impulse scale and how sharply mass falls
+            // off toward the tip (higher taper = a snappier crack). These drive
+            // the lash-attack choreography only, not the passive hang.
+            power: lashCfg.power ?? LASH_POWER,
+            taper: lashCfg.taper ?? LASH_TAPER,
 
             // model-space anchor: top of the handle, riding the arm chain
             anchorM: [hand[0], hand[1] + (lashCfg.top ?? 3), hand[2]],
@@ -1580,6 +1585,9 @@
     const LASH_G = 19;         // gravity, wu/s² (1 wu ≈ 0.64 m) — heavier hang
     const LASH_DAMP = 0.965;   // per substep — more energy loss, calmer/heavier, less jitter
     const LASH_ANCHOR_MAX = 0.09; // wu per frame — a hard turn drags, not teleports
+    const LASH_ANCHOR_STRIKE = 0.55; // during a lash strike the pin is free to fling — the crack's source
+    const LASH_TAPER = 4.5;    // tip inverse-mass gain: 0 = uniform rope, higher = the tip whips
+    const LASH_POWER = 1.5;    // strike-impulse multiplier (attack "power")
 
     function updateLash(actor, pose, now) {
         const lash = actor.lash, st = actor.st;
@@ -1600,13 +1608,24 @@
             lash.lastT = now;
             lash.anchor = { x: ax, y: ay, z: az };
         }
+        // Progress of an active lash attack (−1 = none). The strike is where
+        // the hand flicks the base to launch the crack; the wind-up cocks it.
+        const atk = actor.anims.find(t => t.type === 'attack' && t.kind === 'lash');
+        const ap = atk ? (now - atk.t0) / atk.dur : -1;
+        const winding  = ap >= 0    && ap < 0.34;
+        const striking = ap >= 0.34 && ap < 0.64;
+        const flick    = ap >= 0.30 && ap < 0.66;
+
         // Fast facing turns can move the hand several body-widths in one
         // frame; clamp the pin's travel so the rope is dragged through a
-        // swept arc instead of receiving a teleport impulse (the spasm).
+        // swept arc instead of receiving a teleport impulse (the spasm) —
+        // except through the strike flick, where that fast base motion IS the
+        // crack and has to get through.
         const prev = lash.anchor;
+        const anchorMax = flick ? LASH_ANCHOR_STRIKE : LASH_ANCHOR_MAX;
         const jump = Math.hypot(ax - prev.x, ay - prev.y, az - prev.z);
-        if (jump > LASH_ANCHOR_MAX) {
-            const k = LASH_ANCHOR_MAX / jump;
+        if (jump > anchorMax) {
+            const k = anchorMax / jump;
             ax = prev.x + (ax - prev.x) * k;
             ay = prev.y + (ay - prev.y) * k;
             az = prev.z + (az - prev.z) * k;
@@ -1614,26 +1633,39 @@
         const dt = Math.max(0, Math.min(40, now - lash.lastT));
         lash.lastT = now;
 
-        // Attack drive (accel field on every free node)
+        // Attack drive. Shoving every node equally billows; instead the
+        // wind-up gathers the rope up and behind the shoulder, then the strike
+        // flings it forward with the push CONCENTRATED at the base — a wave the
+        // tip-taper below carries out and amplifies into a crack.
         const G = lash.g ?? LASH_G;
-        let dvx = 0, dvy = -G, dvz = 0;
-        const atk = actor.anims.find(t => t.type === 'attack' && t.kind === 'lash');
-        if (atk) {
-            const p = (now - atk.t0) / atk.dur;
-            if (p >= 0 && p < 0.34) {           // wind up: gather high behind
-                const w = p / 0.34;
-                dvx += -sF * 55 * w; dvz += -cF * 55 * w; dvy += G + 45 * w;
-            } else if (p >= 0.34 && p < 0.64) { // strike: sling at the target
+        const power = lash.power ?? LASH_POWER;
+        let sdx = 0, sdy = 0, sdz = 0, strikeMag = 0, strikeProg = 0, windMag = 0, windLift = 0;
+        if (winding) {
+            const w = ap / 0.34;
+            windMag = 55 * w;          // horizontal gather, back behind the shoulder
+            windLift = G + 45 * w;     // cancel gravity + raise (cock the whip up)
+        } else if (striking) {
+            strikeProg = (ap - 0.34) / 0.30; // 0 → 1: the crest travels base → tip
+            let tx, ty, tz;
+            if (st.editorMode) {       // no live opponent: crack straight ahead
+                tx = ax + sF * 3; tz = az + cF * 3; ty = ay - 0.4;
+            } else {
                 const other = actor === st.player ? st.enemy : st.player;
-                const pulse = Math.sin((p - 0.34) / 0.30 * Math.PI);
-                let dx = other.pos.wx - ax, dz = other.pos.wz - az;
-                let dy = other.base.worldH * 0.55 - ay;
-                const dl = Math.hypot(dx, dy, dz) || 1;
-                dvx += dx / dl * 140 * pulse;
-                dvy += dy / dl * 140 * pulse + 25 * pulse;
-                dvz += dz / dl * 140 * pulse;
+                tx = other.pos.wx; tz = other.pos.wz; ty = other.base.worldH * 0.5;
             }
+            const dx = tx - ax, dy = ty - ay, dz = tz - az;
+            const dl = Math.hypot(dx, dy, dz) || 1;
+            sdx = dx / dl; sdy = dy / dl; sdz = dz / dl;
+            strikeMag = 260 * power;
         }
+        // Inverse mass rising GEOMETRICALLY toward the tip (tip lightest) — the
+        // split below yields more at the light end, so a disturbance handed up
+        // the rope amplifies segment after segment into a tip crack. Geometric
+        // (not +linear) keeps a real mass ratio between every adjacent pair, so
+        // the whole rope tapers rather than just the last node or two.
+        const taper = lash.taper ?? LASH_TAPER;
+        const n = lash.pts.length;
+        const imOf = i => Math.pow(2, taper * (i / (n - 1)));
 
         // Integrate in substeps with the pin interpolated across the frame,
         // so even the clamped anchor motion arrives as a sweep. dt === 0
@@ -1657,9 +1689,13 @@
                     const f = (d - lash.segLen) / d;
                     if (i === 0) { B.x -= dx * f; B.y -= dy * f; B.z -= dz * f; }
                     else {
-                        const hx = dx * f * 0.5, hy = dy * f * 0.5, hz = dz * f * 0.5;
-                        A.x += hx; A.y += hy; A.z += hz;
-                        B.x -= hx; B.y -= hy; B.z -= hz;
+                        // Split by inverse mass so the lighter tip-ward node
+                        // yields more — disturbances amplify toward the tip
+                        // (this is what makes it crack instead of sag).
+                        const imA = imOf(i), imB = imOf(i + 1), s = imA + imB;
+                        const wa = imA / s, wb = imB / s;
+                        A.x += dx * f * wa; A.y += dy * f * wa; A.z += dz * f * wa;
+                        B.x -= dx * f * wb; B.y -= dy * f * wb; B.z -= dz * f * wb;
                     }
                 }
                 if (bend > 0) {
@@ -1675,21 +1711,41 @@
         if (dt === 0) {
             relax(6, ax, ay, az);
         } else for (let s = 1; s <= SUB; s++) {
-            const dts = dt / SUB / 1000;
+            const dts = dt / SUB / 1000, dts2 = dts * dts;
             const q = s / SUB;
             const sx = prev.x + (ax - prev.x) * q,
                   sy = prev.y + (ay - prev.y) * q,
                   sz = prev.z + (az - prev.z) * q;
             const damp = lash.damp ?? LASH_DAMP;
-            for (let i = 1; i < lash.pts.length; i++) {
+            for (let i = 1; i < n; i++) {
                 const pt = lash.pts[i];
-                const vx = (pt.x - pt.px) * damp,
-                      vy = (pt.y - pt.py) * damp,
-                      vz = (pt.z - pt.pz) * damp;
+                const frac = i / (n - 1);          // 0 = handle end … 1 = tip
+                // Per-node accel: gravity everywhere; the wind-up gathers the
+                // whole rope (tip most), the strike kicks the base hardest.
+                let dvx = 0, dvy = -G, dvz = 0;
+                if (winding) {
+                    const wgt = 0.6 + 0.8 * frac;  // tail lifts highest
+                    dvx += -sF * windMag * wgt; dvz += -cF * windMag * wgt;
+                    dvy += windLift * wgt;
+                } else if (striking) {
+                    // A forward push localised at a crest that sweeps from the
+                    // base out to the tip across the strike — a travelling wave.
+                    // Reaching the light, barely-damped tip, it spikes: the crack.
+                    const w = Math.exp(-(((frac - strikeProg) / 0.26) ** 2));
+                    const k = strikeMag * w;
+                    dvx += sdx * k; dvy += sdy * k + 0.1 * k; dvz += sdz * k;
+                }
+                // Damping lighter toward the tip and loosened during the strike,
+                // so the wave survives the trip out and the tip keeps its speed
+                // instead of being bled dry before it can crack.
+                const nd = Math.min(0.999, damp + (striking ? 0.028 : 0) + 0.03 * frac);
+                const vx = (pt.x - pt.px) * nd,
+                      vy = (pt.y - pt.py) * nd,
+                      vz = (pt.z - pt.pz) * nd;
                 pt.px = pt.x; pt.py = pt.y; pt.pz = pt.z;
-                pt.x += vx + dvx * dts * dts;
-                pt.y += vy + dvy * dts * dts;
-                pt.z += vz + dvz * dts * dts;
+                pt.x += vx + dvx * dts2;
+                pt.y += vy + dvy * dts2;
+                pt.z += vz + dvz * dts2;
                 if (pt.y < 0.02) { // ground contact: rest + friction drag
                     pt.y = 0.02;
                     pt.x += (pt.px - pt.x) * 0.35;
@@ -2706,7 +2762,8 @@
     // into rigs.json.
     function getLashDebug(canvasId) {
         const lash = battles.get(canvasId)?.player?.lash;
-        return lash ? { len: lash.len, g: lash.g, damp: lash.damp, thick: lash.thick, stiff: lash.stiff } : null;
+        return lash ? { len: lash.len, g: lash.g, damp: lash.damp, thick: lash.thick,
+                        stiff: lash.stiff, power: lash.power, taper: lash.taper } : null;
     }
     function setLashDebug(canvasId, d) {
         const lash = battles.get(canvasId)?.player?.lash;
@@ -2715,6 +2772,8 @@
         if (typeof d.damp === 'number') lash.damp = Math.max(0.5, Math.min(0.999, d.damp));
         if (typeof d.thick === 'number') lash.thick = Math.max(0.5, d.thick);
         if (typeof d.stiff === 'number') lash.stiff = Math.max(0, Math.min(1, d.stiff));
+        if (typeof d.power === 'number') lash.power = Math.max(0, Math.min(3, d.power));
+        if (typeof d.taper === 'number') lash.taper = Math.max(0, Math.min(8, d.taper));
         if (typeof d.len === 'number' && d.len > 0.01 && d.len !== lash.len) {
             lash.len = d.len;
             lash.segLen = d.len / lash.segs;
@@ -2838,7 +2897,7 @@
         const kind = WEAPON_ANIMS[st.weaponId] ?? WEAPON_BASE_KIND[st.weaponId] ?? 'crush';
         const dur = TILE_MS / 0.475; // strike center (lerp3) lands at glide-end
         p.anims.push({ type: 'attack', t0: st.time, dur, kind, predicted: true });
-        if (kind === 'lash') playWhipCrack(dur * 0.27 / 1000);
+        if (kind === 'lash') playWhipCrack(dur * 0.55 / 1000);
     }
 
     function setBattlePositions(canvasId, pos) {
@@ -2991,9 +3050,10 @@
                 // masking the dds spec fired right after it)
                 attacker.anims = attacker.anims.filter(a => a.type !== 'attack');
                 attacker.anims.push({ type: 'attack', t0: now, dur, kind });
-                // Crack near the tip's peak sling velocity (~60% through the
-                // strike phase, see updateLash), not the swing's start.
-                if (kind === 'lash') playWhipCrack(dur * 0.27 / 1000);
+                // Crack near the tip's peak sling velocity (~55% through the
+                // anim, when the base-seeded wave reaches the tip, see
+                // updateLash), not the swing's start.
+                if (kind === 'lash') playWhipCrack(dur * 0.55 / 1000);
             }
             if (style === 'ranged' || style === 'magic') {
                 // travel time from real distance — shots from across the
@@ -3115,6 +3175,36 @@
             st.player.customPose ??= { p: 0, tracks: {} };
             st.player.customPose.p = Math.min(1, Math.max(0, ms / durationMs));
             st.player.customPose.loop = !!loop;
+        },
+        // Preview the SHIPPED whip attack in the editor. The authored keyframes
+        // (customPose) normally replace all choreography, so the built-in lash
+        // swing + its crack physics never run here. Clear customPose, play a
+        // real lash attack (updateLash then drives the crack, aimed forward via
+        // its editorMode fallback), and fire the crack SFX at the tip peak.
+        // AnimEditor.razor restores the authored preview when the swing ends.
+        // Returns the attack duration (ms) so the caller can time the restore.
+        previewWhipAttack(canvasId) {
+            const st = battles.get(canvasId);
+            if (!st?.player?.lash) return 0;
+            const pl = st.player, dur = 480;
+            pl.customPose = null;
+            pl.anims = (pl.anims ?? []).filter(a => a.type !== 'attack');
+            pl.anims.push({ type: 'attack', kind: 'lash', t0: st.time, dur });
+            playWhipCrack(dur * 0.55 / 1000);
+            return dur;
+        },
+        // Tip node of the player's lash in world units — lets automated tests
+        // sample tip speed across frames to confirm the crack (peak tip speed
+        // ≫ base speed) instead of a uniform drag.
+        getLashTip(canvasId) {
+            const pts = battles.get(canvasId)?.player?.lash?.pts;
+            if (!pts || !pts.length) return null;
+            const t = pts[pts.length - 1];
+            return { x: t.x, y: t.y, z: t.z };
+        },
+        getLashPts(canvasId) {
+            const pts = battles.get(canvasId)?.player?.lash?.pts;
+            return pts ? pts.map(p => ({ x: p.x, y: p.y, z: p.z })) : null;
         },
         // Selects which arm + joint the on-canvas handles act on:
         // 'R-elbow' | 'R-hand' | 'L-elbow' | 'L-hand' | null. Drawing shows
