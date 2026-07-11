@@ -2242,6 +2242,18 @@
         return NPC_ASSETS.has(enemyId) ? `assets/npcs/${enemyId}.vox` : 'assets/player.vox';
     }
 
+    // Map a client (screen) point to canvas-pixel coordinates, undoing the
+    // landscape view rotation (0 or 90°) so taps still hit the right world spot
+    // when the fight is CSS-rotated in portrait. For a 90° CW content rotation,
+    // screen-down is the canvas +x axis and screen-left is the canvas +y axis.
+    function clientToCanvas(st, canvas, clientX, clientY) {
+        const r = canvas.getBoundingClientRect();
+        let fx = (clientX - r.left) / (r.width || 1);
+        let fy = (clientY - r.top) / (r.height || 1);
+        if (st.viewRot === 90) { const nx = fy, ny = 1 - fx; fx = nx; fy = ny; }
+        return { x: fx * canvas.width, y: fy * canvas.height };
+    }
+
     // Unmodeled enemies reuse the player model with a permanent red wash so a
     // fight never looks like a mirror match.
     function npcFallbackTint(enemyId) {
@@ -2274,6 +2286,8 @@
         const st = {
             canvas,
             ctx: canvas.getContext('2d'),
+            viewRot: 0,   // 0 or 90: CSS view rotation for the landscape fight,
+                          // so pointer taps/orbit map back to canvas space
             rigs,
             player: makeActor(playerModel, LAYOUT.player, null, playerRig),
             enemy: makeActor(enemyModel, LAYOUT.enemy, npcFallbackTint(opts.enemyId), rigOf(opts.enemyId)),
@@ -2471,8 +2485,13 @@
             } else if (st.drag && st.pointers.size === 1) {
                 st.drag.moved = Math.max(st.drag.moved,
                     Math.hypot(ev.clientX - st.drag.x, ev.clientY - st.drag.y));
-                if (st.drag.moved > TAP_PX)
-                    st.camYaw = st.drag.yaw0 + (ev.clientX - st.drag.x) * CAM_DRAG;
+                if (st.drag.moved > TAP_PX) {
+                    // Under a 90° view rotation the canvas' horizontal axis runs
+                    // down the physical screen, so orbit off the screen-Y drag.
+                    const along = st.viewRot === 90
+                        ? (ev.clientY - st.drag.y) : (ev.clientX - st.drag.x);
+                    st.camYaw = st.drag.yaw0 + along * CAM_DRAG;
+                }
             }
         };
         st.onUp = ev => {
@@ -2491,9 +2510,7 @@
 
             // Tap: only when a single pointer lifted with < TAP_PX travel.
             if (wasSingle && d && d.moved <= TAP_PX) {
-                const rect = canvas.getBoundingClientRect();
-                const x = (ev.clientX - rect.left) / rect.width * canvas.width;
-                const y = (ev.clientY - rect.top) / rect.height * canvas.height;
+                const { x, y } = clientToCanvas(st, canvas, ev.clientX, ev.clientY);
                 const W = canvas.width, H = canvas.height;
 
                 // Enemy first: generous screen-rect hit-test.
@@ -3271,6 +3288,21 @@
             const st = battles.get(canvasId);
             if (!st) return null;
             return { player: { ...st.player.pos }, enemy: { ...st.enemy.pos } };
+        },
+        // Tell the renderer the fight is CSS-rotated (0 or 90°) so canvas taps /
+        // orbit map back correctly (BattleScene calls this on orientation change).
+        setViewRotation(canvasId, deg) {
+            const st = battles.get(canvasId);
+            if (st) st.viewRot = deg === 90 ? 90 : 0;
+        },
+        // Keep viewRot in sync with device orientation: the fight is CSS-rotated
+        // 90° in portrait (see .battle-fs), so the canvas is too. Self-cleans
+        // when the battle is gone (the callback just no-ops).
+        watchOrientation(canvasId) {
+            const mq = window.matchMedia('(orientation: portrait)');
+            const apply = () => { const st = battles.get(canvasId); if (st) st.viewRot = mq.matches ? 90 : 0; };
+            apply();
+            (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(apply);
         },
         // Selects which arm + joint the on-canvas handles act on:
         // 'R-elbow' | 'R-hand' | 'L-elbow' | 'L-hand' | null. Drawing shows

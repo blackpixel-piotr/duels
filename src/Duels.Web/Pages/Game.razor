@@ -56,16 +56,17 @@ else
         }
 
         <ToastHost LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
-        <StatusStrip State="@_state" />
 
         @if (_state?.InDuel == true || _duelResult is not null)
         {
-            <div class="battle-wrap">
+            @* Full-bleed landscape fight: canvas fills the screen, HUD floats. *@
+            <div class="battle-fs">
                 <BattleScene State="@_state"
                              LogEntries="@(_state?.CombatLog.ToList() ?? [])"
                              EnemyDead="@(_duelResult?.Won == true)"
                              PlayerDead="@(_duelResult is { Won: false })"
                              WeaponId="@(_state?.Player?.GetEquippedWeaponId())" />
+                <ActionHud State="@_state" Layout="float" />
                 @if (_duelResult is not null)
                 {
                     <DuelResultOverlay Summary="@_duelResult"
@@ -78,6 +79,7 @@ else
         }
         else
         {
+            <StatusStrip State="@_state" />
             <HubMenu State="@_state"
                      Processing="@_processing"
                      RetryLabel="@RetryLabel"
@@ -88,15 +90,15 @@ else
                      OnRetry="RetryDuel"
                      OnPrestige="Prestige"
                      OnBeg="Beg" />
-        }
 
-        <ActionHud State="@_state"
-                   OnOpenShop="@(() => { _shopOpen = true; StateHasChanged(); })"
-                   OnOpenLadder="@(() => { _ladderOpen = true; StateHasChanged(); })"
-                   OnOpenLog="@(() => { _logOpen = true; StateHasChanged(); })"
-                   OnOpenBag="@(() => { _bagOpen = true; StateHasChanged(); })"
-                   OnOpenCharacter="@(() => { _charOpen = true; StateHasChanged(); })"
-                   OnOpenBank="@(() => { _bankOpen = true; StateHasChanged(); })" />
+            <ActionHud State="@_state" Layout="dock"
+                       OnOpenShop="@(() => { _shopOpen = true; StateHasChanged(); })"
+                       OnOpenLadder="@(() => { _ladderOpen = true; StateHasChanged(); })"
+                       OnOpenLog="@(() => { _logOpen = true; StateHasChanged(); })"
+                       OnOpenBag="@(() => { _bagOpen = true; StateHasChanged(); })"
+                       OnOpenCharacter="@(() => { _charOpen = true; StateHasChanged(); })"
+                       OnOpenBank="@(() => { _bankOpen = true; StateHasChanged(); })" />
+        }
     </div>
 }
 

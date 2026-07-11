@@ -6,7 +6,7 @@
 @inject Duels.Web.Services.GameService GameSvc
 @inject IItemRepository ItemRepo
 
-<div class="action-hud">
+<div class="action-hud action-hud-@Layout">
     @if (State?.InDuel == true)
     {
         <div class="tick-metronome" id="tick-bar"></div>
@@ -155,6 +155,9 @@
 
 @code {
     [Parameter] public GameState? State { get; set; }
+    // "dock" = bottom grid in the portrait hub; "float" = RS3-style floating
+    // clusters over the full-bleed fight (same buttons, positioned by CSS).
+    [Parameter] public string Layout { get; set; } = "dock";
     [Parameter] public EventCallback OnOpenShop { get; set; }
     [Parameter] public EventCallback OnOpenLadder { get; set; }
     [Parameter] public EventCallback OnOpenLog { get; set; }

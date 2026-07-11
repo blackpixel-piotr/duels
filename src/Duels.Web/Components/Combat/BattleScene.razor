@@ -178,6 +178,8 @@
             });
             _lastWeapon = WeaponId;
             await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId);
+            // Landscape fight auto-rotates in portrait; keep canvas taps mapped.
+            await JS.InvokeVoidAsync("voxel.watchOrientation", "battle-canvas");
             _inited = true;
             return;
         }
