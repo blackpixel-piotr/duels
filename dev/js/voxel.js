@@ -667,7 +667,7 @@
         stab:   { yaw: 0.18, lunge: 0.10, dip: 1.2 },
         rstab:  { yaw: 0.22, lunge: 0.12, dip: 1.4 },
         slash:  { yaw: 0.30, lunge: 0.08, dip: 1.0 },
-        lash:   { yaw: 0.42, lunge: 0.0, dip: 0.9 },
+        lash:   { yaw: 0.42, lunge: 0.0, dip: 0.0 },
         crush:  { yaw: 0.15, lunge: 0.14, dip: 2.2 },
         flurry: { yaw: 0.25, lunge: 0.06, dip: 0.8 },
         ddspec: { yaw: 0.35, lunge: 0.10, dip: 1.4 },
@@ -1126,12 +1126,12 @@
                 const root = ensure(0);
                 let wy;
                 if (atk.kind === 'lash') {
-                    // Overhead-forward crack: only a small hip turn toward the
-                    // weapon side (the drive is the forward lunge below, not a
-                    // rotation — a big turn would sling the whip sideways/back).
-                    // The off arm raises to counterbalance while the main hand is
-                    // overhead, and lowers as it snaps down and forward.
-                    wy = lerpKeys(p, [[0, 0], [0.3, 0.15], [0.55, 0.1], [1, 0]]);
+                    // Overhead-forward crack: the character stays planted — no
+                    // hip turn, no lunge/dip (root fully static, see ATTACK_BODY
+                    // lash) — the arm/forearm crack curves carry the whole
+                    // motion. The off arm only raises to counterbalance while the
+                    // main hand is overhead, then lowers as it snaps down-forward.
+                    wy = 0;
                     ensure(LU).pitch += lerpKeys(p, [[0, 0], [0.3, -0.5], [0.55, -0.2], [1, 0]]);
                 } else {
                     wy = lerp3(p, -b.yaw, b.yaw * 0.8, 0);
@@ -2202,7 +2202,7 @@
             const ps = CAM_FOV / (CAM_FOV - p.rz);
             const ws = actorWorldScale(actor, W, H);
             const S = actorScale(actor, W, H);
-            const u = Math.max(1, Math.round(ps));
+            const u = Math.max(2, Math.round(ps * 1.5)); // 1.5× bigger splats (container + font scale with u)
             const off = [[0, 0], [11, -9], [-11, -7], [7, 9]][idx & 3];
             const cx = (p.x + off[0] * u) | 0;
             const cy = (p.y - actor.model.height * S * ps * ws * 0.55 + off[1] * u) | 0;
