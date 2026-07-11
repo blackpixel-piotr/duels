@@ -68,6 +68,29 @@ public sealed class GameTickService : IDisposable
         }
     }
 
+    // Start a click-to-move on the click itself instead of waiting up to a full
+    // 600 ms tick for the next ProcessTick — that dead time is what makes moving
+    // feel delayed. Advances ONLY the player's position toward an active move
+    // order (same 2-tiles-per-tick run cadence ProcessTick uses); no cooldowns,
+    // combat, DoTs or NPC turn run here, so it can't affect fight timing. The
+    // periodic tick keeps driving the rest of the run.
+    public async Task KickMoveAsync(string playerId)
+    {
+        var state = await _states.GetAsync(playerId);
+        if (state is null || !state.InDuel || state.PlayerMoveTarget is not { } moveTarget) return;
+
+        for (int i = 0; i < 2 && state.PlayerMoveTarget is not null; i++)
+        {
+            var step = StepToward(state.PlayerTile, moveTarget, state.NpcTile);
+            bool blocked = step == state.PlayerTile;
+            state.SetPlayerTile(step.X, step.Z);
+            if (state.PlayerTile == moveTarget || blocked)
+                state.ClearMoveOrder();
+        }
+        await _states.SaveAsync(state);
+        _notify?.Invoke();
+    }
+
     private async Task ProcessTick(string playerId)
     {
         var state = await _states.GetAsync(playerId);

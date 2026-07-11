@@ -5,6 +5,7 @@
 @inject IJSRuntime JS
 @inject IItemRepository ItemRepo
 @inject Duels.Web.Services.GameService GameSvc
+@inject Duels.Application.Services.GameTickService TickService
 @implements IAsyncDisposable
 
 @* Three-quarter battle scene with a player-centered, drag-to-rotate camera.
@@ -344,7 +345,10 @@
     public async Task OnGroundClick(int x, int z)
     {
         if (GameSvc.PlayerId is { } pid)
+        {
             await GameSvc.DispatchAsync(new MoveToCommand(pid, x, z));
+            await TickService.KickMoveAsync(pid); // step on the click, not next tick
+        }
     }
 
     [JSInvokable]

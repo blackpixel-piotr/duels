@@ -3245,6 +3245,12 @@
             const pts = battles.get(canvasId)?.player?.lash?.pts;
             return pts ? pts.map(p => ({ x: p.x, y: p.y, z: p.z })) : null;
         },
+        // Live world positions of both actors (wu), for automated movement tests.
+        getActorPos(canvasId) {
+            const st = battles.get(canvasId);
+            if (!st) return null;
+            return { player: { ...st.player.pos }, enemy: { ...st.enemy.pos } };
+        },
         // Selects which arm + joint the on-canvas handles act on:
         // 'R-elbow' | 'R-hand' | 'L-elbow' | 'L-hand' | null. Drawing shows
         // that arm's whole chain (shoulder→elbow→hand) with the selected
