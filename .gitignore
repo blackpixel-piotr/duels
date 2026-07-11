@@ -22,3 +22,7 @@ dist/
 
 ## Python
 __pycache__/
+
+## Graphify (generated knowledge graph — rebuilt each session by
+## .claude/graphify-bootstrap.sh; see the graphify section in CLAUDE.md)
+graphify-out/
