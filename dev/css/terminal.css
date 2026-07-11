@@ -1264,3 +1264,107 @@ html, body {
     display: none;
 }
 #blazor-error-ui .reload { color: var(--amber); margin-left: 8px; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Full-bleed landscape fight with a floating RS3-style HUD
+   ═══════════════════════════════════════════════════════════════════════ */
+.battle-fs {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: #000;
+    overflow: hidden;
+    touch-action: none;
+}
+/* Auto-rotate to landscape when the phone is held portrait: the fight is
+   rotated 90° to fill the screen sideways. Real DOM buttons rotate with it and
+   stay tappable; voxel.js is told viewRot=90 so canvas taps map back. */
+@media (orientation: portrait) {
+    .battle-fs {
+        inset: auto;
+        top: 0;
+        left: 100vw;
+        width: 100vh;
+        height: 100vw;
+        transform-origin: top left;
+        transform: rotate(90deg);
+    }
+}
+/* BattleScene fills the layer edge-to-edge, no bordered box. */
+.battle-fs .battle-scene {
+    position: absolute;
+    inset: 0;
+    border: none;
+    box-shadow: none;
+    background: #000;
+}
+/* Floating status: enemy top-left, player top-right, translucent (no panels). */
+.battle-fs .battle-box {
+    background: rgba(8, 10, 14, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 7px;
+    padding: 3px 8px;
+    min-width: 128px;
+    max-width: 42vw;
+}
+.battle-fs .battle-box-enemy  { top: 8px; left: 8px; }
+.battle-fs .battle-box-player { top: 8px; right: 8px; bottom: auto; left: auto; }
+
+/* ── Floating action clusters ── */
+.action-hud-float {
+    position: absolute;
+    inset: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+    pointer-events: none;   /* taps fall through to the canvas … */
+    z-index: 5;
+}
+.action-hud-float .hud-row { pointer-events: auto; }   /* … except the buttons */
+.action-hud-float .tick-metronome {
+    position: absolute;
+    top: 0; left: 25%; right: 25%;
+    margin: 0;
+}
+/* consumables cluster, bottom-left (wraps upward, 3 wide) */
+.action-hud-float .hud-belt {
+    position: absolute;
+    left: max(10px, env(safe-area-inset-left));
+    bottom: max(10px, var(--safe-bottom));
+    display: flex;
+    flex-wrap: wrap-reverse;
+    gap: 8px;
+    width: 154px;
+    grid-template-columns: none;
+}
+/* weapons (upper) + prayers (lower) cluster, bottom-right — single rows that
+   grow leftward from the right edge, so they never overlap each other. */
+.action-hud-float .hud-weapons,
+.action-hud-float .hud-prayers {
+    position: absolute;
+    right: max(10px, env(safe-area-inset-right));
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 8px;
+    width: auto;
+    grid-template-columns: none;
+}
+.action-hud-float .hud-weapons { bottom: calc(max(10px, var(--safe-bottom)) + 54px); }
+.action-hud-float .hud-prayers { bottom: max(10px, var(--safe-bottom)); }
+
+/* Round RS3-style buttons */
+.action-hud-float .belt-slot,
+.action-hud-float .quickslot {
+    width: 46px;
+    height: 46px;
+    min-height: 0;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.55), inset 1px 1px 0 var(--bevel-hi);
+}
+.action-hud-float .belt-slot   { background: radial-gradient(circle at 34% 28%, #37301d, #17110a); }
+.action-hud-float .quickslot   { background: radial-gradient(circle at 34% 28%, #2b2436, #14101a); }
+.action-hud-float .qs-spec-badge { top: -2px; right: -2px; }
