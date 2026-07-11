@@ -369,6 +369,11 @@
     const WALK_R = 5;          // walkable tile radius (matches GameState.ArenaRadius)
     const FIELD_R = 12;        // grass extent of the field scene, world units
     const TILE_MS = 600;       // move-segment duration: one sim step per game tick
+    const TILE = 1.25;         // world units per sim tile — sets on-screen tile size
+                               // (character models keep their world size, so >1
+                               // makes the grid read bigger relative to them).
+                               // Actors sit at tile CENTERS (tx*TILE), so the grid
+                               // lines fall BETWEEN tiles, not under the fighters.
     const STRIDE = Math.PI;    // walk-phase radians per world unit (a step per tile)
     let CAM_FOV = 25;          // perspective divide (world units); larger = less distortion
     const DEFAULT_CAM_FOV = CAM_FOV;
@@ -376,9 +381,11 @@
     const PITCH_MIN = 0.25, PITCH_MAX = 1.4;
     // Spawn tiles — must match GameState.StartDuel; live positions then come
     // from setBattlePositions as the sim moves the combatants.
+    // Spawn tiles (0,3) and (1,-3) as world units (tile*TILE), matching
+    // GameState's initial tiles so the first setBattlePositions doesn't slide.
     const LAYOUT = {
-        player: { wx: 0.0, wz: 3.0,  facing: Math.PI, worldH: 2.8 },
-        enemy:  { wx: 1.0, wz: -3.0, facing: 0,       worldH: 2.6 },
+        player: { wx: 0.0,        wz: 3.0 * TILE,  facing: Math.PI, worldH: 2.8 },
+        enemy:  { wx: 1.0 * TILE,  wz: -3.0 * TILE, facing: 0,       worldH: 2.6 },
     };
 
     // Joint pivots / hand anchors / weapon grips, written by gen_models.py.
@@ -1924,9 +1931,13 @@
     // ground can't be pre-rendered). 'arena': the round checkered duel ring.
     // 'field': open grass with prop set-dressing (test fights).
 
+    // A cell CENTERED on tile (tx,tz): its world center is (tx*TILE, tz*TILE) —
+    // where the fighter standing on that tile is drawn — so the grid seams land
+    // between tiles, and each cell is TILE world units across.
     function tileQuad(st, ctx, tx, tz, W, H) {
-        const p0 = proj(st, tx, tz, W, H), p1 = proj(st, tx + 1, tz, W, H),
-              p2 = proj(st, tx + 1, tz + 1, W, H), p3 = proj(st, tx, tz + 1, W, H);
+        const cx = tx * TILE, cz = tz * TILE, h = TILE / 2;
+        const p0 = proj(st, cx - h, cz - h, W, H), p1 = proj(st, cx + h, cz - h, W, H),
+              p2 = proj(st, cx + h, cz + h, W, H), p3 = proj(st, cx - h, cz + h, W, H);
         ctx.beginPath();
         ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
         ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
@@ -1934,10 +1945,14 @@
     }
 
     function drawArenaScene(st, ctx, W, H) {
+        // Ring radius grows with the tile size so it still encloses the walkable
+        // tiles (WALK_R tiles → WALK_R*TILE wu). ARENA_R itself feeds the camera
+        // framing (camera()), so it must stay fixed or the whole view zooms out.
+        const ringR = ARENA_R * TILE;
         const ring = new Path2D();
         for (let i = 0; i <= 64; i++) {
             const a = i / 64 * Math.PI * 2;
-            const p = proj(st, Math.cos(a) * ARENA_R, Math.sin(a) * ARENA_R, W, H);
+            const p = proj(st, Math.cos(a) * ringR, Math.sin(a) * ringR, W, H);
             if (i === 0) ring.moveTo(p.x, p.y); else ring.lineTo(p.x, p.y);
         }
         ring.closePath();
@@ -1945,7 +1960,7 @@
         // checker tiles clipped to the ring so the arena edge is clean
         ctx.save();
         ctx.clip(ring);
-        const R = Math.ceil(ARENA_R);
+        const R = Math.ceil(ARENA_R) + 1;
         for (let tx = -R - 1; tx <= R; tx++) {
             for (let tz = -R - 1; tz <= R; tz++) {
                 ctx.fillStyle = ((tx + tz) & 1) ? '#2b2331' : '#241d29';
@@ -1977,7 +1992,7 @@
         const m = camera(W, H).px * 1.5; // cull margin
         for (let tx = -FIELD_R; tx < FIELD_R; tx++) {
             for (let tz = -FIELD_R; tz < FIELD_R; tz++) {
-                const p = proj(st, tx + 0.5, tz + 0.5, W, H);
+                const p = proj(st, tx * TILE, tz * TILE, W, H); // cell center
                 if (p.x < -m || p.x > W + m || p.y < -m || p.y > H + m) continue;
                 ctx.fillStyle = grassColor(st, tx, tz);
                 tileQuad(st, ctx, tx, tz, W, H);
@@ -2035,9 +2050,9 @@
         if (!st.moveMarker) return;
         const age = now - st.moveMarker.t0;
         if (age > 900) { st.moveMarker = null; return; }
-        const { wx, wz } = st.moveMarker;
-        const p0 = proj(st, wx - 0.5, wz - 0.5, W, H), p1 = proj(st, wx + 0.5, wz - 0.5, W, H),
-              p2 = proj(st, wx + 0.5, wz + 0.5, W, H), p3 = proj(st, wx - 0.5, wz + 0.5, W, H);
+        const cx = st.moveMarker.wx * TILE, cz = st.moveMarker.wz * TILE, h = TILE / 2;
+        const p0 = proj(st, cx - h, cz - h, W, H), p1 = proj(st, cx + h, cz - h, W, H),
+              p2 = proj(st, cx + h, cz + h, W, H), p3 = proj(st, cx - h, cz + h, W, H);
         ctx.save();
         ctx.globalAlpha = 1 - age / 900;
         ctx.strokeStyle = '#ffd166';
@@ -2499,7 +2514,7 @@
 
                 // Ground: unproject to a tile, clamp to the walkable circle.
                 const w = screenToWorld(st, x, y, W, H);
-                let tx = Math.round(w.wx), tz = Math.round(w.wz);
+                let tx = Math.round(w.wx / TILE), tz = Math.round(w.wz / TILE);
                 let guard = 40;
                 while (tx * tx + tz * tz > WALK_R * WALK_R && guard-- > 0) {
                     if (Math.abs(tx) >= Math.abs(tz)) tx -= Math.sign(tx);
@@ -2600,7 +2615,9 @@
                 // transitions glide instead of snapping.
                 const sg = actor.seg;
                 const segLen = sg ? (sg.len ??= Math.hypot(sg.x1 - sg.x0, sg.z1 - sg.z0)) : 0;
-                const runTarget = sg ? Math.max(0, Math.min(1, (segLen - 1) / 1.2)) : 0;
+                // Per-tile thresholds scale with world-per-tile: a one-tile step
+                // (TILE wu) reads as a walk, longer segments blend toward a run.
+                const runTarget = sg ? Math.max(0, Math.min(1, (segLen - TILE) / (1.2 * TILE))) : 0;
                 actor.runBlend = (actor.runBlend ?? 0)
                     + (runTarget - (actor.runBlend ?? 0)) * Math.min(1, dt * 0.006);
                 let destFacing;
@@ -2906,9 +2923,12 @@
         const p = st.player, e = st.enemy;
         if (!p || !e || p.crumbled || e.crumbled) return;
         if (p.anims.some(a => a.type === 'attack')) return; // already swinging
+        // nx,nz are the ordered SIM tile; the actors' targets are world units
+        // (tile*TILE) — compare in tile space so MELEE_RANGE stays in tiles.
         const cheby = (ax, az, bx, bz) => Math.max(Math.abs(ax - bx), Math.abs(az - bz));
-        const was = cheby(p.target.wx, p.target.wz, e.target.wx, e.target.wz);
-        const will = cheby(nx, nz, e.target.wx, e.target.wz);
+        const ex = e.target.wx / TILE, ez = e.target.wz / TILE;
+        const was = cheby(p.target.wx / TILE, p.target.wz / TILE, ex, ez);
+        const will = cheby(nx, nz, ex, ez);
         if (was <= MELEE_RANGE || will > MELEE_RANGE) return; // not a closing-to-range step
 
         // Same fallback chain the real event uses: per-weapon override, else
@@ -2922,7 +2942,8 @@
     function setBattlePositions(canvasId, pos) {
         const st = battles.get(canvasId);
         if (!st) return;
-        const order = (actor, x, z) => {
+        const order = (actor, tx, tz) => {
+            const x = tx * TILE, z = tz * TILE; // sim tile → world (tile center)
             if (actor.target.wx === x && actor.target.wz === z) return;
             actor.target = { wx: x, wz: z };
             actor.seg = { x0: actor.pos.wx, z0: actor.pos.wz, x1: x, z1: z, t0: st.time };
