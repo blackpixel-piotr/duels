@@ -3062,6 +3062,15 @@
                 st.projectiles.push({ x0: a.x, y0: a.y, x1: b.x, y1: b.y, t0: now + 60, dur: travel, style });
                 return 60 + travel; // defender visuals wait for the projectile
             }
+            if (kind === 'lash') {
+                // Land the splat/flinch on the CRACK (~55% of the swing, where
+                // the tip peaks — see updateLash / playWhipCrack), not the
+                // wind-up. Derive from the live swing anim so a ridden
+                // preemptive swing (already near its strike beat) gets ~0 while
+                // a fresh standing-swing gets the full offset.
+                const swing = attacker.anims.find(a => a.type === 'attack');
+                return swing ? Math.max(0, swing.t0 + 0.55 * swing.dur - now) : 0;
+            }
             return 0;
         };
         // Attack choreography: spec flourish on 'spec' hits, else per-weapon
