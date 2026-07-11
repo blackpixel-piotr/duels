@@ -331,7 +331,10 @@ public sealed class GameTickService : IDisposable
                 }
                 string blockMsg = warlordBlocking ? " (⛉ blocked)" : "";
                 state.AppendLog($"{player.PhatPrefix}⚡ SPEC! You hit {npc.Template.Name} for {damage}{healMsg}{blockMsg}{suffix}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.SpecHit);
-                state.AppendLog($"{damage}:spec", LogEntryKind.HitsplatPlayer);
+                // Carry the spec weapon so the scene shows the right weapon +
+                // its special animation even though the equipped weapon reverts
+                // to the main-hand within this same tick (see RevertWeaponId).
+                state.AppendLog($"{damage}:spec:{weaponId}", LogEntryKind.HitsplatPlayer);
                 AwardOffensiveXp(state, player, damage);
             }
             else

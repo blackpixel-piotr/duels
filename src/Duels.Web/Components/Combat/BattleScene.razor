@@ -246,6 +246,10 @@
             var parts = e.Message.Split(':');
             int dmg = int.TryParse(parts[0], out var d) ? d : 0;
             string tier = parts.Length > 1 ? parts[1] : "normal";
+            // A spec hitsplat carries the weapon it was thrown with (e.g. a dds
+            // spec that reverts to the main-hand this same tick) — show that
+            // weapon + its animation, not the reverted equipped weapon.
+            string? specWeapon = parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
 
             // HitsplatPlayer = damage dealt BY the player → lands on the enemy;
             // HitsplatNpc = damage dealt BY the NPC → lands on the player.
@@ -261,7 +265,7 @@
                         style = onEnemy ? PlayerStyle() : null,
                         kind = onEnemy ? PlayerKind() : null,
                         tier,   // 'spec' selects the weapon's special-attack flourish
-                        weapon = onEnemy ? WeaponId : null, // fresh id — beats any swap race
+                        weapon = onEnemy ? (specWeapon ?? WeaponId) : null, // spec weapon wins the revert race
                     });
             await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
                 new { type = onEnemy ? "enemyHit" : "playerHit", tier, dmg });

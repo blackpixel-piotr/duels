@@ -2266,7 +2266,10 @@
             enemyId: opts.enemyId,
             enemySwapToken: 0,
             weaponToken: 0,
-            weaponId: null,
+            weaponId: null,     // base equipped weapon (what setBattleWeapon sets)
+            heldWeaponId: null, // weapon model currently attached (a one-shot spec
+                                // weapon overrides it for the duration of its swing)
+            weaponWanted: null, // weapon a load is currently in flight toward
             flags: { telegraph: false, windup: null, holdPosition: false },
             lastWindupStyle: null,
             targetPulse: -1e9,    // click-to-target chevron
@@ -2550,6 +2553,11 @@
                     st.pendingFreezes.splice(i, 1);
                 }
             }
+            // Once a one-shot spec swing (e.g. a dds special) finishes, restore
+            // the base equipped weapon — the swing kept its own model to the end.
+            if (st.heldWeaponId !== st.weaponId && st.weaponWanted !== st.weaponId
+                && !st.player.anims.some(a => a.type === 'attack' && now - a.t0 < a.dur))
+                attachWeaponId(canvasId, st.weaponId);
 
             const W = canvas.width, H = canvas.height;
             const ctx = st.ctx;
@@ -2845,21 +2853,34 @@
 
     // Equip/unequip the weapon shown in the player's hand. The weapon's
     // voxels merge into the player's render list at the rig hand anchor.
+    // Load + attach a weapon model as the player's currently HELD weapon. This
+    // is the actual on-screen weapon, which may be a one-shot spec weapon (e.g.
+    // a dds special) that overrides the base equipped weapon for its swing.
+    // weaponToken guards against a slow load clobbering a newer attach.
+    async function attachWeaponId(canvasId, weaponId) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const want = (weaponId && ITEM_ASSETS.has(weaponId)) ? weaponId : null;
+        st.weaponWanted = want;
+        const token = ++st.weaponToken;
+        if (!want) { st.heldWeaponId = null; attachWeapon(st.player, null); return; }
+        const model = await loadModel(`assets/items/${want}.vox`).catch(() => null);
+        const live = battles.get(canvasId);
+        if (!live || live.weaponToken !== token) return; // stale or destroyed
+        live.heldWeaponId = model ? want : null;
+        const wrig = live.rigs?.weapons?.[want];
+        attachWeapon(live.player, model, wrig?.grip, wrig?.lash);
+    }
+
     async function setBattleWeapon(canvasId, weaponId) {
         const st = battles.get(canvasId);
         if (!st) return;
-        const token = ++st.weaponToken;
-        if (!weaponId || !ITEM_ASSETS.has(weaponId)) {
-            st.weaponId = null;
-            attachWeapon(st.player, null);
-            return;
-        }
-        const model = await loadModel(`assets/items/${weaponId}.vox`).catch(() => null);
-        const live = battles.get(canvasId);
-        if (!live || live.weaponToken !== token) return; // stale or destroyed
-        live.weaponId = model ? weaponId : null;
-        const wrig = live.rigs?.weapons?.[weaponId];
-        attachWeapon(live.player, model, wrig?.grip, wrig?.lash);
+        st.weaponId = (weaponId && ITEM_ASSETS.has(weaponId)) ? weaponId : null;
+        // Defer the swap while a swing is in flight so a one-shot spec weapon
+        // keeps its model + animation to the end; the render loop reconciles the
+        // held weapon back to the base weapon the instant the swing finishes.
+        if (st.player.anims?.some(a => a.type === 'attack')) return;
+        await attachWeaponId(canvasId, st.weaponId);
     }
 
     // Sim tile positions (from GameState). A changed tile opens a straight
@@ -3040,8 +3061,12 @@
             // A kind mismatch (e.g. a spec fires mid-approach, so the guess
             // was wrong) still restarts fresh with the correct kind.
             const existing = attacker.anims.find(a => a.type === 'attack');
-            const ridingPrediction = existing?.predicted && existing.kind === kind
-                && now - existing.t0 < existing.dur;
+            // Ride an in-flight same-kind swing rather than restarting it: a
+            // predicted approach-swing (any point within its dur), or the extra
+            // hits of a same-tick multi-hit spec (t0 === now) so the two-hit
+            // ddspec plays as one continuous flourish.
+            const ridingPrediction = existing && existing.kind === kind
+                && (existing.predicted ? now - existing.t0 < existing.dur : existing.t0 === now);
             if (!ridingPrediction) {
                 // a new swing supersedes any still-running one — otherwise
                 // anims.find() keeps playing the old kind (e.g. a whip crack
@@ -3128,7 +3153,14 @@
                     }).catch(() => { /* icon-less eat still animates */ });
                 break;
             }
-            case 'playerAttack': st.delayEnemyVis = attack(st.player, st.enemy, evt.style, playerKind); break;
+            case 'playerAttack':
+                // A one-shot spec weapon (e.g. a dds special) rides its own
+                // model through this swing; the render loop restores the base
+                // equipped weapon once the swing ends.
+                if (evt.weapon && evt.weapon !== st.heldWeaponId && ITEM_ASSETS.has(evt.weapon))
+                    attachWeaponId(canvasId, evt.weapon);
+                st.delayEnemyVis = attack(st.player, st.enemy, evt.style, playerKind);
+                break;
             case 'enemyAttack':  st.delayPlayerVis = attack(st.enemy, st.player, st.lastWindupStyle, enemyKind); break;
             case 'enemyHit': {
                 const d = st.delayEnemyVis; st.delayEnemyVis = 0;
