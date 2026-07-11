@@ -547,8 +547,11 @@ def w_whip(color, dark):
     w.dot(2, 4, 0, color)                           # lash leaving the handle
     w.extra = {'lash': {
         # rope exits just BELOW the fist (top: -2 relative to the grip) so
-        # the hanging lash reads as connected to the hand, not the hip
-        'len': 0.85, 'segs': 12, 'top': -2,
+        # the hanging lash reads as connected to the hand, not the hip.
+        # len/g/damp/power/taper: tuned live in the anim editor for a snappy,
+        # weighty forward crack (see get/setLashDebug + updateLash in voxel.js).
+        'len': 0.97, 'segs': 12, 'top': -2,
+        'g': 37, 'damp': 0.904, 'power': 2.1, 'taper': 3.3,
         'color': '#%02x%02x%02x' % color, 'dark': '#%02x%02x%02x' % dark,
     }}
     return w
