@@ -658,6 +658,16 @@ html, body {
     z-index: 200;
     pointer-events: none;
 }
+/* Inside the full-bleed fight the stack is positioned within .battle-fs so it
+   rotates with the auto-rotated landscape view instead of pinning to the
+   physical (portrait) viewport. */
+.battle-fs .toast-stack {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(480px, 90%);
+}
 .toast {
     display: flex;
     align-items: center;

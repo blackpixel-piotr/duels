@@ -55,12 +55,12 @@ else
                        OnClose="@(() => { _bankOpen = false; StateHasChanged(); })" />
         }
 
-        <ToastHost LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
-
         @if (_state?.InDuel == true || _duelResult is not null)
         {
             @* Full-bleed landscape fight: canvas fills the screen, HUD floats. *@
             <div class="battle-fs">
+                @* Inside .battle-fs so toasts inherit the fight's auto-rotation. *@
+                <ToastHost LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
                 <BattleScene State="@_state"
                              LogEntries="@(_state?.CombatLog.ToList() ?? [])"
                              EnemyDead="@(_duelResult?.Won == true)"
@@ -79,6 +79,7 @@ else
         }
         else
         {
+            <ToastHost LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
             <StatusStrip State="@_state" />
             <HubMenu State="@_state"
                      Processing="@_processing"
