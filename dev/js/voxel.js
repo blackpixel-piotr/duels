@@ -2675,6 +2675,37 @@
 
             drawScene(st, ctx, W, H);
             drawMoveMarker(st, ctx, W, H, now);
+
+            // Persistent target tile on the ground under the current enemy
+            // (OSRS-style). Drawn before the actors so the enemy renders on top
+            // and reads as standing on it. Uses the enemy's LIVE position, so it
+            // tracks movement and the camera yaw/zoom for free (see proj/tileQuad).
+            if (!st.enemy.crumbled && !st.editorMode) {
+                const ew = st.enemy.pos.wx, ez = st.enemy.pos.wz, th = TILE * 0.42;
+                const cs = [proj(st, ew - th, ez - th, W, H), proj(st, ew + th, ez - th, W, H),
+                            proj(st, ew + th, ez + th, W, H), proj(st, ew - th, ez + th, W, H)];
+                const pulse = 0.5 + 0.5 * Math.sin(now * 0.006);
+                const tap = Math.max(0, 1 - (now - st.targetPulse) / 400); // brief tap emphasis
+                ctx.strokeStyle = STYLE_COLORS.melee; // '#ff5555'
+                // thin full outline
+                ctx.globalAlpha = 0.42 + 0.33 * pulse + 0.25 * tap;
+                ctx.lineWidth = Math.max(1, (1.3 + 0.7 * tap) * ms);
+                ctx.beginPath();
+                ctx.moveTo(cs[0].x, cs[0].y);
+                for (let i = 1; i < 4; i++) ctx.lineTo(cs[i].x, cs[i].y);
+                ctx.closePath(); ctx.stroke();
+                // bold corner brackets (short segment toward each neighbour)
+                ctx.lineWidth = Math.max(1.5, (2.2 + 0.9 * tap) * ms);
+                ctx.beginPath();
+                for (let i = 0; i < 4; i++) {
+                    const a = cs[i], nx = cs[(i + 1) % 4], pv = cs[(i + 3) % 4], f = 0.34;
+                    ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + (nx.x - a.x) * f, a.y + (nx.y - a.y) * f);
+                    ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + (pv.x - a.x) * f, a.y + (pv.y - a.y) * f);
+                }
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+            }
+
             if (st.flags.telegraph) drawTelegraphGlow(ctx, W, H, st.enemy, now);
             // Painter's order: props and actors sorted far → near (the camera
             // rotates, so either combatant can be the near one).
@@ -2690,23 +2721,6 @@
             for (const o of order) o.draw();
             if (st.flags.windup && !st.enemy.crumbled)
                 drawWindupGlint(ctx, W, H, st.enemy, now, STYLE_COLORS[st.flags.windup] ?? '#ffffff');
-
-            // Target chevron pulse (click-to-target scaffold)
-            if (now - st.targetPulse < 900 && !st.enemy.crumbled) {
-                const tp = anchor(st.enemy, W, H);
-                const tS = actorScale(st.enemy, W, H);
-                const tPs = CAM_FOV / (CAM_FOV - tp.rz);
-                const tWs = actorWorldScale(st.enemy, W, H);
-                const ty = tp.y - st.enemy.model.height * tS * tPs * tWs - 10 * ms - Math.sin((now - st.targetPulse) * 0.02) * 3 * ms;
-                ctx.globalAlpha = 1 - (now - st.targetPulse) / 900;
-                ctx.fillStyle = '#ffd166';
-                ctx.beginPath();
-                ctx.moveTo(tp.x, ty);
-                ctx.lineTo(tp.x - 5 * ms, ty - 7 * ms);
-                ctx.lineTo(tp.x + 5 * ms, ty - 7 * ms);
-                ctx.closePath(); ctx.fill();
-                ctx.globalAlpha = 1;
-            }
 
             // Impact bursts (style-color cue; debris carries the weight now)
             // — drawn at the CONTACT side of the defender, toward the attacker.
