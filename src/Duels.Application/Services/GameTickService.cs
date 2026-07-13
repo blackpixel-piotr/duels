@@ -81,7 +81,7 @@ public sealed class GameTickService : IDisposable
 
         for (int i = 0; i < 2 && state.PlayerMoveTarget is not null; i++)
         {
-            var step = StepToward(state.PlayerTile, moveTarget, state.NpcTile);
+            var step = NextStepToward(state, state.PlayerTile, moveTarget, state.NpcTile);
             bool blocked = step == state.PlayerTile;
             state.SetPlayerTile(step.X, step.Z);
             if (state.PlayerTile == moveTarget || blocked)
@@ -117,7 +117,7 @@ public sealed class GameTickService : IDisposable
         {
             for (int i = 0; i < 2 && state.PlayerMoveTarget is not null; i++)
             {
-                var step = StepToward(state.PlayerTile, moveTarget, state.NpcTile);
+                var step = NextStepToward(state, state.PlayerTile, moveTarget, state.NpcTile);
                 bool blocked = step == state.PlayerTile;
                 state.SetPlayerTile(step.X, step.Z);
                 if (state.PlayerTile == moveTarget || blocked)
@@ -128,14 +128,14 @@ public sealed class GameTickService : IDisposable
         {
             for (int i = 0; i < 2 && state.DistanceToNpc > playerRange; i++)
             {
-                var step = StepToward(state.PlayerTile, ApproachSlot(state.PlayerTile, state.NpcTile), state.NpcTile);
+                var step = NextStepToward(state, state.PlayerTile, ApproachSlot(state.PlayerTile, state.NpcTile), state.NpcTile);
                 if (step == state.PlayerTile) break;
                 state.SetPlayerTile(step.X, step.Z);
             }
         }
         if (!state.EnemyFrozen && state.DistanceToNpc > AttackRange.ForStyle(npc.CurrentAttackType))
         {
-            var step = StepToward(state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
+            var step = NextStepToward(state, state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
             state.SetNpcTile(step.X, step.Z);
         }
 
@@ -773,15 +773,99 @@ public sealed class GameTickService : IDisposable
         (to.X + (Math.Sign(from.X - to.X) is 0 ? 1 : Math.Sign(from.X - to.X)),
          to.Z + (Math.Sign(from.Z - to.Z) is 0 ? 1 : Math.Sign(from.Z - to.Z)));
 
-    // One tile toward the goal, never onto the avoided (opponent's) tile.
-    private static (int X, int Z) StepToward((int X, int Z) from, (int X, int Z) goal, (int X, int Z) avoid)
+    // One tile toward the goal along a TAUT path: a straight line when the way is
+    // clear (the common case), otherwise routing around solid obstacles (and never
+    // onto the avoided opponent tile). Returns `from` when no route exists.
+    // Replaces the old greedy diagonal-then-orthogonal stepper that produced a
+    // maze-like dogleg through every tile centre.
+    private static (int X, int Z) NextStepToward(GameState state, (int X, int Z) from,
+                                                 (int X, int Z) goal, (int X, int Z) avoid)
     {
-        int dx = Math.Sign(goal.X - from.X), dz = Math.Sign(goal.Z - from.Z);
-        var next = (X: from.X + dx, Z: from.Z + dz);
-        if (next != avoid) return next;
-        if (dx != 0 && (from.X + dx, from.Z) != avoid) return (from.X + dx, from.Z);
-        if (dz != 0 && (from.X, from.Z + dz) != avoid) return (from.X, from.Z + dz);
-        return from;
+        if (from == goal) return from;
+        // Straight shot: if the tile line to the goal is unobstructed, walk it.
+        if (LineIsClear(state, from, goal, avoid))
+            return BresenhamLine(from, goal)[1];
+        // Blocked: BFS a route, then string-pull to the farthest visible waypoint
+        // so the path hugs the obstacle instead of staircasing tile-by-tile.
+        var path = Bfs(state, from, goal, avoid);
+        if (path is null || path.Count < 2) return from;
+        var target = path[1];
+        for (int i = path.Count - 1; i >= 1; i--)
+            if (LineIsClear(state, from, path[i], avoid)) { target = path[i]; break; }
+        return BresenhamLine(from, target)[1];
+    }
+
+    // Tiles on the integer line a→b (Bresenham, diagonal steps allowed), inclusive.
+    private static List<(int X, int Z)> BresenhamLine((int X, int Z) a, (int X, int Z) b)
+    {
+        var pts = new List<(int X, int Z)>();
+        int x0 = a.X, z0 = a.Z;
+        int dx = Math.Abs(b.X - x0), dz = Math.Abs(b.Z - z0);
+        int sx = x0 < b.X ? 1 : -1, sz = z0 < b.Z ? 1 : -1;
+        int err = dx - dz;
+        while (true)
+        {
+            pts.Add((x0, z0));
+            if (x0 == b.X && z0 == b.Z) break;
+            int e2 = 2 * err;
+            if (e2 > -dz) { err -= dz; x0 += sx; }
+            if (e2 < dx) { err += dx; z0 += sz; }
+        }
+        return pts;
+    }
+
+    // True when every tile on the line from→to (excluding the start) is inside the
+    // arena and not blocked (solid obstacle or the avoided opponent tile).
+    private static bool LineIsClear(GameState state, (int X, int Z) from,
+                                    (int X, int Z) to, (int X, int Z) avoid)
+    {
+        var line = BresenhamLine(from, to);
+        for (int i = 1; i < line.Count; i++)
+            if (!GameState.InArena(line[i]) || state.IsBlocked(line[i], avoid))
+                return false;
+        return true;
+    }
+
+    private static int Chebyshev((int X, int Z) a, (int X, int Z) b) =>
+        Math.Max(Math.Abs(a.X - b.X), Math.Abs(a.Z - b.Z));
+
+    // 8-directional BFS flood over free (in-arena, unblocked) tiles from `from`.
+    // Returns the path from→goal when reachable; otherwise the path toward the
+    // reachable tile CLOSEST to the goal, so a mover whose goal is blocked (e.g. an
+    // approach slot sitting on an obstacle) still makes progress instead of
+    // freezing. Null only when `from` has no free neighbour at all.
+    private static List<(int X, int Z)>? Bfs(GameState state, (int X, int Z) from,
+                                             (int X, int Z) goal, (int X, int Z) avoid)
+    {
+        var came = new Dictionary<(int X, int Z), (int X, int Z)> { [from] = from };
+        var q = new Queue<(int X, int Z)>();
+        q.Enqueue(from);
+        var best = from;
+        int bestD = Chebyshev(from, goal);
+        while (q.Count > 0)
+        {
+            var cur = q.Dequeue();
+            if (cur == goal) { best = goal; break; }
+            int d = Chebyshev(cur, goal);
+            if (d < bestD) { bestD = d; best = cur; }
+            for (int dx = -1; dx <= 1; dx++)
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    if (dx == 0 && dz == 0) continue;
+                    var n = (X: cur.X + dx, Z: cur.Z + dz);
+                    if (came.ContainsKey(n)) continue;
+                    if (!GameState.InArena(n) || state.IsBlocked(n, avoid)) continue;
+                    came[n] = cur;
+                    q.Enqueue(n);
+                }
+        }
+        var dest = came.ContainsKey(goal) ? goal : best;
+        if (dest == from) return null;
+        var path = new List<(int X, int Z)>();
+        for (var t = dest; t != from; t = came[t]) path.Add(t);
+        path.Add(from);
+        path.Reverse();
+        return path;
     }
 
     private CombatantSnapshot BuildPlayerSnapshot(GameState state, AttackStyle style)

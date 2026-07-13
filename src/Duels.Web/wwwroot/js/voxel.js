@@ -375,6 +375,12 @@
                                // Actors sit at tile CENTERS (tx*TILE), so the grid
                                // lines fall BETWEEN tiles, not under the fighters.
     const STRIDE = Math.PI;    // walk-phase radians per world unit (a step per tile)
+    // Movement pacing: actors glide toward the latest sim tile at a CONSTANT speed
+    // matched to the sim cadence (player RUNS 2 tiles/tick, enemy WALKS 1), so a
+    // multi-tile jump can never render as a sprint. A large desync (tab
+    // backgrounded, long hitch) snaps instead of catching up at speed.
+    const MOVE_SPEED = { player: 2 * TILE / TILE_MS, enemy: TILE / TILE_MS }; // wu/ms
+    const SNAP_DIST = 4.5 * TILE;  // fell this far behind → snap rather than sprint
     let CAM_FOV = 25;          // perspective divide (world units); larger = less distortion
     const DEFAULT_CAM_FOV = CAM_FOV;
     const ZOOM_MIN = 0.4, ZOOM_MAX = 2.5;
@@ -2616,47 +2622,45 @@
                                   ((Math.random() * 2 - 1) * st.shake.mag * ms) | 0);
             }
 
-            // Movement: play each actor's segment at constant velocity, timed
-            // to land exactly when the next sim step is due (TILE_MS) — no
-            // per-tile stall. Longer (running) segments move faster; the
-            // gait absorbs the speed as a LONGER stride via runBlend, not a
-            // faster cycle. Face travel direction while moving, else the
-            // opponent.
+            // Movement: constant-speed pursuit of the latest sim target (tile
+            // centre). Speed is fixed per actor (MOVE_SPEED), so a multi-tile
+            // jump never sprints — it just takes proportionally longer; a huge
+            // desync snaps. The sim now emits a straight (or obstacle-routed)
+            // tile line, so pursuing the latest target traces that path. The
+            // gait absorbs speed as a LONGER stride via runBlend, not a faster
+            // cycle. Face travel direction while moving, else the opponent.
             for (const key of ['player', 'enemy']) {
                 const actor = st[key];
                 const other = key === 'player' ? st.enemy : st.player;
                 if (actor.crumbled) { actor.moving = false; continue; }
                 const disengagedIdlePlayer = key === 'player' && st.flags.holdPosition === true;
-                // Run blend: segments longer than one straight tile shift
-                // the gait toward a run. Eased (~170ms) so walk↔run
-                // transitions glide instead of snapping.
-                const sg = actor.seg;
-                const segLen = sg ? (sg.len ??= Math.hypot(sg.x1 - sg.x0, sg.z1 - sg.z0)) : 0;
-                // Per-tile thresholds scale with world-per-tile: a one-tile step
-                // (TILE wu) reads as a walk, longer segments blend toward a run.
-                const runTarget = sg ? Math.max(0, Math.min(1, (segLen - TILE) / (1.2 * TILE))) : 0;
-                actor.runBlend = (actor.runBlend ?? 0)
-                    + (runTarget - (actor.runBlend ?? 0)) * Math.min(1, dt * 0.006);
+                const tgt = actor.target;
+                const remX = tgt.wx - actor.pos.wx, remZ = tgt.wz - actor.pos.wz;
+                let rem = Math.hypot(remX, remZ);
+                if (rem > SNAP_DIST) { actor.pos.wx = tgt.wx; actor.pos.wz = tgt.wz; rem = 0; }
+                const EPS = 0.02 * TILE;
                 let destFacing;
-                if (actor.seg) {
-                    const s = actor.seg;
-                    const p = Math.min(1, (st.time - s.t0) / TILE_MS);
-                    const nx = s.x0 + (s.x1 - s.x0) * p, nz = s.z0 + (s.z1 - s.z0) * p;
+                if (rem > EPS) {
+                    const stepD = Math.min(rem, MOVE_SPEED[key] * dt);
+                    // Run blend from ACTUAL speed: a full-speed step reads as a
+                    // run, closing a small gap as a walk. Eased (~170ms) so
+                    // walk↔run transitions glide instead of snapping.
+                    const runTarget = Math.max(0, Math.min(1,
+                        (stepD / Math.max(1, dt)) / MOVE_SPEED.enemy - 1));
+                    actor.runBlend = (actor.runBlend ?? 0)
+                        + (runTarget - (actor.runBlend ?? 0)) * Math.min(1, dt * 0.006);
                     // Longer stride ⇒ proportionally slower cycle at the same
-                    // ground speed. Must mirror computePoseV2's step scale
-                    // exactly, or the feet skate.
+                    // ground speed. Must mirror computePoseV2's step scale.
                     const m = actor.ik ? 1 + RUN_STRIDE * actor.runBlend : 1;
-                    actor.walkPhase += Math.hypot(nx - actor.pos.wx, nz - actor.pos.wz) * actor.stride / m;
-                    actor.pos.wx = nx; actor.pos.wz = nz;
-                    actor.moving = p < 1;
-                    destFacing = Math.atan2(s.x1 - s.x0, s.z1 - s.z0);
-                    if (p >= 1) {
-                        actor.seg = null;
-                        if (!disengagedIdlePlayer)
-                            destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
-                    }
+                    actor.walkPhase += stepD * actor.stride / m;
+                    actor.pos.wx += remX / rem * stepD;
+                    actor.pos.wz += remZ / rem * stepD;
+                    actor.moving = true;
+                    destFacing = Math.atan2(remX, remZ);
                 } else {
+                    if (rem > 0) { actor.pos.wx = tgt.wx; actor.pos.wz = tgt.wz; } // land on centre
                     actor.moving = false;
+                    actor.runBlend = (actor.runBlend ?? 0) * (1 - Math.min(1, dt * 0.01));
                     destFacing = disengagedIdlePlayer
                         ? actor.facing
                         : Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
@@ -2976,14 +2980,30 @@
         const order = (actor, tx, tz) => {
             const x = tx * TILE, z = tz * TILE; // sim tile → world (tile center)
             if (actor.target.wx === x && actor.target.wz === z) return;
+            // Constant-speed pursuit reads actor.target every frame; no segment.
             actor.target = { wx: x, wz: z };
-            actor.seg = { x0: actor.pos.wx, z0: actor.pos.wz, x1: x, z1: z, t0: st.time };
         };
         if (pos.player) {
             maybeStartPreemptiveSwing(st, pos.player.x, pos.player.z);
             order(st.player, pos.player.x, pos.player.z);
         }
         if (pos.enemy) order(st.enemy, pos.enemy.x, pos.enemy.z);
+    }
+
+    // Solid obstacles the sim pathfinds around — rendered as low props sitting on
+    // those tiles so the player can see what they're routing around. Kept short
+    // (worldH ~1.3) so they never occlude the fighters. Duel-scoped: replaces any
+    // previously placed obstacle props. Tiles are sim coords { x, z }.
+    function setBattleObstacles(canvasId, tiles) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        st.props = st.props.filter(p => !p.obstacle);
+        for (const t of tiles || []) {
+            const spec = { id: 'rock', wx: t.x * TILE, wz: t.z * TILE, worldH: 1.3, obstacle: true };
+            loadModel(`assets/props/${spec.id}.vox`).then(model => {
+                if (battles.get(canvasId) === st) st.props.push({ ...spec, model });
+            }).catch(() => { /* prop missing: obstacle stays invisible but still blocks in sim */ });
+        }
     }
 
     // Restore both actors for a rematch on the same mounted scene (RETRY).
@@ -3242,7 +3262,7 @@
     window.voxel = {
         initPreview, destroyPreview, renderIcon, itemIcon,
         initBattle, destroyBattle, setBattleEnemy, setBattleFlags, battleEvent,
-        setBattleVitals, setBattleWeapon, setBattlePositions, resetBattle,
+        setBattleVitals, setBattleWeapon, setBattlePositions, setBattleObstacles, resetBattle,
         setBattleOverheads, getCameraDebug, setCameraDebug,
         getLashDebug, setLashDebug,
 

@@ -195,6 +195,133 @@ public sealed class RangeAndMovementTests
         Assert.True(t.X * t.X + t.Z * t.Z <= GameState.ArenaRadius * GameState.ArenaRadius);
     }
 
+    // ── Pathfinding (straight line unless blocked, around solid obstacles) ──
+
+    // Calls the private static NextStepToward so we get the exact tile-by-tile
+    // path, independent of NPC turns / tick cadence.
+    private static (int X, int Z) NextStep(GameState state, (int X, int Z) from,
+                                           (int X, int Z) goal, (int X, int Z) avoid)
+    {
+        var m = typeof(GameTickService).GetMethod("NextStepToward",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        return ((int X, int Z))m.Invoke(null, [state, from, goal, avoid])!;
+    }
+
+    private static List<(int X, int Z)> WalkPath(GameState state, (int X, int Z) from,
+                                                 (int X, int Z) goal, (int X, int Z) avoid)
+    {
+        var path = new List<(int X, int Z)> { from };
+        var cur = from;
+        for (int i = 0; i < 40 && cur != goal; i++)
+        {
+            var next = NextStep(state, cur, goal, avoid);
+            if (next == cur) break; // stuck
+            cur = next;
+            path.Add(cur);
+        }
+        return path;
+    }
+
+    // Mirror of GameTickService.BresenhamLine (diagonal steps allowed).
+    private static List<(int X, int Z)> Bresenham((int X, int Z) a, (int X, int Z) b)
+    {
+        var pts = new List<(int X, int Z)>();
+        int x0 = a.X, z0 = a.Z, dx = Math.Abs(b.X - x0), dz = Math.Abs(b.Z - z0);
+        int sx = x0 < b.X ? 1 : -1, sz = z0 < b.Z ? 1 : -1, err = dx - dz;
+        while (true)
+        {
+            pts.Add((x0, z0));
+            if (x0 == b.X && z0 == b.Z) break;
+            int e2 = 2 * err;
+            if (e2 > -dz) { err -= dz; x0 += sx; }
+            if (e2 < dx) { err += dx; z0 += sz; }
+        }
+        return pts;
+    }
+
+    [Fact]
+    public void Path_ClearOfObstacles_IsStraightLine()
+    {
+        var (_, state) = Build(Tank(AttackType.Crush));
+        var from = (0, 3); var goal = (4, 1); // off-axis, clear of the fixed obstacles
+        Assert.DoesNotContain(Bresenham(from, goal), state.IsObstacle); // sanity: line is clear
+
+        var path = WalkPath(state, from, goal, (99, 99));
+        Assert.Equal(goal, path[^1]);
+        Assert.Equal(Bresenham(from, goal), path); // exact straight line, no dogleg
+    }
+
+    [Fact]
+    public void Path_BlockedByObstacle_RoutesAroundAndReaches()
+    {
+        var (_, state) = Build(Tank(AttackType.Crush));
+        var obstacle = (2, 1);
+        Assert.True(state.IsObstacle(obstacle)); // part of the fixed layout
+        var from = (0, 1); var goal = (4, 1);     // straight line runs through (2,1)
+        Assert.Contains(obstacle, Bresenham(from, goal));
+
+        var path = WalkPath(state, from, goal, (99, 99));
+        Assert.Equal(goal, path[^1]);                       // still arrives
+        Assert.DoesNotContain(path, state.IsObstacle);      // never enters a solid tile
+        Assert.Contains(path, t => t.Z != 1);               // deviated off the blocked line
+    }
+
+    [Fact]
+    public void Path_NeverEntersOpponentTile()
+    {
+        var (_, state) = Build(Tank(AttackType.Crush));
+        var opponent = (0, 0);
+        var path = WalkPath(state, (0, 3), (0, -3), opponent); // opponent sits on the line
+        Assert.DoesNotContain(opponent, path);
+    }
+
+    [Fact]
+    public void OrderMove_OntoObstacle_SnapsToFreeTile()
+    {
+        var state = new GameState("p1", new Player("p1", "Hero"));
+        state.StartDuel(new NpcInstance(Tank(AttackType.Crush)));
+        var obstacle = state.Obstacles.First();
+
+        state.OrderMove(obstacle.X, obstacle.Z);
+        var t = state.PlayerMoveTarget!.Value;
+        Assert.False(state.IsObstacle(t));
+        Assert.True(GameState.InArena(t));
+    }
+
+    [Fact]
+    public void Obstacles_DoNotDisconnectArena()
+    {
+        var state = new GameState("p1", new Player("p1", "Hero"));
+        state.StartDuel(new NpcInstance(Tank(AttackType.Crush)));
+
+        // Flood from the player spawn over free tiles; every free in-arena tile
+        // must be reachable — no obstacle layout may wall a region off.
+        var start = state.PlayerTile;
+        var seen = new HashSet<(int X, int Z)> { start };
+        var q = new Queue<(int X, int Z)>();
+        q.Enqueue(start);
+        while (q.Count > 0)
+        {
+            var c = q.Dequeue();
+            for (int dx = -1; dx <= 1; dx++)
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    if (dx == 0 && dz == 0) continue;
+                    var n = (c.X + dx, c.Z + dz);
+                    if (seen.Contains(n) || !GameState.InArena(n) || state.IsObstacle(n)) continue;
+                    seen.Add(n);
+                    q.Enqueue(n);
+                }
+        }
+        for (int x = -GameState.ArenaRadius; x <= GameState.ArenaRadius; x++)
+            for (int z = -GameState.ArenaRadius; z <= GameState.ArenaRadius; z++)
+            {
+                var t = (x, z);
+                if (GameState.InArena(t) && !state.IsObstacle(t))
+                    Assert.Contains(t, seen);
+            }
+    }
+
     [Fact]
     public void NpcInRange_TracksStyle()
     {
