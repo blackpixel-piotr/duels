@@ -2039,16 +2039,35 @@
         { id: 'bush', wx: 1.5,  wz: 7.4,  worldH: 1.0 },
     ];
 
+    // Like actorScale/actorWorldScale: S is the integer voxel raster scale
+    // (perspective-independent, so it stays stable while the camera moves),
+    // ws is the leftover fractional correction. Rounding perspective's
+    // continuous ps into S directly (as this used to) made props visibly pop
+    // between whole-voxel sizes on every camera move/zoom.
     function drawProp(st, ctx, pr, W, H) {
         const p = proj(st, pr.wx, pr.wz, W, H);
         const ps = CAM_FOV / (CAM_FOV - p.rz);
-        const S = Math.max(1, Math.round(p.px * pr.worldH * ps / pr.model.height));
+        const m = pr.model;
+        const S = Math.max(1, Math.round(p.px * pr.worldH / m.height));
+        const ws = (p.px * pr.worldH) / (m.height * S);
+        const psTot = ps * ws;
+
+        if (!pr.off) pr.off = document.createElement('canvas');
+        const w = Math.ceil((m.radius * 2 + 1) * S) + 2;
+        const h = Math.ceil((m.height + 1 + m.radius * 2 * TILT) * S) + 2;
+        if (pr.off.width !== w || pr.off.height !== h) { pr.off.width = w; pr.off.height = h; }
+        const octx = pr.off.getContext('2d');
+        octx.clearRect(0, 0, w, h);
+        const feetY = h - m.radius * TILT * S - 1;
+        renderModel(octx, m, st.camYaw, S, w / 2, feetY - S);
+
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
         ctx.beginPath();
-        ctx.ellipse(p.x, p.y, pr.model.radius * S * 0.9,
-            pr.model.radius * S * (st.camPitch ?? POS_TILT) * 0.6, 0, 0, 6.2832);
+        ctx.ellipse(p.x, p.y, m.radius * S * psTot * 0.9,
+            m.radius * S * (st.camPitch ?? POS_TILT) * psTot * 0.6, 0, 0, 6.2832);
         ctx.fill();
-        renderModel(ctx, pr.model, st.camYaw, S, p.x, p.y);
+        ctx.drawImage(pr.off, (p.x - w / 2 * psTot) | 0, (p.y - feetY * psTot) | 0,
+            (w * psTot) | 0, (h * psTot) | 0);
     }
 
     // Pulsing tile outline where the last ground click landed (walk order).
