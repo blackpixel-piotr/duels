@@ -1619,8 +1619,9 @@
     // the crack falls out of the physics.
     const LASH_G = 19;         // gravity, wu/s² (1 wu ≈ 0.64 m) — heavier hang
     const LASH_DAMP = 0.965;   // per substep — more energy loss, calmer/heavier, less jitter
-    const LASH_ANCHOR_MAX = 0.09; // wu per frame — a hard turn drags, not teleports
-    const LASH_ANCHOR_STRIKE = 0.55; // during a lash strike the pin is free to fling — the crack's source
+    const LASH_ANCHOR_RATE = 5.5;    // wu/s — hand-OFFSET drag cap: a hard turn drags, not teleports
+    const LASH_ANCHOR_STRIKE_RATE = 33; // wu/s — through the strike flick the pin is free to fling — the crack's source
+    const LASH_TETHER = 0.5;   // wu — absolute pin↔hand error bound (belt & braces)
     const LASH_TAPER = 4.5;    // tip inverse-mass gain: 0 = uniform rope, higher = the tip whips
     const LASH_POWER = 1.5;    // strike-impulse multiplier (attack "power")
 
@@ -1630,18 +1631,28 @@
         const vpw = actor.model.height / actor.base.worldH; // voxels per wu
         const a = posePoint(actor, pose, lash.anchorM[0], lash.anchorM[1], lash.anchorM[2]);
         const cF = Math.cos(actor.facing), sF = Math.sin(actor.facing);
-        let ax = actor.pos.wx + (a.x * cF + a.z * sF) / vpw;
-        let az = actor.pos.wz + (-a.x * sF + a.z * cF) / vpw;
-        let ay = a.y / vpw;
+        // Pin = body position + world-oriented hand offset. Only the OFFSET
+        // can teleport (pose swing, facing flip), so only the offset is
+        // clamped below — body translation always passes straight through,
+        // so running (at any speed or frame rate) can never strand the rope
+        // behind the actor.
+        const trueOff = {
+            x: (a.x * cF + a.z * sF) / vpw,
+            y: a.y / vpw,
+            z: (-a.x * sF + a.z * cF) / vpw,
+        };
+        let off = trueOff;
 
         if (!lash.pts) { // first frame: hang straight down from the anchor
+            const ix = actor.pos.wx + off.x, iy = off.y, iz = actor.pos.wz + off.z;
             lash.pts = [];
             for (let i = 0; i <= lash.segs; i++) {
-                const y = Math.max(0.02, ay - i * lash.segLen);
-                lash.pts.push({ x: ax, y, z: az, px: ax, py: y, pz: az });
+                const y = Math.max(0.02, iy - i * lash.segLen);
+                lash.pts.push({ x: ix, y, z: iz, px: ix, py: y, pz: iz });
             }
             lash.lastT = now;
-            lash.anchor = { x: ax, y: ay, z: az };
+            lash.anchor = { x: ix, y: iy, z: iz };
+            lash.anchorOff = { ...off };
         }
         // Progress of an active lash attack (−1 = none). The strike is where
         // the hand flicks the base to launch the crack; the wind-up cocks it.
@@ -1651,22 +1662,35 @@
         const striking = ap >= 0.34 && ap < 0.64;
         const flick    = ap >= 0.30 && ap < 0.66;
 
-        // Fast facing turns can move the hand several body-widths in one
-        // frame; clamp the pin's travel so the rope is dragged through a
-        // swept arc instead of receiving a teleport impulse (the spasm) —
-        // except through the strike flick, where that fast base motion IS the
-        // crack and has to get through.
-        const prev = lash.anchor;
-        const anchorMax = flick ? LASH_ANCHOR_STRIKE : LASH_ANCHOR_MAX;
-        const jump = Math.hypot(ax - prev.x, ay - prev.y, az - prev.z);
-        if (jump > anchorMax) {
-            const k = anchorMax / jump;
-            ax = prev.x + (ax - prev.x) * k;
-            ay = prev.y + (ay - prev.y) * k;
-            az = prev.z + (az - prev.z) * k;
-        }
         const dt = Math.max(0, Math.min(40, now - lash.lastT));
         lash.lastT = now;
+
+        // Fast facing turns can move the hand OFFSET several body-widths in
+        // one frame; clamp the offset's travel (rate-based, so frame rate
+        // doesn't change behavior) so the rope is dragged through a swept
+        // arc instead of receiving a teleport impulse (the spasm) — except
+        // through the strike flick, where that fast base motion IS the crack
+        // and has to get through. A tether bounds any residual error (e.g.
+        // sustained fast spinning) so the pin can never drift from the hand.
+        const po = lash.anchorOff ?? trueOff;
+        if (dt > 0) {
+            const maxJump = (flick ? LASH_ANCHOR_STRIKE_RATE : LASH_ANCHOR_RATE) * dt / 1000;
+            const jx = trueOff.x - po.x, jy = trueOff.y - po.y, jz = trueOff.z - po.z;
+            const jump = Math.hypot(jx, jy, jz);
+            const k = jump > maxJump ? maxJump / jump : 1;
+            off = { x: po.x + jx * k, y: po.y + jy * k, z: po.z + jz * k };
+            const ex = trueOff.x - off.x, ey = trueOff.y - off.y, ez = trueOff.z - off.z;
+            const err = Math.hypot(ex, ey, ez);
+            if (err > LASH_TETHER) {
+                const t = 1 - LASH_TETHER / err;
+                off.x += ex * t; off.y += ey * t; off.z += ez * t;
+            }
+            lash.anchorOff = off;
+        } else {
+            off = po; // hit-stop: freeze the offset — re-pin only
+        }
+        const prev = lash.anchor;
+        const ax = actor.pos.wx + off.x, ay = off.y, az = actor.pos.wz + off.z;
 
         // Attack drive. Shoving every node equally billows; instead the wind-up
         // lifts the rope up OVERHEAD (in front, not behind), then the strike
@@ -2736,7 +2760,15 @@
                 const tgt = actor.target;
                 const remX = tgt.wx - actor.pos.wx, remZ = tgt.wz - actor.pos.wz;
                 let rem = Math.hypot(remX, remZ);
-                if (rem > SNAP_DIST) { actor.pos.wx = tgt.wx; actor.pos.wz = tgt.wz; rem = 0; }
+                if (rem > SNAP_DIST) {
+                    // Teleport, not a glide — carry the whip rope rigidly so it
+                    // arrives with the body instead of stretching across the arena.
+                    if (actor.lash?.pts) {
+                        for (const p of actor.lash.pts) { p.x += remX; p.px += remX; p.z += remZ; p.pz += remZ; }
+                        if (actor.lash.anchor) { actor.lash.anchor.x += remX; actor.lash.anchor.z += remZ; }
+                    }
+                    actor.pos.wx = tgt.wx; actor.pos.wz = tgt.wz; rem = 0;
+                }
                 const EPS = 0.02 * TILE;
                 let destFacing;
                 if (rem > EPS) {
