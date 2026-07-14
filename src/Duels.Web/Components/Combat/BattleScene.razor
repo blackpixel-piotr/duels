@@ -57,6 +57,46 @@
         <button class="cam-toggle-btn" @onclick="() => _camPanelOpen = !_camPanelOpen">
             @(_camPanelOpen ? "CAM ▲" : "CAM ▼")
         </button>
+        <button class="cam-toggle-btn move-toggle-btn" @onclick="ToggleMovePanel">
+            @(_movePanelOpen ? "MOVE ▲" : "MOVE ▼")
+        </button>
+        @if (_movePanelOpen)
+        {
+            <div class="cam-debug-panel move-debug-panel">
+                <div class="cam-debug-row">
+                    <label>Speed × <span>@_mvSpeed.ToString("0.00")</span></label>
+                    <input type="range" min="0.25" max="4" step="0.05"
+                           value="@_mvSpeed" @oninput="@(e => OnMoveInput(e, v => _mvSpeed = v))" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Turn rate <span>@_mvTurn.ToString("0.000")</span></label>
+                    <input type="range" min="0.005" max="0.3" step="0.005"
+                           value="@_mvTurn" @oninput="@(e => OnMoveInput(e, v => _mvTurn = v))" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Stride ease-in <span>@_mvIn.ToString("0.000")</span></label>
+                    <input type="range" min="0.001" max="0.05" step="0.001"
+                           value="@_mvIn" @oninput="@(e => OnMoveInput(e, v => _mvIn = v))" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Stride ease-out <span>@_mvOut.ToString("0.000")</span></label>
+                    <input type="range" min="0.001" max="0.05" step="0.001"
+                           value="@_mvOut" @oninput="@(e => OnMoveInput(e, v => _mvOut = v))" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Run stride <span>@_mvStride.ToString("0.00")</span></label>
+                    <input type="range" min="0" max="1" step="0.05"
+                           value="@_mvStride" @oninput="@(e => OnMoveInput(e, v => _mvStride = v))" />
+                </div>
+                <div class="cam-debug-row">
+                    <label><input type="checkbox" checked="@_mvInstantGait"
+                                  @onchange="@(e => OnMoveCheck(e, v => _mvInstantGait = v))" /> Instant gait</label>
+                    <label><input type="checkbox" checked="@_mvHardStop"
+                                  @onchange="@(e => OnMoveCheck(e, v => _mvHardStop = v))" /> Hard stop</label>
+                </div>
+                <button class="cam-debug-reset" @onclick="ResetMovementDebug">Reset</button>
+            </div>
+        }
         @if (_camPanelOpen)
         {
             <div class="cam-debug-panel">
@@ -114,6 +154,61 @@
     private double _camTilt = 0.3;
     private double _camPitch = 0.7;
     private double _camZoom = 1.0;
+
+    // Movement-feel debug panel (test fights only). Unlike CAM, values are
+    // SEEDED from voxel.getMovementDebug on open: tuning persists in
+    // localStorage across reloads, so the panel must read, not assume.
+    private bool _movePanelOpen;
+    private double _mvSpeed = 1.0;
+    private double _mvTurn = 0.03;
+    private double _mvIn = 0.006;
+    private double _mvOut = 0.01;
+    private double _mvStride = 0.35;
+    private bool _mvInstantGait;
+    private bool _mvHardStop;
+
+    private sealed record MoveTune(double SpeedMult, double TurnRate, double StrideIn,
+                                   double StrideOut, double RunStride, bool InstantGait, bool HardStop);
+
+    private async Task ToggleMovePanel()
+    {
+        _movePanelOpen = !_movePanelOpen;
+        if (_movePanelOpen)
+        {
+            var t = await JS.InvokeAsync<MoveTune>("voxel.getMovementDebug");
+            _mvSpeed = t.SpeedMult; _mvTurn = t.TurnRate;
+            _mvIn = t.StrideIn; _mvOut = t.StrideOut; _mvStride = t.RunStride;
+            _mvInstantGait = t.InstantGait; _mvHardStop = t.HardStop;
+        }
+        StateHasChanged();
+    }
+
+    private Task OnMoveInput(ChangeEventArgs e, Action<double> assign)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v)) assign(v);
+        return PushMovementDebug();
+    }
+
+    private Task OnMoveCheck(ChangeEventArgs e, Action<bool> assign)
+    {
+        if (e.Value is bool b) assign(b);
+        return PushMovementDebug();
+    }
+
+    private Task PushMovementDebug() =>
+        JS.InvokeVoidAsync("voxel.setMovementDebug", "battle-canvas", new
+        {
+            speedMult = _mvSpeed, turnRate = _mvTurn,
+            strideIn = _mvIn, strideOut = _mvOut, runStride = _mvStride,
+            instantGait = _mvInstantGait, hardStop = _mvHardStop,
+        }).AsTask();
+
+    private Task ResetMovementDebug()
+    {
+        _mvSpeed = 1.0; _mvTurn = 0.03; _mvIn = 0.006; _mvOut = 0.01;
+        _mvStride = 0.35; _mvInstantGait = false; _mvHardStop = false;
+        return PushMovementDebug();
+    }
 
     private string? _lastOverheads;
 

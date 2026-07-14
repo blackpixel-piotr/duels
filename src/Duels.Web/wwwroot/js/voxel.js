@@ -781,6 +781,28 @@
     // lift, bob, lean, arm swing) grow with actor.runBlend.
     const RUN_STRIDE = 0.35;
 
+    // Movement-feel knobs, live-tunable from the test fight's MOVE panel
+    // (setMovementDebug). Defaults reproduce the shipped feel exactly; the
+    // no-skate law survives any runStride because the multiplier cancels
+    // between phase rate (movement block) and foot sweep (computePoseV2) —
+    // both read THIS value, never the RUN_STRIDE constant directly.
+    const MOVE_TUNE_DEFAULTS = {
+        speedMult: 1,          // × MOVE_SPEED, both actors
+        turnRate: 0.03,        // facing lerp per ms
+        strideIn: 0.006,       // runBlend ease-in per ms
+        strideOut: 0.01,       // runBlend ease-out per ms (after arrival)
+        runStride: RUN_STRIDE, // extra stride length at full run
+        instantGait: false,    // runBlend snaps to target — no ease-in
+        hardStop: false,       // arrival plants instantly: runBlend → 0
+    };
+    const MOVE_TUNE = { ...MOVE_TUNE_DEFAULTS };
+    try { // tuned values survive reloads; corrupt/absent storage = defaults
+        const saved = JSON.parse(localStorage.getItem('duels_move_tune'));
+        if (saved && typeof saved === 'object')
+            for (const k in MOVE_TUNE_DEFAULTS)
+                if (typeof saved[k] === typeof MOVE_TUNE_DEFAULTS[k]) MOVE_TUNE[k] = saved[k];
+    } catch { /* defaults stand */ }
+
     // 2-bone solve in the sagittal plane: hip at (0, hipY) reaching an ankle
     // at (tz forward, ty up). Returns forward-positive thigh/shin/foot
     // angles; renderModel pitch folds backward, so callers negate.
@@ -1017,7 +1039,7 @@
             // Run scaling: longer stride, higher knee lift, deeper crouch
             // and heel-strike bounce — the visual difference between a walk
             // and a run at the same cycle math.
-            const m = 1 + RUN_STRIDE * run;
+            const m = 1 + MOVE_TUNE.runStride * run;
             const step = ik.step * m;
             const liftAmp = ik.lift * (1 + 0.6 * run);
 
@@ -2718,17 +2740,18 @@
                 const EPS = 0.02 * TILE;
                 let destFacing;
                 if (rem > EPS) {
-                    const stepD = Math.min(rem, MOVE_SPEED[key] * dt);
+                    const stepD = Math.min(rem, MOVE_SPEED[key] * MOVE_TUNE.speedMult * dt);
                     // Run blend from ACTUAL speed: a full-speed step reads as a
-                    // run, closing a small gap as a walk. Eased (~170ms) so
-                    // walk↔run transitions glide instead of snapping.
+                    // run, closing a small gap as a walk. Eased (strideIn) so
+                    // walk↔run transitions glide — or snapped when instantGait.
                     const runTarget = Math.max(0, Math.min(1,
                         (stepD / Math.max(1, dt)) / MOVE_SPEED.enemy - 1));
-                    actor.runBlend = (actor.runBlend ?? 0)
-                        + (runTarget - (actor.runBlend ?? 0)) * Math.min(1, dt * 0.006);
+                    actor.runBlend = MOVE_TUNE.instantGait ? runTarget
+                        : (actor.runBlend ?? 0)
+                          + (runTarget - (actor.runBlend ?? 0)) * Math.min(1, dt * MOVE_TUNE.strideIn);
                     // Longer stride ⇒ proportionally slower cycle at the same
                     // ground speed. Must mirror computePoseV2's step scale.
-                    const m = actor.ik ? 1 + RUN_STRIDE * actor.runBlend : 1;
+                    const m = actor.ik ? 1 + MOVE_TUNE.runStride * actor.runBlend : 1;
                     actor.walkPhase += stepD * actor.stride / m;
                     actor.pos.wx += remX / rem * stepD;
                     actor.pos.wz += remZ / rem * stepD;
@@ -2737,7 +2760,8 @@
                 } else {
                     if (rem > 0) { actor.pos.wx = tgt.wx; actor.pos.wz = tgt.wz; } // land on centre
                     actor.moving = false;
-                    actor.runBlend = (actor.runBlend ?? 0) * (1 - Math.min(1, dt * 0.01));
+                    actor.runBlend = MOVE_TUNE.hardStop ? 0
+                        : (actor.runBlend ?? 0) * (1 - Math.min(1, dt * MOVE_TUNE.strideOut));
                     destFacing = disengagedIdlePlayer
                         ? actor.facing
                         : Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
@@ -2745,7 +2769,7 @@
                 let da = destFacing - actor.facing;
                 while (da > Math.PI) da -= 6.2832;
                 while (da < -Math.PI) da += 6.2832;
-                actor.facing += da * Math.min(1, dt * 0.03);
+                actor.facing += da * Math.min(1, dt * MOVE_TUNE.turnRate);
             }
 
             // Camera: rigid lock on the player (OSRS-style). The actor's own
@@ -2874,6 +2898,17 @@
     // TILT are module-wide (only one battle canvas is ever mounted at a
     // time), so setting them here affects the live scene immediately with
     // no threading through the render path.
+    // Movement-feel debug (test fight's MOVE panel): values apply globally
+    // to every mounted battle and persist across reloads so a tuning session
+    // survives an F5. getMovementDebug seeds the panel.
+    function getMovementDebug() { return { ...MOVE_TUNE }; }
+    function setMovementDebug(canvasId, tune) {
+        for (const k in MOVE_TUNE_DEFAULTS)
+            if (tune && typeof tune[k] === typeof MOVE_TUNE_DEFAULTS[k]) MOVE_TUNE[k] = tune[k];
+        try { localStorage.setItem('duels_move_tune', JSON.stringify(MOVE_TUNE)); }
+        catch { /* private mode: session-only tuning still works */ }
+    }
+
     function getCameraDebug(canvasId) {
         const st = battles.get(canvasId);
         return {
@@ -3373,6 +3408,7 @@
         setBattleVitals, setBattleWeapon, setBattlePositions, setBattleObstacles,
         setBattleHazards, resetBattle,
         setBattleOverheads, getCameraDebug, setCameraDebug,
+        getMovementDebug, setMovementDebug,
         getLashDebug, setLashDebug,
 
         // ── Animation editor (AnimEditor.razor) ────────────────────────────
