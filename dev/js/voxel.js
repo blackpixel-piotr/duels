@@ -350,6 +350,7 @@
     const NPC_ASSETS = new Set([
         'goblin', 'swashbuckler', 'barbarian', 'desert_bandit', 'gladiator',
         'corsair', 'berserker', 'warlord', 'champion', 'rare_tourist', 'rare_gladiator',
+        'maggot_king',
     ]);
 
     // Single source of truth for scene geometry. Actors live at world
@@ -472,6 +473,7 @@
         goblin: 'crush', barbarian: 'crush', berserker: 'crush', warlord: 'crush',
         swashbuckler: 'slash', gladiator: 'slash', corsair: 'slash', champion: 'slash',
         rare_gladiator: 'slash', desert_bandit: 'slash', rare_tourist: 'stab',
+        maggot_king: 'crush',
     };
 
     const battles = new Map(); // canvasId → state
@@ -779,6 +781,28 @@
     // lift, bob, lean, arm swing) grow with actor.runBlend.
     const RUN_STRIDE = 0.35;
 
+    // Movement-feel knobs, live-tunable from the test fight's MOVE panel
+    // (setMovementDebug). Defaults reproduce the shipped feel exactly; the
+    // no-skate law survives any runStride because the multiplier cancels
+    // between phase rate (movement block) and foot sweep (computePoseV2) —
+    // both read THIS value, never the RUN_STRIDE constant directly.
+    const MOVE_TUNE_DEFAULTS = {
+        speedMult: 1,          // × MOVE_SPEED, both actors
+        turnRate: 0.03,        // facing lerp per ms
+        strideIn: 0.006,       // runBlend ease-in per ms
+        strideOut: 0.01,       // runBlend ease-out per ms (after arrival)
+        runStride: RUN_STRIDE, // extra stride length at full run
+        instantGait: false,    // runBlend snaps to target — no ease-in
+        hardStop: false,       // arrival plants instantly: runBlend → 0
+    };
+    const MOVE_TUNE = { ...MOVE_TUNE_DEFAULTS };
+    try { // tuned values survive reloads; corrupt/absent storage = defaults
+        const saved = JSON.parse(localStorage.getItem('duels_move_tune'));
+        if (saved && typeof saved === 'object')
+            for (const k in MOVE_TUNE_DEFAULTS)
+                if (typeof saved[k] === typeof MOVE_TUNE_DEFAULTS[k]) MOVE_TUNE[k] = saved[k];
+    } catch { /* defaults stand */ }
+
     // 2-bone solve in the sagittal plane: hip at (0, hipY) reaching an ankle
     // at (tz forward, ty up). Returns forward-positive thigh/shin/foot
     // angles; renderModel pitch folds backward, so callers negate.
@@ -1015,7 +1039,7 @@
             // Run scaling: longer stride, higher knee lift, deeper crouch
             // and heel-strike bounce — the visual difference between a walk
             // and a run at the same cycle math.
-            const m = 1 + RUN_STRIDE * run;
+            const m = 1 + MOVE_TUNE.runStride * run;
             const step = ik.step * m;
             const liftAmp = ik.lift * (1 + 0.6 * run);
 
@@ -1595,8 +1619,9 @@
     // the crack falls out of the physics.
     const LASH_G = 19;         // gravity, wu/s² (1 wu ≈ 0.64 m) — heavier hang
     const LASH_DAMP = 0.965;   // per substep — more energy loss, calmer/heavier, less jitter
-    const LASH_ANCHOR_MAX = 0.09; // wu per frame — a hard turn drags, not teleports
-    const LASH_ANCHOR_STRIKE = 0.55; // during a lash strike the pin is free to fling — the crack's source
+    const LASH_ANCHOR_RATE = 5.5;    // wu/s — hand-OFFSET drag cap: a hard turn drags, not teleports
+    const LASH_ANCHOR_STRIKE_RATE = 33; // wu/s — through the strike flick the pin is free to fling — the crack's source
+    const LASH_TETHER = 0.5;   // wu — absolute pin↔hand error bound (belt & braces)
     const LASH_TAPER = 4.5;    // tip inverse-mass gain: 0 = uniform rope, higher = the tip whips
     const LASH_POWER = 1.5;    // strike-impulse multiplier (attack "power")
 
@@ -1606,18 +1631,28 @@
         const vpw = actor.model.height / actor.base.worldH; // voxels per wu
         const a = posePoint(actor, pose, lash.anchorM[0], lash.anchorM[1], lash.anchorM[2]);
         const cF = Math.cos(actor.facing), sF = Math.sin(actor.facing);
-        let ax = actor.pos.wx + (a.x * cF + a.z * sF) / vpw;
-        let az = actor.pos.wz + (-a.x * sF + a.z * cF) / vpw;
-        let ay = a.y / vpw;
+        // Pin = body position + world-oriented hand offset. Only the OFFSET
+        // can teleport (pose swing, facing flip), so only the offset is
+        // clamped below — body translation always passes straight through,
+        // so running (at any speed or frame rate) can never strand the rope
+        // behind the actor.
+        const trueOff = {
+            x: (a.x * cF + a.z * sF) / vpw,
+            y: a.y / vpw,
+            z: (-a.x * sF + a.z * cF) / vpw,
+        };
+        let off = trueOff;
 
         if (!lash.pts) { // first frame: hang straight down from the anchor
+            const ix = actor.pos.wx + off.x, iy = off.y, iz = actor.pos.wz + off.z;
             lash.pts = [];
             for (let i = 0; i <= lash.segs; i++) {
-                const y = Math.max(0.02, ay - i * lash.segLen);
-                lash.pts.push({ x: ax, y, z: az, px: ax, py: y, pz: az });
+                const y = Math.max(0.02, iy - i * lash.segLen);
+                lash.pts.push({ x: ix, y, z: iz, px: ix, py: y, pz: iz });
             }
             lash.lastT = now;
-            lash.anchor = { x: ax, y: ay, z: az };
+            lash.anchor = { x: ix, y: iy, z: iz };
+            lash.anchorOff = { ...off };
         }
         // Progress of an active lash attack (−1 = none). The strike is where
         // the hand flicks the base to launch the crack; the wind-up cocks it.
@@ -1627,22 +1662,35 @@
         const striking = ap >= 0.34 && ap < 0.64;
         const flick    = ap >= 0.30 && ap < 0.66;
 
-        // Fast facing turns can move the hand several body-widths in one
-        // frame; clamp the pin's travel so the rope is dragged through a
-        // swept arc instead of receiving a teleport impulse (the spasm) —
-        // except through the strike flick, where that fast base motion IS the
-        // crack and has to get through.
-        const prev = lash.anchor;
-        const anchorMax = flick ? LASH_ANCHOR_STRIKE : LASH_ANCHOR_MAX;
-        const jump = Math.hypot(ax - prev.x, ay - prev.y, az - prev.z);
-        if (jump > anchorMax) {
-            const k = anchorMax / jump;
-            ax = prev.x + (ax - prev.x) * k;
-            ay = prev.y + (ay - prev.y) * k;
-            az = prev.z + (az - prev.z) * k;
-        }
         const dt = Math.max(0, Math.min(40, now - lash.lastT));
         lash.lastT = now;
+
+        // Fast facing turns can move the hand OFFSET several body-widths in
+        // one frame; clamp the offset's travel (rate-based, so frame rate
+        // doesn't change behavior) so the rope is dragged through a swept
+        // arc instead of receiving a teleport impulse (the spasm) — except
+        // through the strike flick, where that fast base motion IS the crack
+        // and has to get through. A tether bounds any residual error (e.g.
+        // sustained fast spinning) so the pin can never drift from the hand.
+        const po = lash.anchorOff ?? trueOff;
+        if (dt > 0) {
+            const maxJump = (flick ? LASH_ANCHOR_STRIKE_RATE : LASH_ANCHOR_RATE) * dt / 1000;
+            const jx = trueOff.x - po.x, jy = trueOff.y - po.y, jz = trueOff.z - po.z;
+            const jump = Math.hypot(jx, jy, jz);
+            const k = jump > maxJump ? maxJump / jump : 1;
+            off = { x: po.x + jx * k, y: po.y + jy * k, z: po.z + jz * k };
+            const ex = trueOff.x - off.x, ey = trueOff.y - off.y, ez = trueOff.z - off.z;
+            const err = Math.hypot(ex, ey, ez);
+            if (err > LASH_TETHER) {
+                const t = 1 - LASH_TETHER / err;
+                off.x += ex * t; off.y += ey * t; off.z += ez * t;
+            }
+            lash.anchorOff = off;
+        } else {
+            off = po; // hit-stop: freeze the offset — re-pin only
+        }
+        const prev = lash.anchor;
+        const ax = actor.pos.wx + off.x, ay = off.y, az = actor.pos.wz + off.z;
 
         // Attack drive. Shoving every node equally billows; instead the wind-up
         // lifts the rope up OVERHEAD (in front, not behind), then the strike
@@ -2039,16 +2087,50 @@
         { id: 'bush', wx: 1.5,  wz: 7.4,  worldH: 1.0 },
     ];
 
+    // Like actorScale/actorWorldScale: S is the integer voxel raster scale
+    // (perspective-independent, so it stays stable while the camera moves),
+    // ws is the leftover fractional correction. Rounding perspective's
+    // continuous ps into S directly (as this used to) made props visibly pop
+    // between whole-voxel sizes on every camera move/zoom.
     function drawProp(st, ctx, pr, W, H) {
         const p = proj(st, pr.wx, pr.wz, W, H);
         const ps = CAM_FOV / (CAM_FOV - p.rz);
-        const S = Math.max(1, Math.round(p.px * pr.worldH * ps / pr.model.height));
+        const m = pr.model;
+        const S = Math.max(1, Math.round(p.px * pr.worldH / m.height));
+        const ws = (p.px * pr.worldH) / (m.height * S);
+        const psTot = ps * ws;
+
+        if (!pr.off) pr.off = document.createElement('canvas');
+        const w = Math.ceil((m.radius * 2 + 1) * S) + 2;
+        const h = Math.ceil((m.height + 1 + m.radius * 2 * TILT) * S) + 2;
+        if (pr.off.width !== w || pr.off.height !== h) { pr.off.width = w; pr.off.height = h; }
+        const octx = pr.off.getContext('2d');
+        octx.clearRect(0, 0, w, h);
+        const feetY = h - m.radius * TILT * S - 1;
+        renderModel(octx, m, st.camYaw, S, w / 2, feetY - S);
+
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
         ctx.beginPath();
-        ctx.ellipse(p.x, p.y, pr.model.radius * S * 0.9,
-            pr.model.radius * S * (st.camPitch ?? POS_TILT) * 0.6, 0, 0, 6.2832);
+        ctx.ellipse(p.x, p.y, m.radius * S * psTot * 0.9,
+            m.radius * S * (st.camPitch ?? POS_TILT) * psTot * 0.6, 0, 0, 6.2832);
         ctx.fill();
-        renderModel(ctx, pr.model, st.camYaw, S, p.x, p.y);
+        ctx.drawImage(pr.off, (p.x - w / 2 * psTot) | 0, (p.y - feetY * psTot) | 0,
+            (w * psTot) | 0, (h * psTot) | 0);
+    }
+
+    // Projected corners of the ground square centered on world (wx, wz) —
+    // the shared primitive for every tile-aligned ground overlay (walk
+    // marker, enemy target tile, hazard tiles).
+    function tileQuad(st, wx, wz, W, H, half = TILE / 2) {
+        return [proj(st, wx - half, wz - half, W, H), proj(st, wx + half, wz - half, W, H),
+                proj(st, wx + half, wz + half, W, H), proj(st, wx - half, wz + half, W, H)];
+    }
+
+    function traceQuad(ctx, q) {
+        ctx.beginPath();
+        ctx.moveTo(q[0].x, q[0].y);
+        for (let i = 1; i < 4; i++) ctx.lineTo(q[i].x, q[i].y);
+        ctx.closePath();
     }
 
     // Pulsing tile outline where the last ground click landed (walk order).
@@ -2056,18 +2138,57 @@
         if (!st.moveMarker) return;
         const age = now - st.moveMarker.t0;
         if (age > 900) { st.moveMarker = null; return; }
-        const cx = st.moveMarker.wx * TILE, cz = st.moveMarker.wz * TILE, h = TILE / 2;
-        const p0 = proj(st, cx - h, cz - h, W, H), p1 = proj(st, cx + h, cz - h, W, H),
-              p2 = proj(st, cx + h, cz + h, W, H), p3 = proj(st, cx - h, cz + h, W, H);
         ctx.save();
         ctx.globalAlpha = 1 - age / 900;
         ctx.strokeStyle = '#ffd166';
         ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
-        ctx.closePath(); ctx.stroke();
+        traceQuad(ctx, tileQuad(st, st.moveMarker.wx * TILE, st.moveMarker.wz * TILE, W, H));
+        ctx.stroke();
         ctx.restore();
+    }
+
+    // Boss tile hazards, drawn on the ground under the actors: pending
+    // warnings pulse (faster and redder on their final tick — the "last
+    // chance to move" beat), pools sit as sickly slime that blows the odd
+    // rising bubble.
+    function drawHazards(st, ctx, W, H, now) {
+        const { pending, pools } = st.hazards;
+        for (const t of pools) {
+            const wx = t.x * TILE, wz = t.z * TILE;
+            ctx.save();
+            ctx.fillStyle = 'rgba(122,148,38,0.34)';
+            traceQuad(ctx, tileQuad(st, wx, wz, W, H, TILE * 0.48));
+            ctx.fill();
+            ctx.globalAlpha = 0.25 + 0.15 * Math.sin(now * 0.004 + t.x * 3 + t.z * 7);
+            ctx.strokeStyle = '#9db830';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.restore();
+            if (Math.random() < 0.05) {
+                const p = proj(st, wx, wz, W, H);
+                st.particles.push({
+                    x: p.x + (Math.random() - 0.5) * TILE * p.px * 0.7, y: p.y,
+                    vx: 0, vy: -0.5 * motionScale(W, H),
+                    size: 1, color: '#c2e04a',
+                    t0: now, life: 420, floor: p.y + 1,
+                });
+            }
+        }
+        for (const t of pending) {
+            const urgent = t.t <= 1;
+            const pulse = 0.5 + 0.5 * Math.sin(now * (urgent ? 0.022 : 0.009));
+            const color = urgent ? '#ff5555' : '#ffd166';
+            ctx.save();
+            ctx.globalAlpha = 0.16 + 0.26 * pulse;
+            ctx.fillStyle = color;
+            traceQuad(ctx, tileQuad(st, t.x * TILE, t.z * TILE, W, H, TILE * 0.44));
+            ctx.fill();
+            ctx.globalAlpha = 0.45 + 0.5 * pulse;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = urgent ? 1.5 : 1;
+            ctx.stroke();
+            ctx.restore();
+        }
     }
 
     // Pulsing starburst above the enemy while their attack winds up; color
@@ -2201,6 +2322,7 @@
         spec:   ['#d86a10', '#8a3f08'],
         boss:   ['#9932cc', '#5c1a80'],
         poison: ['#3f8f3f', '#255c25'],
+        hazard: ['#a8781e', '#6b4a0e'], // ground eruption (dodge-only damage)
         miss:   ['#2f4d8a', '#1b2d54'],
     };
     const DIGITS = {
@@ -2316,6 +2438,7 @@
             camFocus: { wx: LAYOUT.player.wx, wz: LAYOUT.player.wz },
             tileColors: new Map(),
             props: [],            // { model, wx, wz, worldH } (field scene)
+            hazards: { pending: [], pools: [] }, // boss tile hazards (sim tiles)
             moveMarker: null,     // last ground-click tile pulse
             drag: null,           // active pointer gesture
             effects: [],
@@ -2637,21 +2760,30 @@
                 const tgt = actor.target;
                 const remX = tgt.wx - actor.pos.wx, remZ = tgt.wz - actor.pos.wz;
                 let rem = Math.hypot(remX, remZ);
-                if (rem > SNAP_DIST) { actor.pos.wx = tgt.wx; actor.pos.wz = tgt.wz; rem = 0; }
+                if (rem > SNAP_DIST) {
+                    // Teleport, not a glide — carry the whip rope rigidly so it
+                    // arrives with the body instead of stretching across the arena.
+                    if (actor.lash?.pts) {
+                        for (const p of actor.lash.pts) { p.x += remX; p.px += remX; p.z += remZ; p.pz += remZ; }
+                        if (actor.lash.anchor) { actor.lash.anchor.x += remX; actor.lash.anchor.z += remZ; }
+                    }
+                    actor.pos.wx = tgt.wx; actor.pos.wz = tgt.wz; rem = 0;
+                }
                 const EPS = 0.02 * TILE;
                 let destFacing;
                 if (rem > EPS) {
-                    const stepD = Math.min(rem, MOVE_SPEED[key] * dt);
+                    const stepD = Math.min(rem, MOVE_SPEED[key] * MOVE_TUNE.speedMult * dt);
                     // Run blend from ACTUAL speed: a full-speed step reads as a
-                    // run, closing a small gap as a walk. Eased (~170ms) so
-                    // walk↔run transitions glide instead of snapping.
+                    // run, closing a small gap as a walk. Eased (strideIn) so
+                    // walk↔run transitions glide — or snapped when instantGait.
                     const runTarget = Math.max(0, Math.min(1,
                         (stepD / Math.max(1, dt)) / MOVE_SPEED.enemy - 1));
-                    actor.runBlend = (actor.runBlend ?? 0)
-                        + (runTarget - (actor.runBlend ?? 0)) * Math.min(1, dt * 0.006);
+                    actor.runBlend = MOVE_TUNE.instantGait ? runTarget
+                        : (actor.runBlend ?? 0)
+                          + (runTarget - (actor.runBlend ?? 0)) * Math.min(1, dt * MOVE_TUNE.strideIn);
                     // Longer stride ⇒ proportionally slower cycle at the same
                     // ground speed. Must mirror computePoseV2's step scale.
-                    const m = actor.ik ? 1 + RUN_STRIDE * actor.runBlend : 1;
+                    const m = actor.ik ? 1 + MOVE_TUNE.runStride * actor.runBlend : 1;
                     actor.walkPhase += stepD * actor.stride / m;
                     actor.pos.wx += remX / rem * stepD;
                     actor.pos.wz += remZ / rem * stepD;
@@ -2660,7 +2792,8 @@
                 } else {
                     if (rem > 0) { actor.pos.wx = tgt.wx; actor.pos.wz = tgt.wz; } // land on centre
                     actor.moving = false;
-                    actor.runBlend = (actor.runBlend ?? 0) * (1 - Math.min(1, dt * 0.01));
+                    actor.runBlend = MOVE_TUNE.hardStop ? 0
+                        : (actor.runBlend ?? 0) * (1 - Math.min(1, dt * MOVE_TUNE.strideOut));
                     destFacing = disengagedIdlePlayer
                         ? actor.facing
                         : Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
@@ -2668,7 +2801,7 @@
                 let da = destFacing - actor.facing;
                 while (da > Math.PI) da -= 6.2832;
                 while (da < -Math.PI) da += 6.2832;
-                actor.facing += da * Math.min(1, dt * 0.03);
+                actor.facing += da * Math.min(1, dt * MOVE_TUNE.turnRate);
             }
 
             // Camera: rigid lock on the player (OSRS-style). The actor's own
@@ -2678,6 +2811,7 @@
             st.camFocus.wz = st.player.pos.wz;
 
             drawScene(st, ctx, W, H);
+            drawHazards(st, ctx, W, H, now); // ground layer: under markers and actors
             drawMoveMarker(st, ctx, W, H, now);
 
             // Persistent target tile on the ground under the current enemy
@@ -2685,9 +2819,7 @@
             // and reads as standing on it. Uses the enemy's LIVE position, so it
             // tracks movement and the camera yaw/zoom for free (see proj/tileQuad).
             if (!st.enemy.crumbled && !st.editorMode) {
-                const ew = st.enemy.pos.wx, ez = st.enemy.pos.wz, th = TILE * 0.42;
-                const cs = [proj(st, ew - th, ez - th, W, H), proj(st, ew + th, ez - th, W, H),
-                            proj(st, ew + th, ez + th, W, H), proj(st, ew - th, ez + th, W, H)];
+                const cs = tileQuad(st, st.enemy.pos.wx, st.enemy.pos.wz, W, H, TILE * 0.42);
                 const pulse = 0.5 + 0.5 * Math.sin(now * 0.006);
                 const tap = Math.max(0, 1 - (now - st.targetPulse) / 400); // brief tap emphasis
                 ctx.strokeStyle = STYLE_COLORS.melee; // '#ff5555'
@@ -2798,6 +2930,17 @@
     // TILT are module-wide (only one battle canvas is ever mounted at a
     // time), so setting them here affects the live scene immediately with
     // no threading through the render path.
+    // Movement-feel debug (test fight's MOVE panel): values apply globally
+    // to every mounted battle and persist across reloads so a tuning session
+    // survives an F5. getMovementDebug seeds the panel.
+    function getMovementDebug() { return { ...MOVE_TUNE }; }
+    function setMovementDebug(canvasId, tune) {
+        for (const k in MOVE_TUNE_DEFAULTS)
+            if (tune && typeof tune[k] === typeof MOVE_TUNE_DEFAULTS[k]) MOVE_TUNE[k] = tune[k];
+        try { localStorage.setItem('duels_move_tune', JSON.stringify(MOVE_TUNE)); }
+        catch { /* private mode: session-only tuning still works */ }
+    }
+
     function getCameraDebug(canvasId) {
         const st = battles.get(canvasId);
         return {
@@ -3004,6 +3147,38 @@
                 if (battles.get(canvasId) === st) st.props.push({ ...spec, model });
             }).catch(() => { /* prop missing: obstacle stays invisible but still blocks in sim */ });
         }
+    }
+
+    // Boss tile hazards, mirrored from the sim each render: pending warning
+    // tiles (with ticks-to-eruption) and lingering pools. A tile leaving the
+    // pending set means it just erupted — fire the burst here, diffed rather
+    // than event-plumbed, so the visual can never desync from the sim state.
+    function setBattleHazards(canvasId, h) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const pending = h?.pending ?? [], pools = h?.pools ?? [];
+        const W = st.canvas.width, H = st.canvas.height;
+        const stillPending = new Set(pending.map(t => `${t.x},${t.z}`));
+        for (const t of st.hazards.pending) {
+            if (stillPending.has(`${t.x},${t.z}`)) continue;
+            // erupted (or boss died mid-warning — burst is harmless either way)
+            const p = proj(st, t.x * TILE, t.z * TILE, W, H);
+            const ms = motionScale(W, H);
+            for (let i = 0; i < 12; i++)
+                st.particles.push({
+                    x: p.x + (Math.random() - 0.5) * TILE * p.px * 0.8,
+                    y: p.y,
+                    vx: (Math.random() - 0.5) * 1.6 * ms,
+                    vy: (-1.2 - Math.random() * 2.2) * ms,
+                    size: i % 3 ? 1 : 2,
+                    color: i % 2 ? '#b6d436' : '#7a9426',
+                    t0: st.time, life: 380 + Math.random() * 220,
+                    floor: p.y + 2,
+                });
+            st.shake = { mag: 2, t0: st.time, dur: 140 };
+        }
+        st.hazards.pending = pending;
+        st.hazards.pools = pools;
     }
 
     // Restore both actors for a rematch on the same mounted scene (RETRY).
@@ -3262,8 +3437,10 @@
     window.voxel = {
         initPreview, destroyPreview, renderIcon, itemIcon,
         initBattle, destroyBattle, setBattleEnemy, setBattleFlags, battleEvent,
-        setBattleVitals, setBattleWeapon, setBattlePositions, setBattleObstacles, resetBattle,
+        setBattleVitals, setBattleWeapon, setBattlePositions, setBattleObstacles,
+        setBattleHazards, resetBattle,
         setBattleOverheads, getCameraDebug, setCameraDebug,
+        getMovementDebug, setMovementDebug,
         getLashDebug, setLashDebug,
 
         // ── Animation editor (AnimEditor.razor) ────────────────────────────

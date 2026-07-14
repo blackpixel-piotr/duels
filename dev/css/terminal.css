@@ -413,6 +413,10 @@ html, body {
     opacity: 0.85;
 }
 .cam-toggle-btn:hover { opacity: 1; border-color: #bb77ee; }
+/* MOVE panel (movement-feel tuning) sits left of CAM, same styling. */
+.move-toggle-btn { right: 66px; }
+.move-debug-panel { right: 66px; }
+.move-debug-panel .cam-debug-row label { text-transform: none; }
 .cam-debug-panel {
     position: absolute;
     bottom: 28px;
