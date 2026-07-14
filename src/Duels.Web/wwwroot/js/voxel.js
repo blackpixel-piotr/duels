@@ -350,6 +350,7 @@
     const NPC_ASSETS = new Set([
         'goblin', 'swashbuckler', 'barbarian', 'desert_bandit', 'gladiator',
         'corsair', 'berserker', 'warlord', 'champion', 'rare_tourist', 'rare_gladiator',
+        'maggot_king',
     ]);
 
     // Single source of truth for scene geometry. Actors live at world
@@ -472,6 +473,7 @@
         goblin: 'crush', barbarian: 'crush', berserker: 'crush', warlord: 'crush',
         swashbuckler: 'slash', gladiator: 'slash', corsair: 'slash', champion: 'slash',
         rare_gladiator: 'slash', desert_bandit: 'slash', rare_tourist: 'stab',
+        maggot_king: 'crush',
     };
 
     const battles = new Map(); // canvasId → state
@@ -2070,23 +2072,77 @@
             (w * psTot) | 0, (h * psTot) | 0);
     }
 
+    // Projected corners of the ground square centered on world (wx, wz) —
+    // the shared primitive for every tile-aligned ground overlay (walk
+    // marker, enemy target tile, hazard tiles).
+    function tileQuad(st, wx, wz, W, H, half = TILE / 2) {
+        return [proj(st, wx - half, wz - half, W, H), proj(st, wx + half, wz - half, W, H),
+                proj(st, wx + half, wz + half, W, H), proj(st, wx - half, wz + half, W, H)];
+    }
+
+    function traceQuad(ctx, q) {
+        ctx.beginPath();
+        ctx.moveTo(q[0].x, q[0].y);
+        for (let i = 1; i < 4; i++) ctx.lineTo(q[i].x, q[i].y);
+        ctx.closePath();
+    }
+
     // Pulsing tile outline where the last ground click landed (walk order).
     function drawMoveMarker(st, ctx, W, H, now) {
         if (!st.moveMarker) return;
         const age = now - st.moveMarker.t0;
         if (age > 900) { st.moveMarker = null; return; }
-        const cx = st.moveMarker.wx * TILE, cz = st.moveMarker.wz * TILE, h = TILE / 2;
-        const p0 = proj(st, cx - h, cz - h, W, H), p1 = proj(st, cx + h, cz - h, W, H),
-              p2 = proj(st, cx + h, cz + h, W, H), p3 = proj(st, cx - h, cz + h, W, H);
         ctx.save();
         ctx.globalAlpha = 1 - age / 900;
         ctx.strokeStyle = '#ffd166';
         ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
-        ctx.closePath(); ctx.stroke();
+        traceQuad(ctx, tileQuad(st, st.moveMarker.wx * TILE, st.moveMarker.wz * TILE, W, H));
+        ctx.stroke();
         ctx.restore();
+    }
+
+    // Boss tile hazards, drawn on the ground under the actors: pending
+    // warnings pulse (faster and redder on their final tick — the "last
+    // chance to move" beat), pools sit as sickly slime that blows the odd
+    // rising bubble.
+    function drawHazards(st, ctx, W, H, now) {
+        const { pending, pools } = st.hazards;
+        for (const t of pools) {
+            const wx = t.x * TILE, wz = t.z * TILE;
+            ctx.save();
+            ctx.fillStyle = 'rgba(122,148,38,0.34)';
+            traceQuad(ctx, tileQuad(st, wx, wz, W, H, TILE * 0.48));
+            ctx.fill();
+            ctx.globalAlpha = 0.25 + 0.15 * Math.sin(now * 0.004 + t.x * 3 + t.z * 7);
+            ctx.strokeStyle = '#9db830';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.restore();
+            if (Math.random() < 0.05) {
+                const p = proj(st, wx, wz, W, H);
+                st.particles.push({
+                    x: p.x + (Math.random() - 0.5) * TILE * p.px * 0.7, y: p.y,
+                    vx: 0, vy: -0.5 * motionScale(W, H),
+                    size: 1, color: '#c2e04a',
+                    t0: now, life: 420, floor: p.y + 1,
+                });
+            }
+        }
+        for (const t of pending) {
+            const urgent = t.t <= 1;
+            const pulse = 0.5 + 0.5 * Math.sin(now * (urgent ? 0.022 : 0.009));
+            const color = urgent ? '#ff5555' : '#ffd166';
+            ctx.save();
+            ctx.globalAlpha = 0.16 + 0.26 * pulse;
+            ctx.fillStyle = color;
+            traceQuad(ctx, tileQuad(st, t.x * TILE, t.z * TILE, W, H, TILE * 0.44));
+            ctx.fill();
+            ctx.globalAlpha = 0.45 + 0.5 * pulse;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = urgent ? 1.5 : 1;
+            ctx.stroke();
+            ctx.restore();
+        }
     }
 
     // Pulsing starburst above the enemy while their attack winds up; color
@@ -2220,6 +2276,7 @@
         spec:   ['#d86a10', '#8a3f08'],
         boss:   ['#9932cc', '#5c1a80'],
         poison: ['#3f8f3f', '#255c25'],
+        hazard: ['#a8781e', '#6b4a0e'], // ground eruption (dodge-only damage)
         miss:   ['#2f4d8a', '#1b2d54'],
     };
     const DIGITS = {
@@ -2335,6 +2392,7 @@
             camFocus: { wx: LAYOUT.player.wx, wz: LAYOUT.player.wz },
             tileColors: new Map(),
             props: [],            // { model, wx, wz, worldH } (field scene)
+            hazards: { pending: [], pools: [] }, // boss tile hazards (sim tiles)
             moveMarker: null,     // last ground-click tile pulse
             drag: null,           // active pointer gesture
             effects: [],
@@ -2697,6 +2755,7 @@
             st.camFocus.wz = st.player.pos.wz;
 
             drawScene(st, ctx, W, H);
+            drawHazards(st, ctx, W, H, now); // ground layer: under markers and actors
             drawMoveMarker(st, ctx, W, H, now);
 
             // Persistent target tile on the ground under the current enemy
@@ -2704,9 +2763,7 @@
             // and reads as standing on it. Uses the enemy's LIVE position, so it
             // tracks movement and the camera yaw/zoom for free (see proj/tileQuad).
             if (!st.enemy.crumbled && !st.editorMode) {
-                const ew = st.enemy.pos.wx, ez = st.enemy.pos.wz, th = TILE * 0.42;
-                const cs = [proj(st, ew - th, ez - th, W, H), proj(st, ew + th, ez - th, W, H),
-                            proj(st, ew + th, ez + th, W, H), proj(st, ew - th, ez + th, W, H)];
+                const cs = tileQuad(st, st.enemy.pos.wx, st.enemy.pos.wz, W, H, TILE * 0.42);
                 const pulse = 0.5 + 0.5 * Math.sin(now * 0.006);
                 const tap = Math.max(0, 1 - (now - st.targetPulse) / 400); // brief tap emphasis
                 ctx.strokeStyle = STYLE_COLORS.melee; // '#ff5555'
@@ -3025,6 +3082,38 @@
         }
     }
 
+    // Boss tile hazards, mirrored from the sim each render: pending warning
+    // tiles (with ticks-to-eruption) and lingering pools. A tile leaving the
+    // pending set means it just erupted — fire the burst here, diffed rather
+    // than event-plumbed, so the visual can never desync from the sim state.
+    function setBattleHazards(canvasId, h) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const pending = h?.pending ?? [], pools = h?.pools ?? [];
+        const W = st.canvas.width, H = st.canvas.height;
+        const stillPending = new Set(pending.map(t => `${t.x},${t.z}`));
+        for (const t of st.hazards.pending) {
+            if (stillPending.has(`${t.x},${t.z}`)) continue;
+            // erupted (or boss died mid-warning — burst is harmless either way)
+            const p = proj(st, t.x * TILE, t.z * TILE, W, H);
+            const ms = motionScale(W, H);
+            for (let i = 0; i < 12; i++)
+                st.particles.push({
+                    x: p.x + (Math.random() - 0.5) * TILE * p.px * 0.8,
+                    y: p.y,
+                    vx: (Math.random() - 0.5) * 1.6 * ms,
+                    vy: (-1.2 - Math.random() * 2.2) * ms,
+                    size: i % 3 ? 1 : 2,
+                    color: i % 2 ? '#b6d436' : '#7a9426',
+                    t0: st.time, life: 380 + Math.random() * 220,
+                    floor: p.y + 2,
+                });
+            st.shake = { mag: 2, t0: st.time, dur: 140 };
+        }
+        st.hazards.pending = pending;
+        st.hazards.pools = pools;
+    }
+
     // Restore both actors for a rematch on the same mounted scene (RETRY).
     function resetBattle(canvasId) {
         const st = battles.get(canvasId);
@@ -3281,7 +3370,8 @@
     window.voxel = {
         initPreview, destroyPreview, renderIcon, itemIcon,
         initBattle, destroyBattle, setBattleEnemy, setBattleFlags, battleEvent,
-        setBattleVitals, setBattleWeapon, setBattlePositions, setBattleObstacles, resetBattle,
+        setBattleVitals, setBattleWeapon, setBattlePositions, setBattleObstacles,
+        setBattleHazards, resetBattle,
         setBattleOverheads, getCameraDebug, setCameraDebug,
         getLashDebug, setLashDebug,
 

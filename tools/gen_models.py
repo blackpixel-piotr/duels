@@ -437,6 +437,28 @@ def m_champion():
     return r, 'champion'
 
 
+def m_maggot_king():
+    r = Rig()
+    pale = (216, 206, 176); pale_d = (186, 174, 142)     # maggot flesh
+    rot = (134, 150, 58)                                 # weeping sickly green
+    chitin = (104, 84, 52); bone = (228, 222, 198)
+    humanoid(r, pale, pale_d, chitin, pale, pale, broad=2)
+    # distended, segmented belly: alternating bulge rings proud of the torso
+    for y0 in (16, 20, 24):
+        r.box(-7, 7, y0, y0 + 1, -3, 3, pale_d)
+    r.box(-2, 2, 16, 23, 3, 3, rot)                      # rot streak down the gut
+    r.mirror_box(6, 8, 23, 26, -3, 3, pale_d, ARMS)      # engorged shoulders
+    # pallid dome of a head with sunken green eyes and chitin mandibles
+    r.box(-4, 4, 27, 34, -4, 3, pale, 'head')
+    eyes(r, 31, dx=2, color=(46, 92, 30), z=4)
+    r.mirror_box(1, 2, 27, 28, 3, 4, chitin, ('head', 'head'))
+    # the crown: a chitin band ringed with jagged bone spikes
+    r.box(-3, 3, 34, 34, -2, 1, chitin, 'head')
+    for x in (-3, -1, 1, 3):
+        r.box(x, x, 35, 37 if x in (-1, 1) else 36, -1, 0, bone, 'head')
+    return r, 'maggot_king'
+
+
 def m_rare_tourist():
     r = Rig()
     shirt = (240, 110, 140); shorts = (90, 140, 190)
@@ -716,7 +738,7 @@ PROPS = [p_tree, p_rock, p_bush]
 
 MODELS = [m_player, m_goblin, m_swashbuckler, m_barbarian, m_desert_bandit,
           m_gladiator, m_corsair, m_berserker, m_warlord, m_champion,
-          m_rare_tourist, m_rare_gladiator]
+          m_maggot_king, m_rare_tourist, m_rare_gladiator]
 
 if __name__ == '__main__':
     rigs = {'characters': {}, 'weapons': {}}

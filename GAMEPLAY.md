@@ -80,6 +80,20 @@ All NPCs have 99/99/99 stats. Difficulty scales through higher weapon modifiers 
 
 ---
 
+## Boss: The Maggot King
+
+A standalone modern-mechanics boss (not on the ladder) — available from the start via `duel maggot_king`.
+
+- **Style rotation**: cycles Crush → Ranged → Magic every 3 attacks; switch protection prayers with the rotation
+- **Maggot burrow**: periodically marks tiles around you (flashing warning). After 2 ticks they **erupt for 22** — protection prayers do NOT help; move off the tiles
+- **Poison pools**: erupted tiles become pools for 8 ticks; standing in one costs 4/tick and eruptions poison you
+- **Phase 2** at 50% HP: rotation quickens, waves get bigger and more frequent
+- **Loot**: heavy gold, and a 1-in-10 **Maggot Crown** (best-in-slot prayer helmet)
+
+The fight is the full modern-OSRS checklist: prayer dance, positioning, and attack uptime all at once.
+
+---
+
 ## UI
 
 - **Desktop**: 3-column layout — Stats | Combat log + input | Inventory

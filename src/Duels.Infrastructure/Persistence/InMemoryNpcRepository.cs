@@ -178,6 +178,33 @@ public sealed class InMemoryNpcRepository : INpcRepository
             styleRotation: [AttackType.Slash, AttackType.Ranged, AttackType.Magic],
             attacksPerStyle: 3),
 
+        // Standalone modern-mechanics boss (not on the ladder): rotates all
+        // three styles AND floods the arena with dodge-or-eat-it tile hazards.
+        // Prayer answers the rotation; only footwork answers the ground.
+        new("maggot_king", "The Maggot King",
+            "A bloated horror crowned in chitin. Pray against his rotation — but MOVE when the ground churns.",
+            new CombatStats(105, 105, 85, 150),
+            new ItemModifiers(CrushAttack: 100, RangedAttack: 100, MagicAttack: 100, StrengthBonus: 95,
+                StabDefence: 40, SlashDefence: 60, CrushDefence: 60),
+            AttackType.Crush,
+            [
+                new("gold", 1.0, MinQty: 2_000, MaxQty: 6_000),
+                new("anglerfish", 0.5, MinQty: 2, MaxQty: 4),
+                new("maggot_crown", 0.10, OnceOnly: true),
+            ],
+            goldReward: 12_000,
+            maxWager: 5_000_000,
+            telegraphedMove: new NpcSpecialMove(
+                "The Maggot King rears up, brood spilling from his crown!",
+                1.8, 6),
+            attackSpeedTicks: 4,
+            styleRotation: [AttackType.Crush, AttackType.Ranged, AttackType.Magic],
+            attacksPerStyle: 3,
+            hazards: new HazardProfile(
+                "The Maggot King's brood burrows beneath you — MOVE!",
+                CooldownTicks: 8, WarningTicks: 2, TilesPerWave: 4,
+                EruptDamage: 22, PoolTicks: 8, PoolDamage: 4)),
+
         new("rare_tourist", "Wealthy Tourist",
             "Lost in the wrong part of the arena. Very wealthy, barely armed.",
             new CombatStats(60, 55, 40, 55),

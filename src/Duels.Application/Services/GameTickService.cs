@@ -179,6 +179,11 @@ public sealed class GameTickService : IDisposable
             state.ResetNpcCooldown(npc.Template.AttackSpeedTicks);
         }
 
+        // Tile hazards (modern boss mechanic). Runs AFTER movement, so
+        // stepping off a marked tile this tick is what saves you.
+        if (!state.EnemyFrozen)
+            ProcessHazards(state, player, npc);
+
         // Prayer drain at tick end (after all combat)
         // Drain only if prayer is still ON at tick end — allows prayer flicking
         if (player.ActiveProtection != ProtectionPrayer.None)
@@ -212,6 +217,85 @@ public sealed class GameTickService : IDisposable
         }
 
         await _states.SaveAsync(state);
+    }
+
+    // Tile-hazard lifecycle (see HazardProfile): tick warnings/pools, apply
+    // eruption + pool damage, then let the boss schedule the next wave.
+    // Eruptions and pool burn are position-gated, NEVER prayer-reduced —
+    // movement is the only defense (protection prayers stay for the boss's
+    // regular style-rotation attacks).
+    private void ProcessHazards(GameState state, Player player, NpcInstance npc)
+    {
+        var hz = npc.Template.Hazards;
+        var erupted = state.TickHazards(hz?.PoolTicks ?? 0);
+        bool caught = erupted.Contains(state.PlayerTile);
+
+        if (hz is null) return;
+
+        if (caught && player.IsAlive)
+        {
+            player.TakeDamage(hz.EruptDamage);
+            state.RecordDamageTaken(hz.EruptDamage);
+            AwardDefensiveXp(state, player, hz.EruptDamage);
+            state.AppendLog($"{hz.EruptDamage}:hazard", LogEntryKind.HitsplatNpc);
+            state.AppendLog($"The ground ERUPTS beneath you for {hz.EruptDamage}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+            if (!state.PlayerPoisoned)
+            {
+                state.ApplyPoison();
+                state.AppendLog("The writhing mass poisons you!", LogEntryKind.System);
+            }
+        }
+        // Standing in a pool at tick end burns — but not on top of the
+        // eruption hit that created it this same tick.
+        else if (player.IsAlive && state.IsPool(state.PlayerTile))
+        {
+            player.TakeDamage(hz.PoolDamage);
+            state.RecordDamageTaken(hz.PoolDamage);
+            state.AppendLog($"{hz.PoolDamage}:poison", LogEntryKind.HitsplatNpc);
+            state.AppendLog($"Acrid slime burns at your feet. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+        }
+
+        if (!npc.IsAlive || !player.IsAlive) return;
+
+        // Phase 2 at half HP: rotation quickens, waves widen and come faster.
+        if (npc.CurrentHp <= npc.MaxHp / 2 && npc.UsePhaseShift())
+        {
+            npc.AttacksPerStyleOverride = 2;
+            state.AppendLog($"★ {npc.Template.Name} convulses — the assault frenzies!", LogEntryKind.BossSpecial);
+            state.AppendLog("Style rotation quickens and eruptions come faster!", LogEntryKind.BossSpecial);
+        }
+        bool enraged = npc.PhaseShiftUsed;
+
+        npc.TickHazardCooldown();
+        if (npc.HazardCooldown > 0) return;
+
+        int tiles = enraged ? hz.TilesPerWave + 1 : hz.TilesPerWave;
+        state.AddHazardWave(PickHazardTiles(state, tiles), hz.WarningTicks);
+        npc.ResetHazardCooldown(enraged ? Math.Max(2, hz.CooldownTicks - 2) : hz.CooldownTicks);
+        state.AppendLog($"⚠ {hz.WarningText}", LogEntryKind.BossSpecial);
+    }
+
+    // Wave targeting: the player's own tile plus random tiles within
+    // Chebyshev 2 of them — in-arena, off obstacles, deduped — so standing
+    // still is always punished and the escape route is a real choice.
+    private List<(int X, int Z)> PickHazardTiles(GameState state, int count)
+    {
+        var tiles = new List<(int X, int Z)> { state.PlayerTile };
+        var candidates = new List<(int X, int Z)>();
+        for (int dx = -2; dx <= 2; dx++)
+            for (int dz = -2; dz <= 2; dz++)
+            {
+                if (dx == 0 && dz == 0) continue;
+                var t = (X: state.PlayerTile.X + dx, Z: state.PlayerTile.Z + dz);
+                if (GameState.InArena(t) && !state.IsObstacle(t)) candidates.Add(t);
+            }
+        for (int i = 0; i < count - 1 && candidates.Count > 0; i++)
+        {
+            int pick = _random.Next(0, candidates.Count);
+            tiles.Add(candidates[pick]);
+            candidates.RemoveAt(pick);
+        }
+        return tiles;
     }
 
     private static void ApplyDots(GameState state, Player player, NpcInstance npc)

@@ -11,7 +11,8 @@ public sealed class GameState
     public bool InDuel => ActiveNpc is { IsAlive: true };
     public string? LastOpponentId { get; private set; }
     public List<CombatLogEntry> CombatLog { get; } = new();
-    public List<string> UnlockedOpponents { get; } = ["swashbuckler", "goblin"];
+    // maggot_king is a standalone boss (not on the ladder) — open from the start.
+    public List<string> UnlockedOpponents { get; } = ["swashbuckler", "goblin", "maggot_king"];
 
     // Staking / winstreak
     public int CurrentWager { get; private set; }
@@ -45,6 +46,42 @@ public sealed class GameState
     /// occupant (the opponent's tile, so combatants never stack).</summary>
     public bool IsBlocked((int X, int Z) tile, (int X, int Z) occupant) =>
         tile == occupant || _obstacles.Contains(tile);
+
+    // Tile hazards (duel-scoped, boss mechanic — see HazardProfile). Pending
+    // tiles are telegraphed warnings counting down to an eruption; erupted
+    // tiles become pools that damage whoever stands on them at tick end.
+    // Hazards never block pathing — walking THROUGH danger is allowed (and
+    // sometimes correct), only ENDING the tick there costs you.
+    private readonly List<HazardTile> _hazards = new();
+    public IReadOnlyList<HazardTile> Hazards => _hazards;
+    public bool IsPool((int X, int Z) tile) =>
+        _hazards.Any(h => h.Pool && (h.X, h.Z) == tile);
+
+    public void AddHazardWave(IEnumerable<(int X, int Z)> tiles, int warningTicks)
+    {
+        foreach (var t in tiles)
+            if (!_hazards.Any(h => (h.X, h.Z) == t))
+                _hazards.Add(new HazardTile(t.X, t.Z, Pool: false, TicksLeft: warningTicks));
+    }
+
+    /// <summary>Advance all hazards one tick: expired pools vanish, pending
+    /// warnings that hit zero erupt into pools. Returns the tiles that
+    /// erupted THIS tick so the caller can damage whoever stands there.</summary>
+    public List<(int X, int Z)> TickHazards(int poolTicks)
+    {
+        var erupted = new List<(int X, int Z)>();
+        for (int i = _hazards.Count - 1; i >= 0; i--)
+        {
+            var h = _hazards[i] with { TicksLeft = _hazards[i].TicksLeft - 1 };
+            if (h.TicksLeft > 0) { _hazards[i] = h; continue; }
+            if (h.Pool) { _hazards.RemoveAt(i); continue; }
+            erupted.Add((h.X, h.Z));
+            _hazards[i] = h with { Pool = true, TicksLeft = poolTicks };
+        }
+        return erupted;
+    }
+
+    private void ClearHazards() => _hazards.Clear();
 
     /// <summary>True when a tile is inside the walkable arena circle.</summary>
     public static bool InArena((int X, int Z) t) =>
@@ -179,6 +216,7 @@ public sealed class GameState
         HoldPosition = false;
         TestScene = false;
         EnemyFrozen = false;
+        ClearHazards();
     }
 
     public void RecordDamageTaken(int amount) { if (amount > 0) DamageTakenThisDuel += amount; }
@@ -235,6 +273,7 @@ public sealed class GameState
     {
         ActiveNpc = null;
         ClearDots();
+        ClearHazards();
     }
 
     public void UnlockOpponent(string id)
@@ -283,6 +322,7 @@ public sealed class GameState
         UnlockedOpponents.Clear();
         UnlockedOpponents.Add("swashbuckler");
         UnlockedOpponents.Add("goblin");
+        UnlockedOpponents.Add("maggot_king");
         WinStreak = 0;
         CurrentWager = 0;
         CanPrestige = false;
@@ -323,6 +363,10 @@ public sealed class GameState
 }
 
 public sealed record CombatLogEntry(string Message, LogEntryKind Kind, DateTimeOffset Timestamp);
+
+/// <summary>One hazard tile: a pending eruption warning (Pool=false, TicksLeft
+/// until it blows) or an active pool (Pool=true, TicksLeft until it dries).</summary>
+public readonly record struct HazardTile(int X, int Z, bool Pool, int TicksLeft);
 
 /// <summary>Snapshot of a finished duel for the end-of-fight result overlay.</summary>
 public sealed record DuelSummary(

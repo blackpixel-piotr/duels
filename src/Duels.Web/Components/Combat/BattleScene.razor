@@ -219,11 +219,21 @@
 
         // Sim tile positions — the scene walks the actors toward these.
         if (State is { } s)
+        {
             await JS.InvokeVoidAsync("voxel.setBattlePositions", "battle-canvas", new
             {
                 player = new { x = s.PlayerTile.X, z = s.PlayerTile.Z },
                 enemy = new { x = s.NpcTile.X, z = s.NpcTile.Z },
             });
+            // Tile hazards (boss mechanic): pending warnings + active pools.
+            // JS diffs pending→gone itself to fire the eruption burst, so no
+            // separate event plumbing is needed and visuals can't desync.
+            await JS.InvokeVoidAsync("voxel.setBattleHazards", "battle-canvas", new
+            {
+                pending = s.Hazards.Where(h => !h.Pool).Select(h => new { x = h.X, z = h.Z, t = h.TicksLeft }).ToArray(),
+                pools   = s.Hazards.Where(h =>  h.Pool).Select(h => new { x = h.X, z = h.Z }).ToArray(),
+            });
+        }
 
         // Overhead prayer icons (drawn in-canvas); send only on change.
         var overheads = $"{PlayerOverhead}|{NpcOverhead}";
@@ -263,8 +273,9 @@
             // (The splat itself is drawn in-canvas by battleEvent's impact.)
             bool onEnemy = e.Kind == LogEntryKind.HitsplatPlayer;
 
-            // DoT ticks aren't attacks — no swing, just the victim's flash.
-            if (tier != "poison")
+            // DoT ticks and ground hazards aren't attacks — no swing, just
+            // the victim's flash (the eruption burst is drawn tile-side).
+            if (tier is not ("poison" or "hazard"))
                 await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
                     new
                     {
