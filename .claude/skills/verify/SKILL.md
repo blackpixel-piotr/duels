@@ -25,6 +25,10 @@ dotnet run --project src/Duels.Web --urls http://localhost:5190   # background; 
 - Ground click = walk order: `page.mouse.click()` on `#battle-canvas` coordinates (screen→tile mapping is voxel.js `screenToWorld`).
 - A fresh character is level 1 (~60 HP) and dies to bosses quickly — design probes to finish within ~20 ticks or expect the death/result overlay.
 
+## Renderers
+- Two battle renderers behind the `window.voxel` dispatcher (`js/renderer-switch.js`): classic voxel (`js/voxel.js` → `window.voxelClassic`) and the toon/Borderlands PoC (`js/toon.js` → `window.voxelToon`, three.js vendored in `wwwroot/lib/`). Chosen at battle init from `localStorage['duels_renderer']` ('voxel' default | 'toon') — flip via the hub STYLE card or `page.addInitScript(() => localStorage.setItem('duels_renderer','toon'))`.
+- Toon PoC parity gaps (expected, not bugs): no whip rope, no HP erosion, no eat anims, no overhead prayer icons, simplified projectiles.
+
 ## Known noise
 - `GET /Duels.Web.styles.css` 404s in dev — pre-existing, ignore.
 - Google Fonts fetch fails under the proxy — ignore.
