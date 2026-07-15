@@ -89,6 +89,11 @@
                            value="@_mvStride" @oninput="@(e => OnMoveInput(e, v => _mvStride = v))" />
                 </div>
                 <div class="cam-debug-row">
+                    <label>Step cap Hz <span>@(_mvStepHz == 0 ? "off" : _mvStepHz.ToString("0.0"))</span></label>
+                    <input type="range" min="0" max="8" step="0.1"
+                           value="@_mvStepHz" @oninput="@(e => OnMoveInput(e, v => _mvStepHz = v))" />
+                </div>
+                <div class="cam-debug-row">
                     <label><input type="checkbox" checked="@_mvInstantGait"
                                   @onchange="@(e => OnMoveCheck(e, v => _mvInstantGait = v))" /> Instant gait</label>
                     <label><input type="checkbox" checked="@_mvHardStop"
@@ -163,12 +168,14 @@
     private double _mvTurn = 0.03;
     private double _mvIn = 0.006;
     private double _mvOut = 0.01;
-    private double _mvStride = 0.35;
+    private double _mvStride = 0.6;
+    private double _mvStepHz = 4.3;
     private bool _mvInstantGait;
     private bool _mvHardStop;
 
     private sealed record MoveTune(double SpeedMult, double TurnRate, double StrideIn,
-                                   double StrideOut, double RunStride, bool InstantGait, bool HardStop);
+                                   double StrideOut, double RunStride, double MaxStepHz,
+                                   bool InstantGait, bool HardStop);
 
     private async Task ToggleMovePanel()
     {
@@ -178,6 +185,7 @@
             var t = await JS.InvokeAsync<MoveTune>("voxel.getMovementDebug");
             _mvSpeed = t.SpeedMult; _mvTurn = t.TurnRate;
             _mvIn = t.StrideIn; _mvOut = t.StrideOut; _mvStride = t.RunStride;
+            _mvStepHz = t.MaxStepHz;
             _mvInstantGait = t.InstantGait; _mvHardStop = t.HardStop;
         }
         StateHasChanged();
@@ -200,13 +208,14 @@
         {
             speedMult = _mvSpeed, turnRate = _mvTurn,
             strideIn = _mvIn, strideOut = _mvOut, runStride = _mvStride,
+            maxStepHz = _mvStepHz,
             instantGait = _mvInstantGait, hardStop = _mvHardStop,
         }).AsTask();
 
     private Task ResetMovementDebug()
     {
         _mvSpeed = 1.0; _mvTurn = 0.03; _mvIn = 0.006; _mvOut = 0.01;
-        _mvStride = 0.35; _mvInstantGait = false; _mvHardStop = false;
+        _mvStride = 0.6; _mvStepHz = 4.3; _mvInstantGait = false; _mvHardStop = false;
         return PushMovementDebug();
     }
 

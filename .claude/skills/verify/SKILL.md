@@ -9,7 +9,7 @@ description: Build, launch, and drive the Duels Blazor WASM app to verify change
 - .NET 8 SDK required. In sandboxed environments the Microsoft download hosts may be proxy-blocked — `apt-get install -y dotnet-sdk-8.0` works.
 - `dotnet test` — unit tests (Domain + Application, incl. GameTickService fights driven via reflection on `ProcessTick`).
 - `node --check src/Duels.Web/wwwroot/js/voxel.js` — renderer syntax.
-- After model/rig changes: `python3 tools/gen_models.py` (regenerates `wwwroot/assets/**` + `rigs.json`). Beware: piping its stdout through `head` can SIGPIPE-kill it before rigs.json is written — run it unpiped.
+- After model/rig changes: `python3 tools/gen_models.py` (regenerates `wwwroot/assets/**` and MERGES into `rigs.json` — `characters.player_sakuna` is owned by `tools/import_sakuna.py` and must survive a regen; if it's ever missing, the player silently falls back to the wrong rig). Beware: piping its stdout through `head` can SIGPIPE-kill it before rigs.json is written — run it unpiped.
 
 ## Launch
 ```bash

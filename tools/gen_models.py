@@ -741,7 +741,18 @@ MODELS = [m_player, m_goblin, m_swashbuckler, m_barbarian, m_desert_bandit,
           m_maggot_king, m_rare_tourist, m_rare_gladiator]
 
 if __name__ == '__main__':
-    rigs = {'characters': {}, 'weapons': {}}
+    # MERGE into the existing rigs.json rather than rewriting it: entries this
+    # script doesn't own (player_sakuna, written by import_sakuna.py) must
+    # survive a model regen. Overwriting once silently wiped the sakuna rig
+    # and dropped the player onto the wrong skeleton.
+    rigs_path = os.path.join(ASSETS, 'rigs.json')
+    try:
+        with open(rigs_path) as f:
+            rigs = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        rigs = {}
+    rigs.setdefault('characters', {})
+    rigs['weapons'] = {}  # fully owned by this script — rebuild from scratch
 
     for fn in MODELS:
         r, name = fn()
@@ -768,6 +779,6 @@ if __name__ == '__main__':
         write_vox(os.path.join(ASSETS, 'props', name + '.vox'), r.v, r.pal, banded=False)
         print(f'  prop {name:20s} {len(r.v):4d} voxels')
 
-    with open(os.path.join(ASSETS, 'rigs.json'), 'w') as f:
+    with open(rigs_path, 'w') as f:
         json.dump(rigs, f, indent=1)
-    print('rigs.json written')
+    print('rigs.json merged & written')
