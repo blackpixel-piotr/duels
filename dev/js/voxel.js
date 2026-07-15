@@ -366,15 +366,17 @@
     const CAM_ANGLE0 = 0.10;   // initial camera yaw
     const CAM_DRAG = 0.010;    // camera yaw per dragged px
     const TAP_PX = 6;          // pointer travel below this = click, above = drag
-    const ARENA_R = 5.2;       // arena circle radius, world units
     const WALK_R = 5;          // walkable tile radius (matches GameState.ArenaRadius)
-    const FIELD_R = 12;        // grass extent of the field scene, world units
+    const FIELD_R = 12;        // grass extent of the field scene, tiles
     const TILE_MS = 600;       // move-segment duration: one sim step per game tick
-    const TILE = 1.25;         // world units per sim tile — sets on-screen tile size
-                               // (character models keep their world size, so >1
-                               // makes the grid read bigger relative to them).
-                               // Actors sit at tile CENTERS (tx*TILE), so the grid
-                               // lines fall BETWEEN tiles, not under the fighters.
+    const TILE = 1.75;         // world units per sim tile — sets tile size RELATIVE
+                               // to the characters (they keep their world size, so
+                               // bigger TILE = bigger grid around a smaller-reading
+                               // fighter; 1.75 puts the 2.8wu player at ~1.6 tiles
+                               // tall, the OSRS ratio). Actors sit at tile CENTERS
+                               // (tx*TILE), so grid lines fall BETWEEN tiles.
+    const ARENA_R = 4.2 * TILE; // camera-framing radius: scales with the tile so
+                               // the camera zooms out to fit the bigger floor
     const STRIDE = Math.PI;    // walk-phase radians per world unit (a step per tile)
     // Movement pacing: actors glide toward the latest sim tile at a CONSTANT speed
     // matched to the sim cadence (player RUNS 2 tiles/tick, enemy WALKS 1), so a
@@ -777,24 +779,22 @@
     const IK_SWAY = 0.08;      // pelvis yaw sway amplitude, radians
     const IK_ROLL = 0.05;      // pelvis roll (weight shift) amplitude, radians
     const IK_LEAN = 0.10;      // upper-body forward lean while moving, radians
-    // Running (multi-tile segments): the stride LENGTHENS up to ×(1+RUN_STRIDE)
-    // and the cycle slows to match, instead of the walk loop just spinning
-    // faster. The no-skate law survives any stride scale — the multiplier
-    // cancels between phase rate and foot sweep. Other amplitudes (crouch,
-    // lift, bob, lean, arm swing) grow with actor.runBlend.
-    const RUN_STRIDE = 0.35;
-
     // Movement-feel knobs, live-tunable from the test fight's MOVE panel
-    // (setMovementDebug). Defaults reproduce the shipped feel exactly; the
-    // no-skate law survives any runStride because the multiplier cancels
-    // between phase rate (movement block) and foot sweep (computePoseV2) —
-    // both read THIS value, never the RUN_STRIDE constant directly.
+    // (setMovementDebug). Running (multi-tile segments): the stride LENGTHENS
+    // up to ×(1+runStride) and the cycle slows to match, instead of the walk
+    // loop just spinning faster. The no-skate law survives any runStride
+    // because the multiplier cancels between phase rate (movement block) and
+    // foot sweep (computePoseV2) — both read MOVE_TUNE.runStride. Other
+    // amplitudes (crouch, lift, bob, lean, arm swing) grow with runBlend.
     const MOVE_TUNE_DEFAULTS = {
         speedMult: 1,          // × MOVE_SPEED, both actors
         turnRate: 0.03,        // facing lerp per ms
         strideIn: 0.006,       // runBlend ease-in per ms
         strideOut: 0.01,       // runBlend ease-out per ms (after arrival)
-        runStride: RUN_STRIDE, // extra stride length at full run
+        runStride: 0.6,        // extra stride length at full run — long, bouncy lunges
+        maxStepHz: 4.3,        // gait frequency cap, steps/s (0 = uncapped): distance
+                               // above the cap skates slightly instead of the legs
+                               // going frantic — keeps cadence sane at any TILE scale
         instantGait: false,    // runBlend snaps to target — no ease-in
         hardStop: false,       // arrival plants instantly: runBlend → 0
     };
@@ -2058,18 +2058,20 @@
 
     // Field set-dressing, placed outside the walkable radius. Loaded lazily
     // into st.props; drawn depth-sorted with the actors.
+    // Positions in TILE multiples so the dressing scales with the grid: trees
+    // stay ≥ ~1.8 tiles beyond the walkable square (WALK_R = 5) so their
+    // canopies never occlude a fight at the edge; low rocks/bushes hug the
+    // boundary just outside it.
     const FIELD_PROPS = [
-        // trees stay ≥ 8.5 wu out so their canopies never occlude a fight
-        // at the walkable edge (WALK_R = 5)
-        { id: 'tree', wx: -9.0, wz: -4.5, worldH: 5.4 },
-        { id: 'tree', wx: 8.5,  wz: -7.5, worldH: 4.6 },
-        { id: 'tree', wx: 9.2,  wz: 5.5,  worldH: 5.8 },
-        { id: 'tree', wx: -8.5, wz: 8.0,  worldH: 5.0 },
-        { id: 'rock', wx: -6.6, wz: 1.5,  worldH: 1.4 },
-        { id: 'rock', wx: 3.5,  wz: -7.4, worldH: 1.1 },
-        { id: 'bush', wx: 6.6,  wz: -1.8, worldH: 1.1 },
-        { id: 'bush', wx: -3.0, wz: -7.1, worldH: 0.9 },
-        { id: 'bush', wx: 1.5,  wz: 7.4,  worldH: 1.0 },
+        { id: 'tree', wx: -7.2 * TILE, wz: -3.6 * TILE, worldH: 5.4 },
+        { id: 'tree', wx: 6.8 * TILE,  wz: -6.8 * TILE, worldH: 4.6 },
+        { id: 'tree', wx: 7.4 * TILE,  wz: 4.4 * TILE,  worldH: 5.8 },
+        { id: 'tree', wx: -6.8 * TILE, wz: 6.4 * TILE,  worldH: 5.0 },
+        { id: 'rock', wx: -5.4 * TILE, wz: 1.2 * TILE,  worldH: 1.4 },
+        { id: 'rock', wx: 2.8 * TILE,  wz: -5.9 * TILE, worldH: 1.1 },
+        { id: 'bush', wx: 5.4 * TILE,  wz: -1.4 * TILE, worldH: 1.1 },
+        { id: 'bush', wx: -2.4 * TILE, wz: -5.7 * TILE, worldH: 0.9 },
+        { id: 'bush', wx: 1.2 * TILE,  wz: 5.9 * TILE,  worldH: 1.0 },
     ];
 
     // Like actorScale/actorWorldScale: S is the integer voxel raster scale
@@ -2765,8 +2767,15 @@
                           + (runTarget - (actor.runBlend ?? 0)) * Math.min(1, dt * MOVE_TUNE.strideIn);
                     // Longer stride ⇒ proportionally slower cycle at the same
                     // ground speed. Must mirror computePoseV2's step scale.
+                    // The cadence cap (maxStepHz, one step = π phase) bounds
+                    // how fast the legs may cycle regardless of TILE scale or
+                    // speedMult — distance above the cap skates slightly
+                    // rather than sending the gait frantic.
                     const m = actor.ik ? 1 + MOVE_TUNE.runStride * actor.runBlend : 1;
-                    actor.walkPhase += stepD * actor.stride / m;
+                    let phaseAdv = stepD * actor.stride / m;
+                    if (MOVE_TUNE.maxStepHz > 0)
+                        phaseAdv = Math.min(phaseAdv, MOVE_TUNE.maxStepHz * Math.PI * dt / 1000);
+                    actor.walkPhase += phaseAdv;
                     actor.pos.wx += remX / rem * stepD;
                     actor.pos.wz += remZ / rem * stepD;
                     actor.moving = true;
