@@ -228,6 +228,7 @@ async function initBattle(canvasId, opts) {
     const st = {
         canvas, renderer, effect, scene, camera,
         yaw: 0.6, zoom: 1, camPitch: 0.62,
+        viewRot: 0, // 0 or 90: CSS view rotation of the portrait fight
         player: null, enemy: null, dotnet: opts.dotnetRef ?? null,
         splats: [], hazardQuads: new Map(), marker: null, targetTile: null,
         obstacles: [], flags: {}, projectiles: [],
@@ -286,21 +287,65 @@ async function initBattle(canvasId, opts) {
 
     battles.set(canvasId, st);
 
-    // pointer: drag = orbit yaw, tap = ground/enemy click (raycast)
+    // Pointer input, mirroring voxel.js's contract exactly: the fight is
+    // CSS-rotated 90° in portrait (see watchOrientation/viewRot), so every
+    // client coordinate passes through the same rotation-undo the classic
+    // renderer uses (clientToCanvas), and the orbit axis is screen-Y when
+    // rotated. Single drag = orbit yaw; two-finger pinch = zoom + pitch;
+    // tap (< 6px travel) = ground/enemy click via raycast.
     const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-    st.onDown = e => { st.drag = { x: e.clientX, y: e.clientY, moved: false }; canvas.setPointerCapture?.(e.pointerId); };
+    st.pointers = new Map();
+    const localFrac = (clientX, clientY) => {
+        const r = canvas.getBoundingClientRect();
+        let fx = (clientX - r.left) / (r.width || 1);
+        let fy = (clientY - r.top) / (r.height || 1);
+        if (st.viewRot === 90) { const nx = fy, ny = 1 - fx; fx = nx; fy = ny; }
+        return { fx, fy };
+    };
+    st.onDown = e => {
+        st.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        canvas.setPointerCapture?.(e.pointerId);
+        if (st.pointers.size === 2) {
+            const pts = [...st.pointers.values()];
+            st.pinch = {
+                dist0: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
+                midY0: (pts[0].y + pts[1].y) / 2,
+                zoom0: st.zoom, pitch0: st.camPitch,
+            };
+            st.drag = null;
+        } else if (st.pointers.size === 1) {
+            st.drag = { x: e.clientX, y: e.clientY, yaw0: st.yaw, moved: 0 };
+        }
+    };
     st.onMove = e => {
-        if (!st.drag) return;
-        const dx = e.clientX - st.drag.x;
-        if (Math.abs(dx) > 6) st.drag.moved = true;
-        if (st.drag.moved) { st.yaw -= dx * 0.008; st.drag.x = e.clientX; st.drag.y = e.clientY; }
+        const p = st.pointers.get(e.pointerId);
+        if (p) { p.x = e.clientX; p.y = e.clientY; }
+        if (st.pointers.size >= 2 && st.pinch) {
+            const pts = [...st.pointers.values()];
+            const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+            const midY = (pts[0].y + pts[1].y) / 2;
+            st.zoom = Math.max(0.4, Math.min(2.5, st.pinch.zoom0 * dist / st.pinch.dist0));
+            st.camPitch = Math.max(0.25, Math.min(1.4,
+                st.pinch.pitch0 + (st.pinch.midY0 - midY) * 0.004));
+        } else if (st.drag && st.pointers.size === 1) {
+            st.drag.moved = Math.max(st.drag.moved,
+                Math.hypot(e.clientX - st.drag.x, e.clientY - st.drag.y));
+            if (st.drag.moved > 6) {
+                const along = st.viewRot === 90
+                    ? (e.clientY - st.drag.y) : (e.clientX - st.drag.x);
+                st.yaw = st.drag.yaw0 + along * 0.010;
+            }
+        }
     };
     st.onUp = e => {
-        const wasTap = st.drag && !st.drag.moved;
+        const wasSingle = st.pointers.size === 1;
+        st.pointers.delete(e.pointerId);
+        if (st.pointers.size < 2) st.pinch = null;
+        const d = st.drag;
         st.drag = null;
-        if (!wasTap) return;
-        const r = canvas.getBoundingClientRect();
-        ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+        if (!wasSingle || !d || d.moved > 6) return;
+        const { fx, fy } = localFrac(e.clientX, e.clientY);
+        ndc.set(fx * 2 - 1, -(fy * 2 - 1));
         ray.setFromCamera(ndc, st.camera);
         // enemy first: hit test its meshes
         const hitEnemy = ray.intersectObjects(st.enemy.ch.group.children, false).length > 0;
@@ -315,10 +360,12 @@ async function initBattle(canvasId, opts) {
             st.dotnet?.invokeMethodAsync('OnGroundClick', tx, tz);
         }
     };
-    st.onWheel = e => { e.preventDefault(); st.zoom = Math.max(0.5, Math.min(2.5, st.zoom * (e.deltaY > 0 ? 0.92 : 1.08))); };
+    st.onCancel = e => { st.pointers.delete(e.pointerId); if (st.pointers.size < 2) st.pinch = null; st.drag = null; };
+    st.onWheel = e => { e.preventDefault(); st.zoom = Math.max(0.4, Math.min(2.5, st.zoom * (e.deltaY > 0 ? 0.92 : 1.08))); };
     canvas.addEventListener('pointerdown', st.onDown);
     canvas.addEventListener('pointermove', st.onMove);
     canvas.addEventListener('pointerup', st.onUp);
+    canvas.addEventListener('pointercancel', st.onCancel);
     canvas.addEventListener('wheel', st.onWheel, { passive: false });
 
     const loop = () => {
@@ -414,6 +461,7 @@ function destroyBattle(canvasId) {
     st.canvas.removeEventListener('pointerdown', st.onDown);
     st.canvas.removeEventListener('pointermove', st.onMove);
     st.canvas.removeEventListener('pointerup', st.onUp);
+    st.canvas.removeEventListener('pointercancel', st.onCancel);
     st.canvas.removeEventListener('wheel', st.onWheel);
     st.renderer.dispose();
     battles.delete(canvasId);
@@ -443,7 +491,14 @@ const api = {
     },
     setBattleWeapon() { /* PoC: weapon models not rendered yet */ },
     setBattleOverheads() { /* PoC parity gap: overhead prayer icons */ },
-    watchOrientation() { /* landscape rotation handled by CSS; PoC no-op */ },
+    // Keep viewRot in sync with device orientation — the fight is CSS-rotated
+    // 90° in portrait, so taps/drags must be mapped back (same as voxel.js).
+    watchOrientation(canvasId) {
+        const mq = window.matchMedia('(orientation: portrait)');
+        const apply = () => { const st = battles.get(canvasId); if (st) st.viewRot = mq.matches ? 90 : 0; };
+        apply();
+        (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(apply);
+    },
     getMovementDebug() { return window.voxelClassic?.getMovementDebug?.() ?? {}; },
     setMovementDebug(id, t) { window.voxelClassic?.setMovementDebug?.(id, t); },
     getCameraDebug(canvasId) {
