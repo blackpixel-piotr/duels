@@ -85,6 +85,7 @@ else
                      Processing="@_processing"
                      RetryLabel="@RetryLabel"
                      OnTestFight="StartTestFight"
+                     OnTestBoss="StartBossTestFight"
                      OnArena="@(() => { _ladderOpen = true; StateHasChanged(); })"
                      OnEndless="StartEndless"
                      OnShop="@(() => { _shopOpen = true; StateHasChanged(); })"
@@ -165,6 +166,13 @@ else
         if (_processing || GameSvc.PlayerId is null) return;
         await RunDuelAction(() =>
             GameSvc.DispatchAsync(new StartTestFightCommand(GameSvc.PlayerId!)));
+    }
+
+    private async Task StartBossTestFight()
+    {
+        if (_processing || GameSvc.PlayerId is null) return;
+        await RunDuelAction(() =>
+            GameSvc.DispatchAsync(new StartTestFightCommand(GameSvc.PlayerId!, "maggot_king")));
     }
 
     private async Task StartEndless()

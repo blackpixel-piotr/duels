@@ -83,9 +83,9 @@ public sealed class GameState
 
     private void ClearHazards() => _hazards.Clear();
 
-    /// <summary>True when a tile is inside the walkable arena circle.</summary>
+    /// <summary>True when a tile is inside the walkable arena square.</summary>
     public static bool InArena((int X, int Z) t) =>
-        t.X * t.X + t.Z * t.Z <= ArenaRadius * ArenaRadius;
+        Math.Abs(t.X) <= ArenaRadius && Math.Abs(t.Z) <= ArenaRadius;
 
     /// <summary>Chebyshev distance between the combatants (diagonals count 1).</summary>
     public int DistanceToNpc =>
@@ -107,13 +107,9 @@ public sealed class GameState
 
     public void OrderMove(int x, int z)
     {
-        // Clamp to the arena circle so orders can't walk out of the scene.
+        // Clamp to the arena square so orders can't walk out of the scene.
         x = Math.Clamp(x, -ArenaRadius, ArenaRadius);
         z = Math.Clamp(z, -ArenaRadius, ArenaRadius);
-        while (x * x + z * z > ArenaRadius * ArenaRadius)
-        {
-            if (Math.Abs(x) >= Math.Abs(z)) x -= Math.Sign(x); else z -= Math.Sign(z);
-        }
         // Can't stand on a solid obstacle: snap the order to the nearest free tile.
         (x, z) = NearestFreeTile((x, z));
         PlayerMoveTarget = (x, z);

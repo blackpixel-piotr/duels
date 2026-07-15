@@ -31,6 +31,14 @@
         </span>
     </button>
 
+    <button class="hub-card hub-card-test" disabled="@Processing" @onclick="() => OnTestBoss.InvokeAsync()">
+        <span class="hub-card-icon">🐛</span>
+        <span class="hub-card-body">
+            <span class="hub-card-title">TEST BOSS</span>
+            <span class="hub-card-sub">Whip + DDS vs Maggot King — hazard-tile playtest</span>
+        </span>
+    </button>
+
     @* Relative href (not a leading-slash absolute URL) so Blazor's router
        intercepts the click for client-side navigation regardless of
        whether the app is mounted at /duels/ or /duels/dev/ — a direct
@@ -85,6 +93,7 @@
     [Parameter] public bool Processing { get; set; }
     [Parameter] public string RetryLabel { get; set; } = "⚔ Retry";
     [Parameter] public EventCallback OnTestFight { get; set; }
+    [Parameter] public EventCallback OnTestBoss { get; set; }
     [Parameter] public EventCallback OnArena { get; set; }
     [Parameter] public EventCallback OnEndless { get; set; }
     [Parameter] public EventCallback OnShop { get; set; }

@@ -1982,49 +1982,30 @@
 
     // ── Ground scenes ─────────────────────────────────────────────────────────
     // Drawn every frame (the camera rotates and follows the player, so the
-    // ground can't be pre-rendered). 'arena': the round checkered duel ring.
+    // ground can't be pre-rendered). 'arena': the square checkered duel floor.
     // 'field': open grass with prop set-dressing (test fights).
-
-    // A cell CENTERED on tile (tx,tz): its world center is (tx*TILE, tz*TILE) —
-    // where the fighter standing on that tile is drawn — so the grid seams land
-    // between tiles, and each cell is TILE world units across.
-    function tileQuad(st, ctx, tx, tz, W, H) {
-        const cx = tx * TILE, cz = tz * TILE, h = TILE / 2;
-        const p0 = proj(st, cx - h, cz - h, W, H), p1 = proj(st, cx + h, cz - h, W, H),
-              p2 = proj(st, cx + h, cz + h, W, H), p3 = proj(st, cx - h, cz + h, W, H);
-        ctx.beginPath();
-        ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
-        ctx.closePath(); ctx.fill();
-    }
+    // Both use the tileQuad/traceQuad primitives defined below, alongside the
+    // ground overlays (walk marker, target tile, hazard tiles).
 
     function drawArenaScene(st, ctx, W, H) {
-        // Ring radius grows with the tile size so it still encloses the walkable
-        // tiles (WALK_R tiles → WALK_R*TILE wu). ARENA_R itself feeds the camera
-        // framing (camera()), so it must stay fixed or the whole view zooms out.
-        const ringR = ARENA_R * TILE;
-        const ring = new Path2D();
-        for (let i = 0; i <= 64; i++) {
-            const a = i / 64 * Math.PI * 2;
-            const p = proj(st, Math.cos(a) * ringR, Math.sin(a) * ringR, W, H);
-            if (i === 0) ring.moveTo(p.x, p.y); else ring.lineTo(p.x, p.y);
-        }
-        ring.closePath();
-
-        // checker tiles clipped to the ring so the arena edge is clean
-        ctx.save();
-        ctx.clip(ring);
-        const R = Math.ceil(ARENA_R) + 1;
-        for (let tx = -R - 1; tx <= R; tx++) {
-            for (let tz = -R - 1; tz <= R; tz++) {
+        // Square walkable floor, bounded by WALK_R (matches GameState.InArena)
+        // — no circular clip, so every rendered tile is actually reachable.
+        for (let tx = -WALK_R; tx <= WALK_R; tx++) {
+            for (let tz = -WALK_R; tz <= WALK_R; tz++) {
                 ctx.fillStyle = ((tx + tz) & 1) ? '#2b2331' : '#241d29';
-                tileQuad(st, ctx, tx, tz, W, H);
+                traceQuad(ctx, tileQuad(st, tx * TILE, tz * TILE, W, H));
+                ctx.fill();
             }
         }
-        ctx.restore();
+        // Square edge marker (same visual role the old ring played) just
+        // outside the last row of tiles.
+        const edge = (WALK_R + 0.5) * TILE;
+        const corners = [proj(st, -edge, -edge, W, H), proj(st, edge, -edge, W, H),
+                          proj(st, edge, edge, W, H), proj(st, -edge, edge, W, H)];
         ctx.strokeStyle = '#4a3a55';
         ctx.lineWidth = 1.5;
-        ctx.stroke(ring);
+        traceQuad(ctx, corners);
+        ctx.stroke();
     }
 
     // Deterministic per-tile grass shade (cached) — mostly quiet greens with
@@ -2049,7 +2030,8 @@
                 const p = proj(st, tx * TILE, tz * TILE, W, H); // cell center
                 if (p.x < -m || p.x > W + m || p.y < -m || p.y > H + m) continue;
                 ctx.fillStyle = grassColor(st, tx, tz);
-                tileQuad(st, ctx, tx, tz, W, H);
+                traceQuad(ctx, tileQuad(st, tx * TILE, tz * TILE, W, H));
+                ctx.fill();
             }
         }
     }
@@ -2658,14 +2640,11 @@
                     }
                 }
 
-                // Ground: unproject to a tile, clamp to the walkable circle.
+                // Ground: unproject to a tile, clamp to the walkable square.
                 const w = screenToWorld(st, x, y, W, H);
                 let tx = Math.round(w.wx / TILE), tz = Math.round(w.wz / TILE);
-                let guard = 40;
-                while (tx * tx + tz * tz > WALK_R * WALK_R && guard-- > 0) {
-                    if (Math.abs(tx) >= Math.abs(tz)) tx -= Math.sign(tx);
-                    else tz -= Math.sign(tz);
-                }
+                tx = Math.max(-WALK_R, Math.min(WALK_R, tx));
+                tz = Math.max(-WALK_R, Math.min(WALK_R, tz));
                 st.moveMarker = { wx: tx, wz: tz, t0: st.time };
                 st.dotnet?.invokeMethodAsync('OnGroundClick', tx, tz);
             }

@@ -851,11 +851,13 @@ public sealed class GameTickService : IDisposable
         return _items.GetWeapon(weaponId)?.Range ?? AttackRange.Melee;
     }
 
-    // The diagonal tile beside the target on the approacher's side — melee
-    // pairs end up shoulder-to-shoulder instead of stacked on one axis.
+    // The adjacent tile beside the target on the approacher's side. Sign is 0
+    // when the mover is already aligned with the target on that axis, which
+    // keeps a straight-line approach straight (cardinal adjacency) instead of
+    // forcing a diagonal cut at the last step; a mover off-axis on both X and
+    // Z still resolves to a diagonal corner slot, same as before.
     private static (int X, int Z) ApproachSlot((int X, int Z) from, (int X, int Z) to) =>
-        (to.X + (Math.Sign(from.X - to.X) is 0 ? 1 : Math.Sign(from.X - to.X)),
-         to.Z + (Math.Sign(from.Z - to.Z) is 0 ? 1 : Math.Sign(from.Z - to.Z)));
+        (to.X + Math.Sign(from.X - to.X), to.Z + Math.Sign(from.Z - to.Z));
 
     // One tile toward the goal along a TAUT path: a straight line when the way is
     // clear (the common case), otherwise routing around solid obstacles (and never

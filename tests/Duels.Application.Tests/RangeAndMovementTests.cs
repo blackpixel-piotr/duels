@@ -123,6 +123,22 @@ public sealed class RangeAndMovementTests
     }
 
     [Fact]
+    public async Task Chase_AlongAnAxis_SettlesCardinalAdjacent_NotDiagonal()
+    {
+        // Player due south of the NPC on the same column — a dead-straight
+        // approach. ApproachSlot must not cut diagonal on the final step.
+        var (svc, state) = Build(Tank(AttackType.Crush));
+        state.SetPlayerTile(0, 5);
+        state.SetNpcTile(0, -5);
+
+        for (int i = 0; i < 15 && state.DistanceToNpc > 1; i++)
+            await Tick(svc);
+
+        Assert.Equal(1, state.DistanceToNpc);
+        Assert.Equal(state.NpcTile.X, state.PlayerTile.X); // still the same column — no diagonal cut
+    }
+
+    [Fact]
     public async Task QueuedSpec_HeldDuringApproach_NotDiscarded()
     {
         var (svc, state) = Build(Tank(AttackType.Crush));
@@ -188,11 +204,13 @@ public sealed class RangeAndMovementTests
         var state = new GameState("p1", new Player("p1", "Hero"));
         state.StartDuel(new NpcInstance(Tank(AttackType.Crush)));
 
+        // Arena is a square (see GameState.InArena) — a diagonal order clamps
+        // to the corner, not to a circle inscribed inside it.
         state.OrderMove(99, -99);
         var t = state.PlayerMoveTarget!.Value;
         Assert.True(Math.Abs(t.X) <= GameState.ArenaRadius);
         Assert.True(Math.Abs(t.Z) <= GameState.ArenaRadius);
-        Assert.True(t.X * t.X + t.Z * t.Z <= GameState.ArenaRadius * GameState.ArenaRadius);
+        Assert.True(GameState.InArena(t));
     }
 
     // ── Pathfinding (straight line unless blocked, around solid obstacles) ──
