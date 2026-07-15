@@ -3468,7 +3468,9 @@
         }
     }
 
-    window.voxel = {
+    // Exposed as voxelClassic; renderer-switch.js installs the window.voxel
+    // dispatcher that routes battle calls here or to the toon renderer.
+    window.voxelClassic = {
         initPreview, destroyPreview, renderIcon, itemIcon,
         initBattle, destroyBattle, setBattleEnemy, setBattleFlags, battleEvent,
         setBattleVitals, setBattleWeapon, setBattlePositions, setBattleObstacles,
