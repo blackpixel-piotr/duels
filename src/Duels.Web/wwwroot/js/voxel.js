@@ -643,15 +643,18 @@
         stab:   (p, t) => { t.pitch = lerp3(p, -0.55, 1.45, 0); t.dz = lerp3(p, -1.5, 3.5, 0); },
         // reverse-grip dagger: cock the fist high behind, rip down-forward
         rstab:  (p, t) => { t.pitch = lerp3(p, 1.7, -0.45, 0); t.dz = lerp3(p, -1, 2.6, 0); },
-        // dragon dagger special: the hand traces one full infinity symbol
-        // (lemniscate) — yaw runs at double the pitch frequency — with a
-        // forward thrust pulsing on each lobe (the two spec hits)
+        // dragon dagger special (OSRS "puncture"): one deliberate infinity
+        // stroke — the hand sweeps UP-AND-LEFT, dives through the center
+        // crossover, loops DOWN-AND-RIGHT, and settles. A forward thrust
+        // pulses once per lobe (p≈0.30 and p≈0.72): the two spec hits, which
+        // is also where battleEvent schedules the two stab sounds.
         ddspec: (p, t) => {
-            const w = Math.sin(p * Math.PI);      // ease the figure in and out
-            const th = p * 6.2832;
-            t.pitch = (1.05 + 0.55 * Math.sin(th)) * w;
-            t.yaw = 1.15 * Math.sin(2 * th) * w;
-            t.dz = (1.2 + 1.8 * Math.abs(Math.sin(2 * th))) * w;
+            t.pitch = lerpKeys(p, [[0, 0.3], [0.18, 1.9], [0.32, 0.9], [0.45, 0.35],
+                                   [0.60, 1.15], [0.72, 0.55], [1, 0]]);
+            t.yaw = lerpKeys(p, [[0, 0], [0.18, -1.2], [0.32, -0.35], [0.45, 0.15],
+                                 [0.60, 1.15], [0.72, 0.75], [1, 0]]);
+            t.dz = lerpKeys(p, [[0, 0], [0.22, 0.4], [0.30, 3.4], [0.40, 0.6],
+                                [0.62, 0.5], [0.72, 3.4], [0.85, 0.6], [1, 0]]);
         },
         slash:  (p, t) => { t.pitch = lerp3(p, 1.15, 1.25, 0); t.yaw = lerp3(p, -1.15, 1.2, 0); },
         // whip: an OVERHEAD FORWARD crack. Small cock, mostly forward — the
@@ -3261,6 +3264,44 @@
         osc.start(t0); osc.stop(t0 + 0.12);
     }
 
+    // Dragon dagger spec stab: a short metallic "shink" — a high band-passed
+    // noise transient (the blade's hiss) under a brief rising metallic ping.
+    // Higher and shorter than the whip crack so a double-tap reads as two
+    // distinct punctures. Called twice per spec, once per infinity lobe.
+    function playDdsStab(delaySec = 0) {
+        const ctx = getAudioCtx();
+        if (!ctx) return;
+        const t0 = ctx.currentTime + Math.max(0, delaySec);
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = getCrackNoiseBuffer(ctx);
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass'; bp.frequency.value = 4600; bp.Q.value = 1.1;
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(0, t0);
+        noiseGain.gain.linearRampToValueAtTime(0.7, t0 + 0.0015);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.055);
+        noise.connect(bp); bp.connect(noiseGain);
+
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(1900, t0);
+        osc.frequency.exponentialRampToValueAtTime(3100, t0 + 0.05);
+        const oscGain = ctx.createGain();
+        oscGain.gain.setValueAtTime(0.001, t0);
+        oscGain.gain.linearRampToValueAtTime(0.35, t0 + 0.003);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.07);
+        osc.connect(oscGain);
+
+        const master = ctx.createGain();
+        master.gain.value = 0.65;
+        noiseGain.connect(master); oscGain.connect(master);
+        master.connect(ctx.destination);
+
+        noise.start(t0); noise.stop(t0 + 0.06);
+        osc.start(t0); osc.stop(t0 + 0.08);
+    }
+
     // evt = { type, tier?, dmg?, style? }; types: playerAttack | enemyAttack |
     // playerHit | enemyHit | enemyDeath | playerDeath. Attack events fire
     // projectiles for ranged/magic and delay the matching hit's visuals by the
@@ -3303,6 +3344,11 @@
                 // anim, when the base-seeded wave reaches the tip, see
                 // updateLash), not the swing's start.
                 if (kind === 'lash') playWhipCrack(dur * 0.55 / 1000);
+                // Two punctures at the infinity stroke's thrust beats (one per
+                // lobe — must match ATTACK_POSES.ddspec's dz pulses). The spec's
+                // second hit event rides this same swing, so this schedules
+                // exactly once per spec.
+                if (kind === 'ddspec') { playDdsStab(dur * 0.30 / 1000); playDdsStab(dur * 0.72 / 1000); }
             }
             if (style === 'ranged' || style === 'magic') {
                 // travel time from real distance — shots from across the

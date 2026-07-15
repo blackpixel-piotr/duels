@@ -270,14 +270,28 @@ html, body {
     50%       { border-color: #686868; box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 0 0 8px rgba(120,120,120,0.35); }
 }
 
-/* Queued spec weapon: flashing dashed amber border (MMO queue indicator) */
+/* Queued action: flashing dashed border + glow (MMO queue indicator) on the
+   button whose press is armed for the next tick. Amber = queued attack;
+   .qs-queued-spec overrides to spec orange for a queued special. The class
+   drops the moment ProcessTick consumes QueuedAction, so it doubles as an
+   exact "your input registered → your input fired" readout. */
 .qs-queued {
-    border: 2px dashed #e65100;
-    color: #ff9800;
-    background: linear-gradient(160deg, #2a1505, #1a0d02);
+    border: 2px dashed var(--amber);
+    color: var(--amber);
+    background: linear-gradient(160deg, #2a2105, #1a1402);
     animation: qs-queue-flash 0.45s ease-in-out infinite alternate;
 }
 @keyframes qs-queue-flash {
+    from { border-color: #c99a2e; box-shadow: inset 1px 1px 0 #5a4a00, inset -1px -1px 0 var(--bevel-lo), 0 0 6px rgba(255,209,102,0.4); }
+    to   { border-color: #ffd166; box-shadow: inset 1px 1px 0 #5a4a00, inset -1px -1px 0 var(--bevel-lo), 0 0 14px rgba(255,209,102,0.7); }
+}
+.qs-queued-spec {
+    border-color: #e65100;
+    color: #ff9800;
+    background: linear-gradient(160deg, #2a1505, #1a0d02);
+    animation: qs-queue-flash-spec 0.45s ease-in-out infinite alternate;
+}
+@keyframes qs-queue-flash-spec {
     from { border-color: #e65100; box-shadow: inset 1px 1px 0 #5a2800, inset -1px -1px 0 var(--bevel-lo), 0 0 6px rgba(230,81,0,0.4); }
     to   { border-color: #ff9800; box-shadow: inset 1px 1px 0 #5a2800, inset -1px -1px 0 var(--bevel-lo), 0 0 14px rgba(255,152,0,0.65); }
 }

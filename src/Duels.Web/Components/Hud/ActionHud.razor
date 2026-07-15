@@ -65,7 +65,8 @@
             @{ var weaponSlots = WeaponSlots().ToList(); }
             @if (weaponSlots.Count == 0)
             {
-                <button class="quickslot qs-primary @(State.PlayerCooldown == 0 ? "qs-ready" : "")" title="Attack" disabled="@_busy" @onclick="Attack">
+                <button class="quickslot qs-primary @(State.PlayerCooldown == 0 ? "qs-ready" : "") @QueuedClass(State.QueuedAction != null)"
+                        title="Attack" disabled="@_busy" @onclick="Attack">
                     <span class="qs-cd-fill" style="height:@(CooldownPct(null))%"></span>
                     <span class="qs-icon">⚔</span>
                     <span class="qs-label">ATTACK</span>
@@ -77,7 +78,7 @@
                 {
                     var depleted  = SpecDepleted(slot.WeaponId);
                     var slotLocal = slot;
-                    <button @key="slot.WeaponId" class="quickslot @(slot.IsPrimary ? "qs-primary" : "") @(slot.IsPrimary && State.PlayerCooldown == 0 ? "qs-ready" : "") @(depleted ? "qs-spec-depleted" : "")"
+                    <button @key="slot.WeaponId" class="quickslot @(slot.IsPrimary ? "qs-primary" : "") @(slot.IsPrimary && State.PlayerCooldown == 0 ? "qs-ready" : "") @(depleted ? "qs-spec-depleted" : "") @QueuedClass(slot.IsQueued)"
                             title="@slot.Label"
                             disabled="@_busy"
                             @onclick="() => WeaponShortcut(slotLocal.WeaponId)">
@@ -233,6 +234,14 @@
         ? "Vengeance armed — next hit taken reflects 75%"
         : "Vengeance — reflect 75% of the next hit taken";
 
+    // Pulsing ring on the button whose action is armed for the next tick;
+    // spec-colored when the queued action is a special. Clears by itself —
+    // ProcessTick nulls QueuedAction the moment the attack fires.
+    private string QueuedClass(bool isQueued) =>
+        !isQueued ? ""
+        : State?.QueuedAction == "spec" ? "qs-queued qs-queued-spec"
+        : "qs-queued";
+
     private bool SpecDepleted(string weaponId) =>
         _specCosts.TryGetValue(weaponId, out int cost) &&
         (State?.Player?.SpecialEnergy ?? 100) < cost;
@@ -245,9 +254,12 @@
         var primaryId  = State?.RevertWeaponId ?? equippedId;
         var queuedId   = State?.RevertWeaponId != null ? equippedId : null;
 
-        // Slot 1 is always the primary (auto-attack) weapon.
+        // Slot 1 is always the primary (auto-attack) weapon. It's the queued
+        // button when an action is armed WITHOUT a weapon swap (pressing your
+        // own main weapon / ATTACK mid-cooldown).
         if (primaryId is not null && _knownWeaponIds.Contains(primaryId))
-            yield return MakeSlot(primaryId, isPrimary: true, isQueued: false);
+            yield return MakeSlot(primaryId, isPrimary: true,
+                isQueued: queuedId is null && State?.QueuedAction != null);
 
         // Every other weapon stays in its natural, stable position — only the
         // queued flag (dashed amber border) toggles in place, nothing reorders.
