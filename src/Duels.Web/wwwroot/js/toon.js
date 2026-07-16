@@ -5,14 +5,15 @@
 //
 // The style thesis: hard 3-band toon ramp (MeshToonMaterial + gradient map),
 // ink outlines (inverted-hull OutlineEffect), diagonal hatching multiplied
-// into the darkest band, and a paper-grain overlay. Characters are
-// procedurally built SkinnedMeshes with authored AnimationClips (idle / walk-
-// run / attack / death) — swapping in a real glTF later is a loader call
-// (GLTFLoader is vendored in lib/) replacing buildToonCharacter().
+// into the darkest band, and a paper-grain overlay. Characters are the
+// Quaternius Universal Base glTF driven by Universal Animation Library clips
+// (extracted by tools/extract_anims.mjs) through a speed blend space +
+// one-shot overlays; authored clips and a procedural SkinnedMesh remain as
+// fallbacks if the assets fail to load.
 //
 // PoC parity gaps vs the voxel renderer (documented, not bugs):
-//  - whip rope physics, HP-driven erosion, eat/food anims, overhead prayer
-//    icons; projectiles are a moving glow sphere without trails.
+//  - whip rope physics, HP-driven erosion, overhead prayer icons, weapon
+//    meshes; projectiles are a moving glow sphere without trails.
 import * as THREE from '../lib/three.module.min.js';
 import { OutlineEffect } from '../lib/OutlineEffect.js';
 import { GLTFLoader } from '../lib/GLTFLoader.js';
@@ -75,6 +76,42 @@ function loadToonCharacterGltf() {
     gltfPromise ??= new Promise((resolve, reject) =>
         gltfLoader.load('assets/models/superhero.gltf', resolve, undefined, reject));
     return gltfPromise;
+}
+
+// Quaternius Universal Animation Library clips (extracted by
+// tools/extract_anims.mjs). Same universal skeleton as the character, so the
+// clips bind by bone name — no retargeting. Role names are what the rest of
+// the renderer speaks; clip names are the library's.
+const LIB_ROLES = {
+    idle: 'Idle_Loop', walk: 'Walk_Loop', jog: 'Jog_Fwd_Loop', sprint: 'Sprint_Loop',
+    punchA: 'Punch_Jab', punchB: 'Punch_Cross',
+    swordA: 'Sword_Regular_A', swordB: 'Sword_Regular_B',
+    spec: 'Sword_Attack', throw: 'OverhandThrow', cast: 'Spell_Simple_Shoot',
+    hitA: 'Hit_Chest', hitB: 'Hit_Head', hitBig: 'Hit_Knockback',
+    eat: 'Consume', death: 'Death01',
+};
+let animLibPromise = null;
+function loadAnimLibrary() {
+    animLibPromise ??= Promise.all(
+        ['assets/models/anims1.glb', 'assets/models/anims2.glb'].map(u =>
+            new Promise((res, rej) => gltfLoader.load(u, res, undefined, rej))),
+    ).then(docs => {
+        const byName = {};
+        for (const d of docs) for (const c of d.animations) byName[c.name] = c;
+        const clips = {};
+        for (const [role, name] of Object.entries(LIB_ROLES))
+            if (byName[name]) clips[role] = byName[name];
+        return clips;
+    });
+    return animLibPromise;
+}
+
+// Keep only tracks that resolve on this character (the library rig has a few
+// extra leaf nodes) — unresolvable tracks make THREE warn every bind.
+function fitClip(clip, bones) {
+    const tracks = clip.tracks.filter(t => bones[t.name.split('.')[0]]);
+    return tracks.length === clip.tracks.length
+        ? clip : new THREE.AnimationClip(clip.name, clip.duration, tracks);
 }
 
 // Rotate `bone` about a character-space axis while keeping everything else in
@@ -325,39 +362,100 @@ function splatSprite(dmg, tier) {
     return sp;
 }
 
+// Locomotion is a 1D blend space over ground speed (wu/s): each node is a
+// looping action whose weight ramps triangularly between its neighbors, and
+// each moving clip's timeScale stretches so its feet keep the actual speed —
+// how Unity's blend trees make the test character read as "natural".
+// One-shots (attacks, hits, eat, death) overlay via LoopOnce actions that
+// duck the locomotion weights while they run.
 async function makeActor(st, key, colors) {
-    let ch;
+    let ch, lib = null;
     try {
-        ch = buildToonCharacterFromGltf(await loadToonCharacterGltf(), colors);
+        const [gltf, clips] = await Promise.all([
+            loadToonCharacterGltf(),
+            loadAnimLibrary().catch(e => { console.warn('toon: anim library failed, using authored clips', e); return null; }),
+        ]);
+        ch = buildToonCharacterFromGltf(gltf, colors);
+        lib = clips;
     } catch (e) {
         console.warn('toon: glTF character failed, using procedural fallback', e);
         ch = buildToonCharacter(colors);
     }
     st.scene.add(ch.group);
     const mixer = new THREE.AnimationMixer(ch.group);
-    const actions = {};
-    for (const [name, clip] of Object.entries(ch.clips)) {
-        actions[name] = mixer.clipAction(clip);
-        if (name === 'attack' || name === 'death') {
-            actions[name].setLoop(THREE.LoopOnce);
-            actions[name].clampWhenFinished = name === 'death';
-        }
-    }
-    actions.idle.play();
-    return {
-        key, ch, mixer, actions, current: 'idle',
+
+    // role → clip: full library when it loaded, else the authored minimal set
+    const clips = lib
+        ? Object.fromEntries(Object.entries(lib).map(([r, c]) => [r, fitClip(c, ch.bones)]))
+        : { idle: ch.clips.idle, walk: ch.clips.walk,
+            punchA: ch.clips.attack, swordA: ch.clips.attack, spec: ch.clips.attack,
+            throw: ch.clips.attack, cast: ch.clips.attack, death: ch.clips.death };
+
+    // blend-space nodes: [anchor speed wu/s, role]; anchors double as the
+    // clip's natural speed so timeScale = speed/anchor ≈ 1 at the anchor
+    const nodes = [[0, 'idle'], [1.5, 'walk'], [3.2, 'jog'], [5.8, 'sprint']]
+        .filter(([, r]) => clips[r]);
+    const loco = nodes.map(([anchor, role]) => {
+        const a = mixer.clipAction(clips[role]);
+        a.setEffectiveWeight(anchor === 0 ? 1 : 0).play();
+        return { anchor, role, action: a, w: anchor === 0 ? 1 : 0 };
+    });
+
+    const actor = {
+        key, ch, mixer, clips, loco, overlay: null, speedSm: 0, swingAlt: 0,
         pos: { wx: 0, wz: 0 }, target: { wx: 0, wz: 0 },
         facing: 0, crumbled: false, hp: 1,
     };
+    mixer.addEventListener('finished', e => {
+        if (actor.overlay && e.action === actor.overlay.action && !actor.overlay.hold) {
+            e.action.fadeOut(0.18);
+            actor.overlay = null;
+        }
+    });
+    return actor;
 }
 
-function playAction(actor, name, fade = 0.12) {
-    if (actor.current === name && name !== 'attack') return;
-    const from = actor.actions[actor.current], to = actor.actions[name];
-    to.reset();
-    if (name === 'attack') to.setEffectiveWeight(1).play().crossFadeFrom(from, 0.05, false);
-    else { to.play(); from.crossFadeTo(to, fade, false); }
-    actor.current = name;
+// One-shot overlay: attacks / hit reactions / eat / death.
+function playOverlay(actor, role, { ts = 1, fade = 0.08, hold = false, force = true } = {}) {
+    const clip = actor.clips[role];
+    if (!clip || actor.crumbled && role !== 'death') return;
+    if (actor.overlay) {
+        if (!force) return;
+        actor.overlay.action.fadeOut(0.08);
+    }
+    const a = actor.mixer.clipAction(clip);
+    a.reset().setLoop(THREE.LoopOnce, 1);
+    a.clampWhenFinished = hold;
+    a.setEffectiveTimeScale(ts).setEffectiveWeight(1).fadeIn(fade).play();
+    actor.overlay = { action: a, role, hold };
+}
+
+// Per-frame locomotion blending: ease the displayed speed (the sim moves at
+// constant velocity — easing is what makes starts/stops read naturally),
+// distribute triangular weights, cadence-match timeScale, duck under overlays.
+function updateActorAnim(actor, instSpeed, dt) {
+    const k = 1 - Math.exp(-dt / 0.13);
+    actor.speedSm += (instSpeed - actor.speedSm) * k;
+    const s = actor.speedSm;
+    const damp = actor.crumbled ? 0 : actor.overlay ? (s > 0.4 ? 0.35 : 0) : 1;
+    const L = actor.loco;
+    // segment weights: 1 at a node's anchor, fading linearly to its neighbors
+    const targets = new Array(L.length).fill(0);
+    if (s <= L[0].anchor) targets[0] = 1;
+    else if (s >= L[L.length - 1].anchor) targets[L.length - 1] = 1;
+    else for (let i = 0; i < L.length - 1; i++)
+        if (s >= L[i].anchor && s < L[i + 1].anchor) {
+            const f = (s - L[i].anchor) / (L[i + 1].anchor - L[i].anchor);
+            targets[i] = 1 - f; targets[i + 1] = f;
+            break;
+        }
+    for (let i = 0; i < L.length; i++) {
+        L[i].w += (targets[i] * damp - L[i].w) * k;
+        L[i].action.setEffectiveWeight(L[i].w);
+        if (L[i].anchor > 0)  // cadence: feet track the actual ground speed
+            L[i].action.setEffectiveTimeScale(
+                Math.max(0.7, Math.min(1.7, (s || L[i].anchor) / L[i].anchor)));
+    }
 }
 
 // ── battle lifecycle ─────────────────────────────────────────────────────
@@ -527,6 +625,7 @@ async function initBattle(canvasId, opts) {
         const now = performance.now();
         // movement: constant-speed pursuit of the sim tile (same law as voxel.js)
         for (const actor of [st.player, st.enemy]) {
+            let instSpeed = 0;
             if (!actor.crumbled) {
                 const other = actor === st.player ? st.enemy : st.player;
                 const rx = actor.target.wx - actor.pos.wx, rz = actor.target.wz - actor.pos.wz;
@@ -538,11 +637,8 @@ async function initBattle(canvasId, opts) {
                     const step = Math.min(rem, sp * dt);
                     actor.pos.wx += rx / rem * step; actor.pos.wz += rz / rem * step;
                     destFacing = Math.atan2(rx, rz);
-                    if (actor.current === 'idle') playAction(actor, 'walk');
-                    // cadence: scale the walk clip to ground speed (~1.15wu per cycle)
-                    actor.actions.walk.timeScale = Math.min(2.6, (step / dt) / 1.15 / 1.43);
+                    instSpeed = step / dt;
                 } else {
-                    if (actor.current === 'walk') playAction(actor, 'idle');
                     destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
                 }
                 let da = destFacing - actor.facing;
@@ -552,10 +648,9 @@ async function initBattle(canvasId, opts) {
                 actor.ch.group.position.set(actor.pos.wx, 0, actor.pos.wz);
                 actor.ch.group.rotation.y = actor.facing;
             }
+            updateActorAnim(actor, instSpeed, dt);
             // mixer ALWAYS ticks — a dead actor still needs its fall to play out
             actor.mixer.update(dt);
-            if (actor.current === 'attack' && !actor.actions.attack.isRunning())
-                { actor.current = 'idle'; actor.actions.idle.reset().play(); }
         }
 
         // camera: rigid lock on the player, orbit by yaw
@@ -631,7 +726,12 @@ const api = {
         if (!st) return;
         for (const a of [st.player, st.enemy]) {
             a.crumbled = false; a.ch.group.visible = true;
-            a.actions.death.stop(); a.actions.idle.reset().play(); a.current = 'idle';
+            if (a.overlay) { a.overlay.action.stop(); a.overlay = null; }
+            a.speedSm = 0;
+            for (const n of a.loco) {
+                n.w = n.anchor === 0 ? 1 : 0;
+                n.action.reset().setEffectiveWeight(n.w).play();
+            }
             if (a.ch.pivot) { a.ch.pivot.quaternion.identity(); a.ch.pivot.position.set(0, 0, 0); }
         }
     },
@@ -647,7 +747,11 @@ const api = {
         const st = battles.get(canvasId);
         if (st) { st.player.hp = v.player; st.enemy.hp = v.enemy; }
     },
-    setBattleWeapon() { /* PoC: weapon models not rendered yet */ },
+    setBattleWeapon(canvasId, weaponId) {
+        // No weapon meshes yet, but the id picks the swing clip family.
+        const st = battles.get(canvasId);
+        if (st) st.weaponId = weaponId;
+    },
     setBattleOverheads() { /* PoC parity gap: overhead prayer icons */ },
     // Keep viewRot in sync with device orientation — the fight is CSS-rotated
     // 90° in portrait, so taps/drags must be mapped back (same as voxel.js).
@@ -720,9 +824,30 @@ const api = {
             st.scene.add(sp);
             st.splats.push({ sprite: sp, t0: now });
         };
+        // Attack clip choice: spec flourish > style (throw/cast) > armed sword
+        // combo (A/B alternating for variety) > unarmed jab/cross.
+        const attackRole = (actor, style, weaponId, tier) => {
+            if (tier === 'spec') return 'spec';
+            if (style === 'ranged') return 'throw';
+            if (style === 'magic') return 'cast';
+            actor.swingAlt ^= 1;
+            const armed = !!weaponId;
+            return armed ? (actor.swingAlt ? 'swordA' : 'swordB')
+                         : (actor.swingAlt ? 'punchA' : 'punchB');
+        };
+        // Flinches never interrupt a swing — the hit still splats, and the
+        // swing reads better than a mid-swing twitch.
+        const flinch = (actor, tier, dmg) => {
+            if (actor.crumbled || tier === 'miss' || tier === 'poison') return;
+            if (actor.overlay && actor.overlay.role !== 'hitA' && actor.overlay.role !== 'hitB') return;
+            const big = tier === 'heavy' || tier === 'spec' || tier === 'boss';
+            playOverlay(actor, big ? 'hitB' : 'hitA', { ts: 1.25, fade: 0.05 });
+        };
         switch (evt.type) {
             case 'playerAttack': {
-                playAction(st.player, 'attack');
+                playOverlay(st.player,
+                    attackRole(st.player, evt.style, evt.weapon ?? st.weaponId, evt.tier),
+                    { ts: 1.15 });
                 if (evt.style === 'ranged' || evt.style === 'magic') {
                     const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8),
                         new THREE.MeshBasicMaterial({ color: evt.style === 'magic' ? '#7ab8ff' : '#ffd166' }));
@@ -734,13 +859,26 @@ const api = {
                 }
                 break;
             }
-            case 'enemyAttack': playAction(st.enemy, 'attack'); break;
-            case 'enemyHit': splatOn(st.enemy, evt.dmg | 0, evt.tier ?? 'normal'); break;
-            case 'playerHit': splatOn(st.player, evt.dmg | 0, evt.tier ?? 'normal'); break;
+            case 'enemyAttack': {
+                const style = st.flags.windup?.style ?? evt.style ?? 'melee';
+                playOverlay(st.enemy, attackRole(st.enemy, style, true, evt.tier), { ts: 1.1 });
+                break;
+            }
+            case 'enemyHit':
+                splatOn(st.enemy, evt.dmg | 0, evt.tier ?? 'normal');
+                flinch(st.enemy, evt.tier, evt.dmg | 0);
+                break;
+            case 'playerHit':
+                splatOn(st.player, evt.dmg | 0, evt.tier ?? 'normal');
+                flinch(st.player, evt.tier, evt.dmg | 0);
+                break;
+            case 'playerEat':
+                playOverlay(st.player, 'eat', { ts: 1.3 });
+                break;
             case 'enemyDeath': case 'playerDeath': {
                 const dying = evt.type === 'enemyDeath' ? st.enemy : st.player;
                 dying.crumbled = true;
-                playAction(dying, 'death', 0.05);
+                playOverlay(dying, 'death', { ts: 1, fade: 0.06, hold: true });
                 break;
             }
         }

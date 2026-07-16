@@ -26,3 +26,6 @@ __pycache__/
 ## Graphify (generated knowledge graph — rebuilt each session by
 ## .claude/graphify-bootstrap.sh; see the graphify section in CLAUDE.md)
 graphify-out/
+
+## Node (tools/extract_anims.mjs deps)
+node_modules/
