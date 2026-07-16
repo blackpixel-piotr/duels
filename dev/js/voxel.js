@@ -384,8 +384,11 @@
     // backgrounded, long hitch) snaps instead of catching up at speed.
     const MOVE_SPEED = { player: 2 * TILE / TILE_MS, enemy: TILE / TILE_MS }; // wu/ms
     const SNAP_DIST = 4.5 * TILE;  // fell this far behind → snap rather than sprint
-    let CAM_FOV = 25;          // perspective divide (world units); larger = less distortion
+    let CAM_FOV = 15;          // perspective divide (world units); smaller = more foreshortening
     const DEFAULT_CAM_FOV = CAM_FOV;
+    // Global close-up multiplier: every on-screen size funnels through camera()'s
+    // px, so scaling it here enlarges models, grid, spacing AND motion uniformly.
+    const SCENE_SCALE = 2.0;
     const ZOOM_MIN = 0.4, ZOOM_MAX = 2.5;
     const PITCH_MIN = 0.25, PITCH_MAX = 1.4;
     // Spawn tiles — must match GameState.StartDuel; live positions then come
@@ -409,7 +412,7 @@
     // px-per-world-unit and the screen y of the camera focus, fitted so the
     // arena (plus actor headroom) fills the canvas at any aspect.
     function camera(W, H, zoom = 1) {
-        const px = Math.min(W / (ARENA_R * 2 + 0.6), H / (ARENA_R * 2 * POS_TILT + 7.5)) * zoom;
+        const px = Math.min(W / (ARENA_R * 2 + 0.6), H / (ARENA_R * 2 * POS_TILT + 7.5)) * zoom * SCENE_SCALE;
         return { px, cy: H * 0.55 };
     }
     // World → screen through the battle's live camera: translate to the
@@ -1309,7 +1312,10 @@
             actor.depthW = w; actor.depthH = h;
             depthBuf = actor.depthBuf;
         }
-        renderModel(ctx, view, angle ?? (actor.st.camYaw - actor.facing), S, w / 2, h - m.radius * TILT * S - S - 1, pose, depthBuf, w, h);
+        // Feet origin (model y=0) row inside the offscreen — the SAME row the
+        // blit anchors to the ground (drawActor), so feet land exactly on ay.
+        const feetY = h - m.radius * TILT * S - S - 1;
+        renderModel(ctx, view, angle ?? (actor.st.camYaw - actor.facing), S, w / 2, feetY, pose, depthBuf, w, h);
         const tint = flashTint ?? actor.tint;
         if (tint) {
             ctx.globalCompositeOperation = 'source-atop';
@@ -1317,7 +1323,7 @@
             ctx.fillRect(0, 0, w, h);
             ctx.globalCompositeOperation = 'source-over';
         }
-        return { S, w, h, feetX: w / 2, feetY: h - m.radius * TILT * S - 1 };
+        return { S, w, h, feetX: w / 2, feetY };
     }
 
     // Active animation offsets for an actor at time `now` (scene time).
@@ -1433,12 +1439,13 @@
             ctx.fill();
         }
 
-        // Blit the offscreen: feetY inside the offscreen = h - radius*TILT*S - 1.
-        // Place that pixel exactly at ay (ground), solving the "floating" offset.
+        // Blit the offscreen: anchor the model's feet origin (r.feetY, the exact
+        // row renderModel drew y=0 at) onto ay (ground), so feet meet the shadow
+        // with no float/sink.
         const bw = (r.w * psTot) | 0;
         const bh = (r.h * psTot) | 0;
         const destX = (ax + a.dx - r.w / 2 * psTot) | 0;
-        const destY = (ay + a.dy - (r.h - actor.model.radius * r.S * TILT - 1) * psTot) | 0;
+        const destY = (ay + a.dy - r.feetY * psTot) | 0;
         ctx.globalAlpha = a.alpha;
         ctx.drawImage(actor.off, destX, destY, bw, bh);
         ctx.globalAlpha = 1;
