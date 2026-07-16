@@ -15,6 +15,7 @@
 //    icons; projectiles are a moving glow sphere without trails.
 import * as THREE from '../lib/three.module.min.js';
 import { OutlineEffect } from '../lib/OutlineEffect.js';
+import { GLTFLoader } from '../lib/GLTFLoader.js';
 
 const TILE = 1.75;            // must match voxel.js — sim tiles are shared
 const WALK_R = 5;
@@ -54,7 +55,65 @@ function toonMat(color) {
     return m;
 }
 
-// ── Procedural toon character ────────────────────────────────────────────
+// ── Load glTF character model ───────────────────────────────────────────
+// Loads the Superhero model from assets, applies toon materials, and returns
+// a compatible structure with animation mixer and clips.
+const gltfLoader = new GLTFLoader();
+let loadedGltf = null;
+async function loadToonCharacterGltf() {
+    if (loadedGltf) return loadedGltf;
+    return new Promise((resolve, reject) => {
+        gltfLoader.load('/assets/models/superhero.gltf', gltf => {
+            loadedGltf = gltf;
+            resolve(gltf);
+        }, undefined, reject);
+    });
+}
+
+function buildToonCharacterFromGltf(gltf, { scale = 1 } = {}) {
+    // Clone the scene to avoid sharing meshes across battles
+    const group = gltf.scene.clone();
+    const skeleton = null; // will find it from the skinned meshes
+    const bones = {};
+    let height = 1.8 * scale;
+
+    // Apply toon materials to all meshes and collect bones
+    group.traverse(node => {
+        if (node.isMesh) {
+            node.material = toonMat(node.material.color || '#d0a878');
+            node.frustumCulled = false;
+            if (node.skeleton) {
+                // Collect bones from the skeleton
+                node.skeleton.bones.forEach(bone => {
+                    bones[bone.name] = bone;
+                });
+            }
+        }
+    });
+
+    // Create basic animation clips if none exist
+    const clips = gltf.animations?.length > 0
+        ? gltf.animations.reduce((acc, clip) => {
+            acc[clip.name.toLowerCase()] = clip;
+            return acc;
+          }, {})
+        : createAnimationClips(scale);
+
+    return { group, bones, clips, height };
+}
+
+function createAnimationClips(scale = 1) {
+    // Placeholder animation clips for the glTF model
+    // These are simple clips that work with a standard humanoid skeleton
+    const S = scale;
+    const idle = new THREE.AnimationClip('idle', 2, []);
+    const walk = new THREE.AnimationClip('walk', 0.7, []);
+    const attack = new THREE.AnimationClip('attack', 0.34, []);
+    const death = new THREE.AnimationClip('death', 0.7, []);
+    return { idle, walk, attack, death };
+}
+
+// ── Procedural toon character (fallback) ──────────────────────────────────
 // A chunky low-poly humanoid SkinnedMesh: every box is rigid-skinned to one
 // bone, so the silhouette stays crisp under the outline pass. Returns the
 // mesh, mixer-ready clips, and named bones for the attack overlay.
@@ -179,8 +238,15 @@ function splatSprite(dmg, tier) {
     return sp;
 }
 
-function makeActor(st, key, colors) {
-    const ch = buildToonCharacter(colors);
+async function makeActor(st, key, colors) {
+    let ch;
+    try {
+        const gltf = await loadToonCharacterGltf();
+        ch = buildToonCharacterFromGltf(gltf, colors);
+    } catch (e) {
+        console.warn('glTF load failed, falling back to procedural:', e);
+        ch = buildToonCharacter(colors);
+    }
     st.scene.add(ch.group);
     const mixer = new THREE.AnimationMixer(ch.group);
     const actions = {};
@@ -191,7 +257,7 @@ function makeActor(st, key, colors) {
             actions[name].clampWhenFinished = name === 'death';
         }
     }
-    actions.idle.play();
+    if (actions.idle) actions.idle.play();
     return {
         key, ch, mixer, actions, current: 'idle',
         pos: { wx: 0, wz: 0 }, target: { wx: 0, wz: 0 },
@@ -252,9 +318,11 @@ async function initBattle(canvasId, opts) {
     scene.add(new THREE.LineSegments(gridGeo,
         new THREE.LineBasicMaterial({ color: '#1c2a12', transparent: true, opacity: 0.9 })));
 
-    // actors
-    st.player = makeActor(st, 'player', { skin: '#e0b088', shirt: '#c8b090', pants: '#3d5a35', boots: '#4a3020', scale: 1.0 });
-    st.enemy  = makeActor(st, 'enemy',  { skin: '#d09a70', shirt: '#8a4030', pants: '#463830', boots: '#332218', scale: 1.08 });
+    // actors — load glTF models in parallel
+    [st.player, st.enemy] = await Promise.all([
+        makeActor(st, 'player', { scale: 1.0 }),
+        makeActor(st, 'enemy',  { scale: 1.08 }),
+    ]);
     st.player.pos = { wx: 0, wz: 3 * TILE }; st.player.facing = Math.PI;
     st.enemy.pos = { wx: TILE, wz: -3 * TILE };
     st.player.target = { ...st.player.pos }; st.enemy.target = { ...st.enemy.pos };
