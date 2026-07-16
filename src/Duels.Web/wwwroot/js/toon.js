@@ -398,11 +398,14 @@ async function makeActor(st, key, colors) {
     const loco = nodes.map(([anchor, role]) => {
         const a = mixer.clipAction(clips[role]);
         a.setEffectiveWeight(anchor === 0 ? 1 : 0).play();
-        return { anchor, role, action: a, w: anchor === 0 ? 1 : 0 };
+        // gait clips don't self-advance — updateActorAnim drives them all
+        // from one shared phase so blended clips never mismatch feet
+        if (anchor > 0) a.setEffectiveTimeScale(0);
+        return { anchor, role, action: a, dur: clips[role].duration, w: anchor === 0 ? 1 : 0 };
     });
 
     const actor = {
-        key, ch, mixer, clips, loco, overlay: null, speedSm: 0, swingAlt: 0,
+        key, ch, mixer, clips, loco, overlay: null, speedSm: 0, gaitPhase: 0, swingAlt: 0,
         pos: { wx: 0, wz: 0 }, target: { wx: 0, wz: 0 },
         facing: 0, crumbled: false, hp: 1,
     };
@@ -432,9 +435,14 @@ function playOverlay(actor, role, { ts = 1, fade = 0.08, hold = false, force = t
 
 // Per-frame locomotion blending: ease the displayed speed (the sim moves at
 // constant velocity — easing is what makes starts/stops read naturally),
-// distribute triangular weights, cadence-match timeScale, duck under overlays.
+// distribute triangular weights, duck under overlays, and advance one shared
+// gait phase that every moving clip samples — cycle sync, so a blend that
+// sweeps walk→jog→sprint during acceleration morphs stride length instead of
+// stumbling over three clips at unrelated foot phases.
 function updateActorAnim(actor, instSpeed, dt) {
-    const k = 1 - Math.exp(-dt / 0.13);
+    // quick off the mark, softer settle — sim velocity is a step function
+    const k = 1 - Math.exp(-dt / (instSpeed > actor.speedSm ? 0.07 : 0.14));
+    if (instSpeed > 0.1 && actor.speedSm < 0.1) actor.gaitPhase = 0; // fresh stride on launch
     actor.speedSm += (instSpeed - actor.speedSm) * k;
     const s = actor.speedSm;
     const damp = actor.crumbled ? 0 : actor.overlay ? (s > 0.4 ? 0.35 : 0) : 1;
@@ -449,12 +457,22 @@ function updateActorAnim(actor, instSpeed, dt) {
             targets[i] = 1 - f; targets[i + 1] = f;
             break;
         }
+    let rate = 0, wsum = 0;
     for (let i = 0; i < L.length; i++) {
         L[i].w += (targets[i] * damp - L[i].w) * k;
         L[i].action.setEffectiveWeight(L[i].w);
-        if (L[i].anchor > 0)  // cadence: feet track the actual ground speed
-            L[i].action.setEffectiveTimeScale(
-                Math.max(0.7, Math.min(1.7, (s || L[i].anchor) / L[i].anchor)));
+        if (L[i].anchor > 0) {
+            // cadence: this clip's cycles/sec if feet were to track the
+            // actual ground speed; the blend averages them by weight
+            const ts = Math.max(0.7, Math.min(1.7, (s || L[i].anchor) / L[i].anchor));
+            rate += L[i].w * (ts / L[i].dur);
+            wsum += L[i].w;
+        }
+    }
+    if (wsum > 1e-3) {
+        actor.gaitPhase = (actor.gaitPhase + dt * rate / wsum) % 1;
+        for (const n of L)
+            if (n.anchor > 0) n.action.time = actor.gaitPhase * n.dur;
     }
 }
 
@@ -727,7 +745,7 @@ const api = {
         for (const a of [st.player, st.enemy]) {
             a.crumbled = false; a.ch.group.visible = true;
             if (a.overlay) { a.overlay.action.stop(); a.overlay = null; }
-            a.speedSm = 0;
+            a.speedSm = 0; a.gaitPhase = 0;
             for (const n of a.loco) {
                 n.w = n.anchor === 0 ? 1 : 0;
                 n.action.reset().setEffectiveWeight(n.w).play();
