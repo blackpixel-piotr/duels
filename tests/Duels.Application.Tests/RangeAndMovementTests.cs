@@ -341,6 +341,42 @@ public sealed class RangeAndMovementTests
     }
 
     [Fact]
+    public async Task MeleeApproach_StraightWhenAligned_NoDiagonalSidestep()
+    {
+        var (svc, state) = Build(Tank(AttackType.Crush));
+        state.FreezeEnemy(true);       // isolate the player's approach (NPC won't move)
+        state.SetNpcTile(0, 0);
+        state.SetPlayerTile(0, 4);     // directly in front, same column
+
+        // Player auto-chases (not holding). It must close along x=0 — a straight
+        // step in — never sidestepping to a diagonal flank tile.
+        for (int i = 0; i < 6 && state.DistanceToNpc > 1; i++)
+        {
+            await Tick(svc);
+            Assert.Equal(0, state.PlayerTile.X); // stayed straight in front
+        }
+        Assert.Equal(1, state.DistanceToNpc);    // reached adjacency
+        Assert.Equal(0, state.PlayerTile.X);
+    }
+
+    [Fact]
+    public async Task MeleeApproach_TwoTilesStraight_LiveEnemy_ClosesCardinal()
+    {
+        // The reported case: standing two tiles dead ahead and attacking must
+        // walk one tile straight in — never a forward-then-diagonal dogleg —
+        // with the NPC live and closing too.
+        var (svc, state) = Build(Tank(AttackType.Crush));
+        state.SetNpcTile(0, 0);
+        state.SetPlayerTile(0, 2);
+
+        await Tick(svc);
+
+        Assert.Equal(0, state.PlayerTile.X);     // no sidestep
+        Assert.Equal(0, state.NpcTile.X);        // enemy stayed on the line too
+        Assert.Equal(1, state.DistanceToNpc);    // cardinal adjacency reached
+    }
+
+    [Fact]
     public void NpcInRange_TracksStyle()
     {
         var state = new GameState("p1", new Player("p1", "Hero"));

@@ -55,8 +55,10 @@
             if (b) b.style.transform = 'scaleX(0)';
         };
     </script>
+    <!-- voxel.js is retired from battle duty: it stays only for item icons,
+         the character preview, and the anim editor. toon.js owns window.voxel
+         and forwards those non-battle calls to it. -->
     <script src="js/voxel.js"></script>
-    <script src="js/renderer-switch.js"></script>
     <script type="module" src="js/toon.js"></script>
 </body>
 </html>

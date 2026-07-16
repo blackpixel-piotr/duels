@@ -234,7 +234,7 @@ function buildToonCharacterFromGltf(gltf, { suit = '#4a6a8a', scale = 1 } = {}) 
             [0, 0, 0, 0, 0.12, 0, 0, 0.10, 0]),
     ]);
 
-    return { group, pivot, bones, clips: { idle, walk, attack, death }, height };
+    return { group, pivot, model, bones, clips: { idle, walk, attack, death }, height };
 }
 
 // ── Procedural toon character (fallback) ──────────────────────────────────
@@ -404,6 +404,28 @@ async function makeActor(st, key, colors) {
         return { anchor, role, action: a, dur: clips[role].duration, w: anchor === 0 ? 1 : 0 };
     });
 
+    // Ground against the ANIMATED idle, not the bind pose: library clips
+    // carry the mannequin's pelvis height, and the character's slightly
+    // different leg length otherwise sinks the feet below the floor plane —
+    // toes visibly sliced off by the ground. Measure the foot bones in bind
+    // pose, apply one idle frame, and lift the model by the difference.
+    if (lib && ch.model) {
+        const v = new THREE.Vector3();
+        const soleY = () => {
+            ch.group.updateWorldMatrix(true, true);
+            let y = Infinity;
+            for (const n of ['foot_l', 'foot_r', 'ball_l', 'ball_r']) {
+                const b = ch.bones[n];
+                if (b) y = Math.min(y, b.getWorldPosition(v).y);
+            }
+            return y;
+        };
+        const bindY = soleY();
+        mixer.update(0.001); // apply the idle pose once
+        const idleY = soleY();
+        if (isFinite(bindY) && isFinite(idleY)) ch.model.position.y += bindY - idleY;
+    }
+
     const actor = {
         key, ch, mixer, clips, loco, overlay: null, speedSm: 0, gaitPhase: 0, swingAlt: 0,
         pos: { wx: 0, wz: 0 }, target: { wx: 0, wz: 0 },
@@ -488,7 +510,10 @@ async function initBattle(canvasId, opts) {
     scene.background = new THREE.Color('#1a2314');
     scene.fog = new THREE.Fog('#1a2314', 22, 40);
 
-    const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+    // Long lens up close: FOV 15 with the dolly pulled back gives the flat,
+    // compressed perspective of an isometric-ish tactics view while framing
+    // the fight at 2x the old size.
+    const camera = new THREE.PerspectiveCamera(15, 1, 0.1, 160);
     const sun = new THREE.DirectionalLight('#fff4dd', 2.8);
     sun.position.set(6, 10, 4);
     scene.add(sun, new THREE.AmbientLight('#9aa8b8', 0.9));
@@ -671,14 +696,18 @@ async function initBattle(canvasId, opts) {
             actor.mixer.update(dt);
         }
 
-        // camera: rigid lock on the player, orbit by yaw
+        // camera: rigid lock on the player, orbit by yaw. 18.3 wu at FOV 15
+        // frames the same scene the old 14 wu / FOV 38 did, at twice the size.
         const p = st.player.pos;
-        const dist = 14 / st.zoom;
+        const dist = 18.3 / st.zoom;
         st.camera.position.set(
             p.wx + Math.sin(st.yaw) * dist * Math.cos(st.camPitch),
             dist * Math.sin(st.camPitch) + 1,
             p.wz + Math.cos(st.yaw) * dist * Math.cos(st.camPitch));
         st.camera.lookAt(p.wx, 1, p.wz);
+        // fog rides the dolly so zooming never washes out the arena itself
+        st.scene.fog.near = dist + 8;
+        st.scene.fog.far = dist + 28;
 
         // canvas sizing follows CSS box
         const w = canvas.clientWidth | 0, h = canvas.clientHeight | 0;
@@ -783,7 +812,7 @@ const api = {
     setMovementDebug(id, t) { window.voxelClassic?.setMovementDebug?.(id, t); },
     getCameraDebug(canvasId) {
         const st = battles.get(canvasId);
-        return { fov: 38, tilt: 0.3, pitch: st?.camPitch ?? 0.62, zoom: st?.zoom ?? 1 };
+        return { fov: 15, tilt: 0.3, pitch: st?.camPitch ?? 0.62, zoom: st?.zoom ?? 1 };
     },
     setCameraDebug(canvasId, d) {
         const st = battles.get(canvasId);
@@ -903,4 +932,13 @@ const api = {
     },
 };
 
-window.voxelToon = api;
+window.voxelToon = api; // probe handle (verify scripts) + explicit name
+
+// The toon renderer IS the battle renderer — the classic voxel painter stays
+// loaded solely for item icons, the character preview, and the anim editor,
+// so any call outside the battle API forwards to it. (toon.js is a deferred
+// module: this runs after voxel.js but before Blazor's first interop call.)
+window.voxel = new Proxy(api, {
+    get: (t, prop) => prop in t ? t[prop] : window.voxelClassic?.[prop],
+    has: () => true,
+});
