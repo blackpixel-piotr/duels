@@ -4,6 +4,12 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Run under the invariant culture so numbers use "." decimals everywhere:
+         range-slider min/max/step/value render as HTML expects (a comma-decimal
+         browser locale otherwise renders step="0,01", which HTML rejects and
+         snaps the slider to whole steps), double.TryParse reads the inputs'
+         always-"."-formatted values, and Export snippets are paste-ready. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>

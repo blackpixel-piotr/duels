@@ -68,6 +68,29 @@ public sealed class GameTickService : IDisposable
         }
     }
 
+    // Start a click-to-move on the click itself instead of waiting up to a full
+    // 600 ms tick for the next ProcessTick — that dead time is what makes moving
+    // feel delayed. Advances ONLY the player's position toward an active move
+    // order (same 2-tiles-per-tick run cadence ProcessTick uses); no cooldowns,
+    // combat, DoTs or NPC turn run here, so it can't affect fight timing. The
+    // periodic tick keeps driving the rest of the run.
+    public async Task KickMoveAsync(string playerId)
+    {
+        var state = await _states.GetAsync(playerId);
+        if (state is null || !state.InDuel || state.PlayerMoveTarget is not { } moveTarget) return;
+
+        for (int i = 0; i < 2 && state.PlayerMoveTarget is not null; i++)
+        {
+            var step = NextStepToward(state, state.PlayerTile, moveTarget, state.NpcTile);
+            bool blocked = step == state.PlayerTile;
+            state.SetPlayerTile(step.X, step.Z);
+            if (state.PlayerTile == moveTarget || blocked)
+                state.ClearMoveOrder();
+        }
+        await _states.SaveAsync(state);
+        _notify?.Invoke();
+    }
+
     private async Task ProcessTick(string playerId)
     {
         var state = await _states.GetAsync(playerId);
@@ -94,7 +117,7 @@ public sealed class GameTickService : IDisposable
         {
             for (int i = 0; i < 2 && state.PlayerMoveTarget is not null; i++)
             {
-                var step = StepToward(state.PlayerTile, moveTarget, state.NpcTile);
+                var step = NextStepToward(state, state.PlayerTile, moveTarget, state.NpcTile);
                 bool blocked = step == state.PlayerTile;
                 state.SetPlayerTile(step.X, step.Z);
                 if (state.PlayerTile == moveTarget || blocked)
@@ -105,14 +128,14 @@ public sealed class GameTickService : IDisposable
         {
             for (int i = 0; i < 2 && state.DistanceToNpc > playerRange; i++)
             {
-                var step = StepToward(state.PlayerTile, ApproachSlot(state.PlayerTile, state.NpcTile), state.NpcTile);
+                var step = NextStepToward(state, state.PlayerTile, ApproachSlot(state.PlayerTile, state.NpcTile), state.NpcTile);
                 if (step == state.PlayerTile) break;
                 state.SetPlayerTile(step.X, step.Z);
             }
         }
         if (!state.EnemyFrozen && state.DistanceToNpc > AttackRange.ForStyle(npc.CurrentAttackType))
         {
-            var step = StepToward(state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
+            var step = NextStepToward(state, state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
             state.SetNpcTile(step.X, step.Z);
         }
 
@@ -156,6 +179,11 @@ public sealed class GameTickService : IDisposable
             state.ResetNpcCooldown(npc.Template.AttackSpeedTicks);
         }
 
+        // Tile hazards (modern boss mechanic). Runs AFTER movement, so
+        // stepping off a marked tile this tick is what saves you.
+        if (!state.EnemyFrozen)
+            ProcessHazards(state, player, npc);
+
         // Prayer drain at tick end (after all combat)
         // Drain only if prayer is still ON at tick end — allows prayer flicking
         if (player.ActiveProtection != ProtectionPrayer.None)
@@ -189,6 +217,85 @@ public sealed class GameTickService : IDisposable
         }
 
         await _states.SaveAsync(state);
+    }
+
+    // Tile-hazard lifecycle (see HazardProfile): tick warnings/pools, apply
+    // eruption + pool damage, then let the boss schedule the next wave.
+    // Eruptions and pool burn are position-gated, NEVER prayer-reduced —
+    // movement is the only defense (protection prayers stay for the boss's
+    // regular style-rotation attacks).
+    private void ProcessHazards(GameState state, Player player, NpcInstance npc)
+    {
+        var hz = npc.Template.Hazards;
+        var erupted = state.TickHazards(hz?.PoolTicks ?? 0);
+        bool caught = erupted.Contains(state.PlayerTile);
+
+        if (hz is null) return;
+
+        if (caught && player.IsAlive)
+        {
+            player.TakeDamage(hz.EruptDamage);
+            state.RecordDamageTaken(hz.EruptDamage);
+            AwardDefensiveXp(state, player, hz.EruptDamage);
+            state.AppendLog($"{hz.EruptDamage}:hazard", LogEntryKind.HitsplatNpc);
+            state.AppendLog($"The ground ERUPTS beneath you for {hz.EruptDamage}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+            if (!state.PlayerPoisoned)
+            {
+                state.ApplyPoison();
+                state.AppendLog("The writhing mass poisons you!", LogEntryKind.System);
+            }
+        }
+        // Standing in a pool at tick end burns — but not on top of the
+        // eruption hit that created it this same tick.
+        else if (player.IsAlive && state.IsPool(state.PlayerTile))
+        {
+            player.TakeDamage(hz.PoolDamage);
+            state.RecordDamageTaken(hz.PoolDamage);
+            state.AppendLog($"{hz.PoolDamage}:poison", LogEntryKind.HitsplatNpc);
+            state.AppendLog($"Acrid slime burns at your feet. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+        }
+
+        if (!npc.IsAlive || !player.IsAlive) return;
+
+        // Phase 2 at half HP: rotation quickens, waves widen and come faster.
+        if (npc.CurrentHp <= npc.MaxHp / 2 && npc.UsePhaseShift())
+        {
+            npc.AttacksPerStyleOverride = 2;
+            state.AppendLog($"★ {npc.Template.Name} convulses — the assault frenzies!", LogEntryKind.BossSpecial);
+            state.AppendLog("Style rotation quickens and eruptions come faster!", LogEntryKind.BossSpecial);
+        }
+        bool enraged = npc.PhaseShiftUsed;
+
+        npc.TickHazardCooldown();
+        if (npc.HazardCooldown > 0) return;
+
+        int tiles = enraged ? hz.TilesPerWave + 1 : hz.TilesPerWave;
+        state.AddHazardWave(PickHazardTiles(state, tiles), hz.WarningTicks);
+        npc.ResetHazardCooldown(enraged ? Math.Max(2, hz.CooldownTicks - 2) : hz.CooldownTicks);
+        state.AppendLog($"⚠ {hz.WarningText}", LogEntryKind.BossSpecial);
+    }
+
+    // Wave targeting: the player's own tile plus random tiles within
+    // Chebyshev 2 of them — in-arena, off obstacles, deduped — so standing
+    // still is always punished and the escape route is a real choice.
+    private List<(int X, int Z)> PickHazardTiles(GameState state, int count)
+    {
+        var tiles = new List<(int X, int Z)> { state.PlayerTile };
+        var candidates = new List<(int X, int Z)>();
+        for (int dx = -2; dx <= 2; dx++)
+            for (int dz = -2; dz <= 2; dz++)
+            {
+                if (dx == 0 && dz == 0) continue;
+                var t = (X: state.PlayerTile.X + dx, Z: state.PlayerTile.Z + dz);
+                if (GameState.InArena(t) && !state.IsObstacle(t)) candidates.Add(t);
+            }
+        for (int i = 0; i < count - 1 && candidates.Count > 0; i++)
+        {
+            int pick = _random.Next(0, candidates.Count);
+            tiles.Add(candidates[pick]);
+            candidates.RemoveAt(pick);
+        }
+        return tiles;
     }
 
     private static void ApplyDots(GameState state, Player player, NpcInstance npc)
@@ -331,7 +438,10 @@ public sealed class GameTickService : IDisposable
                 }
                 string blockMsg = warlordBlocking ? " (⛉ blocked)" : "";
                 state.AppendLog($"{player.PhatPrefix}⚡ SPEC! You hit {npc.Template.Name} for {damage}{healMsg}{blockMsg}{suffix}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.SpecHit);
-                state.AppendLog($"{damage}:spec", LogEntryKind.HitsplatPlayer);
+                // Carry the spec weapon so the scene shows the right weapon +
+                // its special animation even though the equipped weapon reverts
+                // to the main-hand within this same tick (see RevertWeaponId).
+                state.AppendLog($"{damage}:spec:{weaponId}", LogEntryKind.HitsplatPlayer);
                 AwardOffensiveXp(state, player, damage);
             }
             else
@@ -741,21 +851,107 @@ public sealed class GameTickService : IDisposable
         return _items.GetWeapon(weaponId)?.Range ?? AttackRange.Melee;
     }
 
-    // The diagonal tile beside the target on the approacher's side — melee
-    // pairs end up shoulder-to-shoulder instead of stacked on one axis.
+    // The adjacent tile beside the target on the approacher's side. Sign is 0
+    // when the mover is already aligned with the target on that axis, which
+    // keeps a straight-line approach straight (cardinal adjacency) instead of
+    // forcing a diagonal cut at the last step; a mover off-axis on both X and
+    // Z still resolves to a diagonal corner slot, same as before.
     private static (int X, int Z) ApproachSlot((int X, int Z) from, (int X, int Z) to) =>
-        (to.X + (Math.Sign(from.X - to.X) is 0 ? 1 : Math.Sign(from.X - to.X)),
-         to.Z + (Math.Sign(from.Z - to.Z) is 0 ? 1 : Math.Sign(from.Z - to.Z)));
+        (to.X + Math.Sign(from.X - to.X), to.Z + Math.Sign(from.Z - to.Z));
 
-    // One tile toward the goal, never onto the avoided (opponent's) tile.
-    private static (int X, int Z) StepToward((int X, int Z) from, (int X, int Z) goal, (int X, int Z) avoid)
+    // One tile toward the goal along a TAUT path: a straight line when the way is
+    // clear (the common case), otherwise routing around solid obstacles (and never
+    // onto the avoided opponent tile). Returns `from` when no route exists.
+    // Replaces the old greedy diagonal-then-orthogonal stepper that produced a
+    // maze-like dogleg through every tile centre.
+    private static (int X, int Z) NextStepToward(GameState state, (int X, int Z) from,
+                                                 (int X, int Z) goal, (int X, int Z) avoid)
     {
-        int dx = Math.Sign(goal.X - from.X), dz = Math.Sign(goal.Z - from.Z);
-        var next = (X: from.X + dx, Z: from.Z + dz);
-        if (next != avoid) return next;
-        if (dx != 0 && (from.X + dx, from.Z) != avoid) return (from.X + dx, from.Z);
-        if (dz != 0 && (from.X, from.Z + dz) != avoid) return (from.X, from.Z + dz);
-        return from;
+        if (from == goal) return from;
+        // Straight shot: if the tile line to the goal is unobstructed, walk it.
+        if (LineIsClear(state, from, goal, avoid))
+            return BresenhamLine(from, goal)[1];
+        // Blocked: BFS a route, then string-pull to the farthest visible waypoint
+        // so the path hugs the obstacle instead of staircasing tile-by-tile.
+        var path = Bfs(state, from, goal, avoid);
+        if (path is null || path.Count < 2) return from;
+        var target = path[1];
+        for (int i = path.Count - 1; i >= 1; i--)
+            if (LineIsClear(state, from, path[i], avoid)) { target = path[i]; break; }
+        return BresenhamLine(from, target)[1];
+    }
+
+    // Tiles on the integer line a→b (Bresenham, diagonal steps allowed), inclusive.
+    private static List<(int X, int Z)> BresenhamLine((int X, int Z) a, (int X, int Z) b)
+    {
+        var pts = new List<(int X, int Z)>();
+        int x0 = a.X, z0 = a.Z;
+        int dx = Math.Abs(b.X - x0), dz = Math.Abs(b.Z - z0);
+        int sx = x0 < b.X ? 1 : -1, sz = z0 < b.Z ? 1 : -1;
+        int err = dx - dz;
+        while (true)
+        {
+            pts.Add((x0, z0));
+            if (x0 == b.X && z0 == b.Z) break;
+            int e2 = 2 * err;
+            if (e2 > -dz) { err -= dz; x0 += sx; }
+            if (e2 < dx) { err += dx; z0 += sz; }
+        }
+        return pts;
+    }
+
+    // True when every tile on the line from→to (excluding the start) is inside the
+    // arena and not blocked (solid obstacle or the avoided opponent tile).
+    private static bool LineIsClear(GameState state, (int X, int Z) from,
+                                    (int X, int Z) to, (int X, int Z) avoid)
+    {
+        var line = BresenhamLine(from, to);
+        for (int i = 1; i < line.Count; i++)
+            if (!GameState.InArena(line[i]) || state.IsBlocked(line[i], avoid))
+                return false;
+        return true;
+    }
+
+    private static int Chebyshev((int X, int Z) a, (int X, int Z) b) =>
+        Math.Max(Math.Abs(a.X - b.X), Math.Abs(a.Z - b.Z));
+
+    // 8-directional BFS flood over free (in-arena, unblocked) tiles from `from`.
+    // Returns the path from→goal when reachable; otherwise the path toward the
+    // reachable tile CLOSEST to the goal, so a mover whose goal is blocked (e.g. an
+    // approach slot sitting on an obstacle) still makes progress instead of
+    // freezing. Null only when `from` has no free neighbour at all.
+    private static List<(int X, int Z)>? Bfs(GameState state, (int X, int Z) from,
+                                             (int X, int Z) goal, (int X, int Z) avoid)
+    {
+        var came = new Dictionary<(int X, int Z), (int X, int Z)> { [from] = from };
+        var q = new Queue<(int X, int Z)>();
+        q.Enqueue(from);
+        var best = from;
+        int bestD = Chebyshev(from, goal);
+        while (q.Count > 0)
+        {
+            var cur = q.Dequeue();
+            if (cur == goal) { best = goal; break; }
+            int d = Chebyshev(cur, goal);
+            if (d < bestD) { bestD = d; best = cur; }
+            for (int dx = -1; dx <= 1; dx++)
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    if (dx == 0 && dz == 0) continue;
+                    var n = (X: cur.X + dx, Z: cur.Z + dz);
+                    if (came.ContainsKey(n)) continue;
+                    if (!GameState.InArena(n) || state.IsBlocked(n, avoid)) continue;
+                    came[n] = cur;
+                    q.Enqueue(n);
+                }
+        }
+        var dest = came.ContainsKey(goal) ? goal : best;
+        if (dest == from) return null;
+        var path = new List<(int X, int Z)>();
+        for (var t = dest; t != from; t = came[t]) path.Add(t);
+        path.Add(from);
+        path.Reverse();
+        return path;
     }
 
     private CombatantSnapshot BuildPlayerSnapshot(GameState state, AttackStyle style)

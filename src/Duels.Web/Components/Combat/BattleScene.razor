@@ -5,6 +5,7 @@
 @inject IJSRuntime JS
 @inject IItemRepository ItemRepo
 @inject Duels.Web.Services.GameService GameSvc
+@inject Duels.Application.Services.GameTickService TickService
 @implements IAsyncDisposable
 
 @* Three-quarter battle scene with a player-centered, drag-to-rotate camera.
@@ -13,9 +14,6 @@
    ends ActiveNpc is null, so enemy display fields are cached. *@
 <div class="battle-scene" id="battle-scene">
     <canvas id="battle-canvas" width="260" height="200"></canvas>
-
-    <div id="zone-npc" class="hitsplat-zone battle-zone"></div>
-    <div id="zone-player" class="hitsplat-zone battle-zone"></div>
 
     <div class="battle-box battle-box-enemy">
         <div class="battle-box-name glow-red">
@@ -49,20 +47,87 @@
     {
         <div class="telegraph-bubble">@bubble</div>
     }
-    @if (PlayerOverhead is { } po)
-    {
-        <div id="overhead-player" class="overhead overhead-player overhead-@po.Css">@po.Icon</div>
-    }
-    @if (NpcOverhead is { } no)
-    {
-        <div id="overhead-npc" class="overhead overhead-npc overhead-@no.Css">@no.Icon</div>
-    }
     @if (State?.TestScene == true)
     {
-        <button class="freeze-btn @(_enemyFrozen ? "freeze-btn-on" : "")"
+        <button class="freeze-btn @(EnemyFrozen ? "freeze-btn-on" : "")"
                 @onclick="ToggleFreezeEnemy">
-            @(_enemyFrozen ? "UNFREEZE" : "FREEZE ENEMY")
+            @(EnemyFrozen ? "UNFREEZE" : "FREEZE ENEMY")
         </button>
+
+        <button class="cam-toggle-btn" @onclick="() => _camPanelOpen = !_camPanelOpen">
+            @(_camPanelOpen ? "CAM ▲" : "CAM ▼")
+        </button>
+        <button class="cam-toggle-btn move-toggle-btn" @onclick="ToggleMovePanel">
+            @(_movePanelOpen ? "MOVE ▲" : "MOVE ▼")
+        </button>
+        @if (_movePanelOpen)
+        {
+            <div class="cam-debug-panel move-debug-panel">
+                <div class="cam-debug-row">
+                    <label>Speed × <span>@_mvSpeed.ToString("0.00")</span></label>
+                    <input type="range" min="0.25" max="4" step="0.05"
+                           value="@_mvSpeed" @oninput="@(e => OnMoveInput(e, v => _mvSpeed = v))" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Turn rate <span>@_mvTurn.ToString("0.000")</span></label>
+                    <input type="range" min="0.005" max="0.3" step="0.005"
+                           value="@_mvTurn" @oninput="@(e => OnMoveInput(e, v => _mvTurn = v))" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Stride ease-in <span>@_mvIn.ToString("0.000")</span></label>
+                    <input type="range" min="0.001" max="0.05" step="0.001"
+                           value="@_mvIn" @oninput="@(e => OnMoveInput(e, v => _mvIn = v))" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Stride ease-out <span>@_mvOut.ToString("0.000")</span></label>
+                    <input type="range" min="0.001" max="0.05" step="0.001"
+                           value="@_mvOut" @oninput="@(e => OnMoveInput(e, v => _mvOut = v))" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Run stride <span>@_mvStride.ToString("0.00")</span></label>
+                    <input type="range" min="0" max="1" step="0.05"
+                           value="@_mvStride" @oninput="@(e => OnMoveInput(e, v => _mvStride = v))" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Step cap Hz <span>@(_mvStepHz == 0 ? "off" : _mvStepHz.ToString("0.0"))</span></label>
+                    <input type="range" min="0" max="8" step="0.1"
+                           value="@_mvStepHz" @oninput="@(e => OnMoveInput(e, v => _mvStepHz = v))" />
+                </div>
+                <div class="cam-debug-row">
+                    <label><input type="checkbox" checked="@_mvInstantGait"
+                                  @onchange="@(e => OnMoveCheck(e, v => _mvInstantGait = v))" /> Instant gait</label>
+                    <label><input type="checkbox" checked="@_mvHardStop"
+                                  @onchange="@(e => OnMoveCheck(e, v => _mvHardStop = v))" /> Hard stop</label>
+                </div>
+                <button class="cam-debug-reset" @onclick="ResetMovementDebug">Reset</button>
+            </div>
+        }
+        @if (_camPanelOpen)
+        {
+            <div class="cam-debug-panel">
+                <div class="cam-debug-row">
+                    <label>FOV <span>@_camFov.ToString("0")</span></label>
+                    <input type="range" min="10" max="90" step="1"
+                           value="@_camFov" @oninput="OnCamFovInput" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Depth squash <span>@_camTilt.ToString("0.00")</span></label>
+                    <input type="range" min="0" max="1" step="0.01"
+                           value="@_camTilt" @oninput="OnCamTiltInput" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Pitch <span>@_camPitch.ToString("0.00")</span></label>
+                    <input type="range" min="0.1" max="2.2" step="0.01"
+                           value="@_camPitch" @oninput="OnCamPitchInput" />
+                </div>
+                <div class="cam-debug-row">
+                    <label>Zoom <span>@_camZoom.ToString("0.00")</span></label>
+                    <input type="range" min="0.2" max="4" step="0.01"
+                           value="@_camZoom" @oninput="OnCamZoomInput" />
+                </div>
+                <button class="cam-debug-reset" @onclick="ResetCameraDebug">Reset</button>
+            </div>
+        }
     }
 </div>
 
@@ -84,9 +149,77 @@
     private string? _enemyId;
     private string _enemyName = "";
     private int _enemyMaxHp = 1;
-    private bool _enemyFrozen;
+    private bool EnemyFrozen => State?.EnemyFrozen ?? false;
 
-    private sealed record Overhead(string Icon, string Css);
+    // Admin camera debug panel (test fights only) — mirrors the JS defaults
+    // in voxel.js (CAM_FOV, TILT, POS_TILT, camZoom=1) so the sliders start
+    // in sync with what's already on screen.
+    private bool _camPanelOpen;
+    private double _camFov = 25;
+    private double _camTilt = 0.3;
+    private double _camPitch = 0.7;
+    private double _camZoom = 1.0;
+
+    // Movement-feel debug panel (test fights only). Unlike CAM, values are
+    // SEEDED from voxel.getMovementDebug on open: tuning persists in
+    // localStorage across reloads, so the panel must read, not assume.
+    private bool _movePanelOpen;
+    private double _mvSpeed = 1.0;
+    private double _mvTurn = 0.03;
+    private double _mvIn = 0.006;
+    private double _mvOut = 0.01;
+    private double _mvStride = 0.6;
+    private double _mvStepHz = 4.3;
+    private bool _mvInstantGait;
+    private bool _mvHardStop;
+
+    private sealed record MoveTune(double SpeedMult, double TurnRate, double StrideIn,
+                                   double StrideOut, double RunStride, double MaxStepHz,
+                                   bool InstantGait, bool HardStop);
+
+    private async Task ToggleMovePanel()
+    {
+        _movePanelOpen = !_movePanelOpen;
+        if (_movePanelOpen)
+        {
+            var t = await JS.InvokeAsync<MoveTune>("voxel.getMovementDebug");
+            _mvSpeed = t.SpeedMult; _mvTurn = t.TurnRate;
+            _mvIn = t.StrideIn; _mvOut = t.StrideOut; _mvStride = t.RunStride;
+            _mvStepHz = t.MaxStepHz;
+            _mvInstantGait = t.InstantGait; _mvHardStop = t.HardStop;
+        }
+        StateHasChanged();
+    }
+
+    private Task OnMoveInput(ChangeEventArgs e, Action<double> assign)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v)) assign(v);
+        return PushMovementDebug();
+    }
+
+    private Task OnMoveCheck(ChangeEventArgs e, Action<bool> assign)
+    {
+        if (e.Value is bool b) assign(b);
+        return PushMovementDebug();
+    }
+
+    private Task PushMovementDebug() =>
+        JS.InvokeVoidAsync("voxel.setMovementDebug", "battle-canvas", new
+        {
+            speedMult = _mvSpeed, turnRate = _mvTurn,
+            strideIn = _mvIn, strideOut = _mvOut, runStride = _mvStride,
+            maxStepHz = _mvStepHz,
+            instantGait = _mvInstantGait, hardStop = _mvHardStop,
+        }).AsTask();
+
+    private Task ResetMovementDebug()
+    {
+        _mvSpeed = 1.0; _mvTurn = 0.03; _mvIn = 0.006; _mvOut = 0.01;
+        _mvStride = 0.6; _mvStepHz = 4.3; _mvInstantGait = false; _mvHardStop = false;
+        return PushMovementDebug();
+    }
+
+    private string? _lastOverheads;
 
     protected override void OnParametersSet()
     {
@@ -117,17 +250,19 @@
             e.Kind == LogEntryKind.BossSpecial &&
             (DateTimeOffset.UtcNow - e.Timestamp) < TimeSpan.FromSeconds(2.4))?.Message;
 
-    private Overhead? PlayerOverhead => State?.Player switch
+    // Overhead prayer icons are drawn in-canvas by voxel.js (pixel art);
+    // these just name the active icon per side.
+    private string? PlayerOverhead => State?.Player switch
     {
-        { ActiveProtection: ProtectionPrayer.Melee } => new("⛉⚔", "melee"),
-        { ActiveProtection: ProtectionPrayer.Range } => new("⛉➶", "ranged"),
-        { ActiveProtection: ProtectionPrayer.Magic } => new("⛉✦", "magic"),
-        { PietyActive: true }                        => new("⚡", "piety"),
+        { ActiveProtection: ProtectionPrayer.Melee } => "melee",
+        { ActiveProtection: ProtectionPrayer.Range } => "ranged",
+        { ActiveProtection: ProtectionPrayer.Magic } => "magic",
+        { PietyActive: true }                        => "piety",
         _ => null,
     };
 
-    private Overhead? NpcOverhead =>
-        State?.ActiveNpc is { WarlordPrayerActive: true } ? new("⛉", "melee") : null;
+    private string? NpcOverhead =>
+        State?.ActiveNpc is { WarlordPrayerActive: true } ? "melee" : null;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -142,13 +277,17 @@
                 playerUrl = "assets/player_sakuna.vox",
                 playerRigId = "player_sakuna",
                 enemyId = _enemyId,
-                zonePlayerId = "zone-player",
-                zoneNpcId = "zone-npc",
                 scene = State?.TestScene == true ? "field" : "arena",
                 dotnetRef = _selfRef,
             });
             _lastWeapon = WeaponId;
             await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId);
+            // Solid obstacles the movers pathfind around — placed as low props the
+            // scene renders on those tiles. Fixed per duel, so send once on mount.
+            await JS.InvokeVoidAsync("voxel.setBattleObstacles", "battle-canvas",
+                State?.Obstacles.Select(o => new { x = o.X, z = o.Z }).ToArray() ?? []);
+            // Landscape fight auto-rotates in portrait; keep canvas taps mapped.
+            await JS.InvokeVoidAsync("voxel.watchOrientation", "battle-canvas");
             _inited = true;
             return;
         }
@@ -184,37 +323,71 @@
 
         // Sim tile positions — the scene walks the actors toward these.
         if (State is { } s)
+        {
             await JS.InvokeVoidAsync("voxel.setBattlePositions", "battle-canvas", new
             {
                 player = new { x = s.PlayerTile.X, z = s.PlayerTile.Z },
                 enemy = new { x = s.NpcTile.X, z = s.NpcTile.Z },
             });
+            // Tile hazards (boss mechanic): pending warnings + active pools.
+            // JS diffs pending→gone itself to fire the eruption burst, so no
+            // separate event plumbing is needed and visuals can't desync.
+            await JS.InvokeVoidAsync("voxel.setBattleHazards", "battle-canvas", new
+            {
+                pending = s.Hazards.Where(h => !h.Pool).Select(h => new { x = h.X, z = h.Z, t = h.TicksLeft }).ToArray(),
+                pools   = s.Hazards.Where(h =>  h.Pool).Select(h => new { x = h.X, z = h.Z }).ToArray(),
+            });
+        }
+
+        // Overhead prayer icons (drawn in-canvas); send only on change.
+        var overheads = $"{PlayerOverhead}|{NpcOverhead}";
+        if (overheads != _lastOverheads)
+        {
+            _lastOverheads = overheads;
+            await JS.InvokeVoidAsync("voxel.setBattleOverheads", "battle-canvas",
+                new { player = PlayerOverhead, enemy = NpcOverhead });
+        }
 
         var newEntries = LogEntries.Count > _lastCount ? LogEntries.Skip(_lastCount).ToList() : [];
         _lastCount = LogEntries.Count;
 
         foreach (var e in newEntries)
         {
+            // Eating: raise-to-mouth animation with the food in the off-hand.
+            if (e.Kind == LogEntryKind.Info && e.Message.StartsWith("You eat the "))
+            {
+                var rest = e.Message["You eat the ".Length..];
+                var dot = rest.IndexOf('.');
+                var item = dot > 0 ? rest[..dot] : rest;
+                await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
+                    new { type = "playerEat", item });
+                continue;
+            }
             if (e.Kind is not (LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)) continue;
             var parts = e.Message.Split(':');
             int dmg = int.TryParse(parts[0], out var d) ? d : 0;
             string tier = parts.Length > 1 ? parts[1] : "normal";
+            // A spec hitsplat carries the weapon it was thrown with (e.g. a dds
+            // spec that reverts to the main-hand this same tick) — show that
+            // weapon + its animation, not the reverted equipped weapon.
+            string? specWeapon = parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
 
             // HitsplatPlayer = damage dealt BY the player → lands on the enemy;
             // HitsplatNpc = damage dealt BY the NPC → lands on the player.
+            // (The splat itself is drawn in-canvas by battleEvent's impact.)
             bool onEnemy = e.Kind == LogEntryKind.HitsplatPlayer;
-            string zone = onEnemy ? "zone-npc" : "zone-player";
-            await JS.InvokeVoidAsync("spawnHitsplats",
-                (object)new[] { new { zoneId = zone, damage = dmg, tier } });
 
-            // DoT ticks aren't attacks — no swing, just the victim's flash.
-            if (tier != "poison")
+            // DoT ticks and ground hazards aren't attacks — no swing, just
+            // the victim's flash (the eruption burst is drawn tile-side).
+            if (tier is not ("poison" or "hazard"))
                 await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
                     new
                     {
                         type = onEnemy ? "playerAttack" : "enemyAttack",
                         style = onEnemy ? PlayerStyle() : null,
                         kind = onEnemy ? PlayerKind() : null,
+                        tier,   // 'spec' selects the weapon's special-attack flourish
+                        weapon = onEnemy ? (specWeapon ?? WeaponId) : null, // spec weapon wins the revert race
                     });
             await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
                 new { type = onEnemy ? "enemyHit" : "playerHit", tier, dmg });
@@ -262,16 +435,41 @@
     // (disengaging), an enemy tap re-engages the chase.
     private async Task ToggleFreezeEnemy()
     {
-        _enemyFrozen = !_enemyFrozen;
         if (GameSvc.PlayerId is { } pid)
-            await GameSvc.DispatchAsync(new FreezeEnemyCommand(pid, _enemyFrozen));
+            await GameSvc.DispatchAsync(new FreezeEnemyCommand(pid, !EnemyFrozen));
+    }
+
+    // Camera debug panel: each slider pushes the full set of four values —
+    // voxel.setCameraDebug is idempotent and cheap, so no point diffing.
+    private Task OnCamFovInput(ChangeEventArgs e) => SetCamField(e, v => _camFov = v);
+    private Task OnCamTiltInput(ChangeEventArgs e) => SetCamField(e, v => _camTilt = v);
+    private Task OnCamPitchInput(ChangeEventArgs e) => SetCamField(e, v => _camPitch = v);
+    private Task OnCamZoomInput(ChangeEventArgs e) => SetCamField(e, v => _camZoom = v);
+
+    private Task SetCamField(ChangeEventArgs e, Action<double> assign)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v)) assign(v);
+        return PushCameraDebug();
+    }
+
+    private Task PushCameraDebug() =>
+        JS.InvokeVoidAsync("voxel.setCameraDebug", "battle-canvas",
+            new { fov = _camFov, tilt = _camTilt, pitch = _camPitch, zoom = _camZoom }).AsTask();
+
+    private Task ResetCameraDebug()
+    {
+        _camFov = 25; _camTilt = 0.3; _camPitch = 0.7; _camZoom = 1.0;
+        return PushCameraDebug();
     }
 
     [JSInvokable]
     public async Task OnGroundClick(int x, int z)
     {
         if (GameSvc.PlayerId is { } pid)
+        {
             await GameSvc.DispatchAsync(new MoveToCommand(pid, x, z));
+            await TickService.KickMoveAsync(pid); // step on the click, not next tick
+        }
     }
 
     [JSInvokable]

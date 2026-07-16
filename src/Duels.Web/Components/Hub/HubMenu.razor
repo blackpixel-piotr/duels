@@ -1,4 +1,5 @@
 @using Duels.Application.GameSession
+@inject IJSRuntime JS
 
 <div class="hub-menu">
     @if (State?.CanPrestige == true)
@@ -30,6 +31,35 @@
             <span class="hub-card-sub">Whip + DDS vs Barbarian — dev shortcut</span>
         </span>
     </button>
+
+    <button class="hub-card hub-card-test" disabled="@Processing" @onclick="() => OnTestBoss.InvokeAsync()">
+        <span class="hub-card-icon">🐛</span>
+        <span class="hub-card-body">
+            <span class="hub-card-title">TEST BOSS</span>
+            <span class="hub-card-sub">Whip + DDS vs Maggot King — hazard-tile playtest</span>
+        </span>
+    </button>
+
+    <button class="hub-card hub-card-test" @onclick="ToggleStyle">
+        <span class="hub-card-icon">🎨</span>
+        <span class="hub-card-body">
+            <span class="hub-card-title">STYLE: @_style.ToUpperInvariant()</span>
+            <span class="hub-card-sub">Toon (Borderlands PoC) vs classic voxel — applies to the next fight</span>
+        </span>
+    </button>
+
+    @* Relative href (not a leading-slash absolute URL) so Blazor's router
+       intercepts the click for client-side navigation regardless of
+       whether the app is mounted at /duels/ or /duels/dev/ — a direct
+       browser navigation to this URL instead hits GitHub Pages' single
+       site-wide 404.html, which loads the wrong build. *@
+    <a class="hub-card hub-card-anim-editor" href="anim-editor">
+        <span class="hub-card-icon">🎬</span>
+        <span class="hub-card-body">
+            <span class="hub-card-title">ANIM EDITOR</span>
+            <span class="hub-card-sub">Keyframe weapon poses — dev tool</span>
+        </span>
+    </a>
 
     <button class="hub-card" disabled="@Processing" @onclick="() => OnArena.InvokeAsync()">
         <span class="hub-card-icon">🏟</span>
@@ -72,6 +102,7 @@
     [Parameter] public bool Processing { get; set; }
     [Parameter] public string RetryLabel { get; set; } = "⚔ Retry";
     [Parameter] public EventCallback OnTestFight { get; set; }
+    [Parameter] public EventCallback OnTestBoss { get; set; }
     [Parameter] public EventCallback OnArena { get; set; }
     [Parameter] public EventCallback OnEndless { get; set; }
     [Parameter] public EventCallback OnShop { get; set; }
@@ -80,6 +111,27 @@
     [Parameter] public EventCallback OnBeg { get; set; }
 
     private int BestWave => State?.BestEndlessWave ?? 0;
+
+    // Renderer style flag lives in localStorage (renderer-switch.js) — the
+    // dispatcher reads it at battle init, so flips apply to the NEXT fight.
+    private string _style = "voxel";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var s = await JS.InvokeAsync<string>("getRendererStyle");
+            if (s != _style) { _style = s; StateHasChanged(); }
+        }
+        catch { /* pre-render or JS not ready: keep default label */ }
+    }
+
+    private async Task ToggleStyle()
+    {
+        try { _style = await JS.InvokeAsync<string>("toggleRendererStyle"); }
+        catch { }
+    }
 
     private bool BegEligible =>
         (State?.Player?.Gold ?? int.MaxValue) < 100 && State?.HasBegged == false;

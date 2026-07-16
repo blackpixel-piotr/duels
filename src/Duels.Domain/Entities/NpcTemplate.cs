@@ -4,6 +4,15 @@ namespace Duels.Domain.Entities;
 
 public sealed record NpcSpecialMove(string WarningText, double DamageMultiplier, int CooldownTurns);
 
+/// <summary>Tile-hazard mechanic (modern boss fights): every CooldownTicks the
+/// boss marks TilesPerWave tiles around the player; after WarningTicks they
+/// erupt for EruptDamage (never prayer-reduced — dodge only) and leave pools
+/// that cost PoolDamage per tick stood on for PoolTicks.</summary>
+public sealed record HazardProfile(
+    string WarningText,
+    int CooldownTicks, int WarningTicks, int TilesPerWave,
+    int EruptDamage, int PoolTicks, int PoolDamage);
+
 public sealed class NpcTemplate
 {
     public string Id { get; }
@@ -16,6 +25,7 @@ public sealed class NpcTemplate
     public int GoldReward { get; }
     public int MaxWager { get; }
     public NpcSpecialMove? TelegraphedMove { get; }
+    public HazardProfile? Hazards { get; }
     public int AttackSpeedTicks { get; }
     /// <summary>Attack styles the NPC cycles through; defaults to just AttackType.</summary>
     public IReadOnlyList<AttackType> StyleRotation { get; }
@@ -36,7 +46,8 @@ public sealed class NpcTemplate
         NpcSpecialMove? telegraphedMove = null,
         int attackSpeedTicks = 4,
         IReadOnlyList<AttackType>? styleRotation = null,
-        int attacksPerStyle = 4)
+        int attacksPerStyle = 4,
+        HazardProfile? hazards = null)
     {
         Id = id;
         Name = name;
@@ -48,6 +59,7 @@ public sealed class NpcTemplate
         GoldReward = goldReward;
         MaxWager = maxWager;
         TelegraphedMove = telegraphedMove;
+        Hazards = hazards;
         AttackSpeedTicks = attackSpeedTicks;
         StyleRotation = styleRotation ?? [attackType];
         AttacksPerStyle = attacksPerStyle;
@@ -73,6 +85,10 @@ public sealed class NpcInstance
     // Telegraphed attack state
     public NpcSpecialMove? PendingSpecial { get; private set; }
     public int SpecialCooldown { get; private set; }
+
+    // Tile-hazard state (see HazardProfile); ticks down with the fight
+    public int HazardCooldown { get; private set; }
+    public void ResetHazardCooldown(int ticks) => HazardCooldown = ticks;
 
     // Boss state
     public int TurnsInFight { get; private set; }
@@ -104,6 +120,7 @@ public sealed class NpcInstance
         Template = template;
         CurrentHp = template.Stats.Hitpoints;
         SpecialCooldown = template.TelegraphedMove?.CooldownTurns ?? 0;
+        HazardCooldown = template.Hazards?.CooldownTicks ?? 0;
         WarlordPrayerCountdown = 3;
         CurrentAttackType = template.StyleRotation.Count > 0 ? template.StyleRotation[0] : template.AttackType;
     }
@@ -131,6 +148,10 @@ public sealed class NpcInstance
         TurnsInFight++;
         if (SpecialCooldown > 0) SpecialCooldown--;
     }
+
+    /// <summary>Hazard cadence runs on the 600ms game tick, not the NPC's
+    /// attack turns (TickFight), so waves keep coming while kiting.</summary>
+    public void TickHazardCooldown() { if (HazardCooldown > 0) HazardCooldown--; }
 
     public void SetPendingSpecial(NpcSpecialMove move) => PendingSpecial = move;
 

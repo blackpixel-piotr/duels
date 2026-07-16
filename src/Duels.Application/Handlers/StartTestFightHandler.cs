@@ -32,12 +32,15 @@ public sealed class StartTestFightHandler : ICommandHandler<StartTestFightComman
 
         player.Equip("abyssal_whip", EquipmentSlot.Weapon);
 
-        var template = _npcRepo.GetTemplate("barbarian")
-            ?? throw new InvalidOperationException("barbarian template missing");
+        var npcId = command.NpcId ?? "barbarian";
+        var template = _npcRepo.GetTemplate(npcId)
+            ?? throw new InvalidOperationException($"{npcId} template missing");
         state.StartDuel(new NpcInstance(template));
-        state.SetTestScene(true); // open-field scene instead of the arena ring
+        state.SetTestScene(true); // open-field scene instead of the arena floor
+        state.FreezeEnemy(true); // enemy starts frozen — no auto-chase/attack
+        state.HoldPositionAtSpawn(); // player starts holding — no auto-chase/attack
 
-        state.AppendLog("[TEST] Whip + DDS loaded. Fight!", LogEntryKind.System);
+        state.AppendLog($"[TEST] Whip + DDS loaded. Fight {template.Name}!", LogEntryKind.System);
 
         await _stateRepo.SaveAsync(state, ct);
         return CommandResult.Ok();

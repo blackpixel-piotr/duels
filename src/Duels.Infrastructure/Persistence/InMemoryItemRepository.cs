@@ -67,6 +67,7 @@ public sealed class InMemoryItemRepository : IItemRepository
         ["warlords_bulwark"]    = 40_000,
         ["champions_cape"]      = 100_000,
         ["corrupted_whip"]      = 30_000,
+        ["maggot_crown"]        = 50_000,
     };
 
     private static Dictionary<string, int> BuildShopPrices() => new()
@@ -277,6 +278,8 @@ public sealed class InMemoryItemRepository : IItemRepository
             MeleeDef(110, 100, 40, pray: 3), "A veteran's battle-scarred shield. Best in slot.", defenceLevelRequired: 85),
         new("champions_cape", "Champion's Cape", EquipmentSlot.Cape,
             MeleeDef(40, 40, 40, str: 8, pray: 4), "Worn only by the undefeated.", defenceLevelRequired: 90),
+        new("maggot_crown", "Maggot Crown", EquipmentSlot.Helmet,
+            MeleeDef(20, 20, 20, str: 4, pray: 5), "The Maggot King's chitinous crown. Proof you danced the dance.", defenceLevelRequired: 70),
     ];
 
     private static IEnumerable<Weapon> BuildDropOnlyWeapons() =>

@@ -1,0 +1,969 @@
+@page "/anim-editor"
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* Standalone animation authoring tool: a stationary, spin-able player
+   model whose pose is driven entirely by hand-placed keyframes instead
+   of the normal attack/walk/stance choreography. Arms are posed by IK —
+   you set a 3D target for the hand (relative to its shoulder) at a few
+   points in time, and the game interpolates the TARGET POSITION between
+   them, solving the shoulder/elbow angles each frame (see solveArm in
+   voxel.js). That's deliberately different from earlier attempts that
+   interpolated joint angles directly: dragging "hand is here in space"
+   is unambiguous, where pitch/yaw signs kept reading backwards. Root
+   motion (body lean/turn/crouch) stays plain FK — the torso doesn't
+   need IK. Export when it looks right and paste the result into
+   voxel.js. *@
+
+<div class="ae-wrap">
+    <div class="ae-canvas-col">
+        <div class="ae-canvas-box"><canvas id="@CanvasId"></canvas></div>
+        <p class="ae-hint">Drag to orbit &middot; scroll to zoom</p>
+    </div>
+
+    <div class="ae-panel">
+        <div class="ae-row">
+            <label>Weapon</label>
+            <select @bind="_weaponId" @bind:after="OnWeaponChanged">
+                <option value="">(none)</option>
+                <option value="abyssal_whip">Abyssal whip</option>
+                <option value="corrupted_whip">Corrupted whip</option>
+                <option value="dragon_dagger">Dragon dagger</option>
+                <option value="rune_scimitar">Rune scimitar</option>
+                <option value="dragon_scimitar">Dragon scimitar</option>
+            </select>
+        </div>
+
+        @if (HasLash)
+        {
+            <div class="ae-whip">
+                <h4>Whip physics <span class="ae-hint">(live — tune, then tell me)</span></h4>
+                @foreach (var k in LashKnobs)
+                {
+                    var key = k.Key;
+                    <div class="ae-row ae-channel">
+                        <label>@k.Label <span class="ae-val">@_lash[key].ToString(k.Fmt)</span></label>
+                        <input type="range" min="@k.Min" max="@k.Max" step="@k.Step"
+                               value="@_lash[key]" @oninput="e => OnLashInput(key, e)" />
+                    </div>
+                }
+                <div class="ae-row ae-crack-row">
+                    <button class="ae-crack" disabled="@_previewing" @onclick="PreviewWhipCrack">⚡ Preview whip crack</button>
+                    <span class="ae-hint">plays the real attack — tune Strike power / Tip snap against it</span>
+                </div>
+            </div>
+        }
+
+        <div class="ae-row">
+            <label>Duration</label>
+            <input type="number" min="50" max="5000" step="10" value="@_durationMs"
+                   @onchange="OnDurationChanged" /> <span>ms</span>
+        </div>
+
+        <div class="ae-row ae-transport">
+            <button @onclick="TogglePlay">@(_playing ? "Pause" : "Play")</button>
+            <label class="ae-inline"><input type="checkbox" @bind="_loop" @bind:after="PushPreview" /> Loop</label>
+        </div>
+
+        <div class="ae-row">
+            <label>Time: @_scrubMs.ToString("0") / @_durationMs.ToString("0") ms</label>
+            <input type="range" min="0" max="@_durationMs" step="1" value="@_scrubMs"
+                   @oninput="OnScrubInput" class="ae-scrub" />
+        </div>
+
+        <div class="ae-row">
+            <label>Part</label>
+            <select value="@_selectedPart" @onchange="OnPartChanged">
+                @foreach (var part in Parts)
+                {
+                    <option value="@part.Key">@part.Label</option>
+                }
+            </select>
+        </div>
+
+        @foreach (var ch in CurrentChannels)
+        {
+            var chan = ch.Key;
+            <div class="ae-row ae-channel">
+                <label>@ch.Label <span class="ae-val">@_liveValues.GetValueOrDefault(chan, 0).ToString("0.00")</span></label>
+                <input type="range" min="@ch.Min" max="@ch.Max" step="0.05"
+                       value="@_liveValues.GetValueOrDefault(chan, 0)"
+                       @oninput="e => OnSliderInput(chan, e)"
+                       @onchange="() => KeyCurrent()" />
+            </div>
+        }
+        <div class="ae-row ae-buttons">
+            <button @onclick="KeyCurrent">Key pose @@ @_scrubMs.ToString("0") ms</button>
+        </div>
+        @if (_selectedPart != "0")
+        {
+            <p class="ae-hint">The character shows the whole arm: shoulder (fixed) → elbow → hand. Drag the highlighted joint directly (works with touch); the bones stay connected, so you can't pull a joint past the arm's reach. Moving the elbow swings the forearm along; then fine-tune the hand. Tap the other joint to switch to it. <b>Dragging auto-saves a keyframe for the whole arm at the current time</b> — scrub elsewhere and drag again to add the next one. Depth (Z) is whatever's "sideways" from the current camera angle, so orbit 90° and drag again to reach it.</p>
+        }
+
+        @{ var lanes = PartKeys.Where(k => _keys.TryGetValue(k, out var l) && l.Count > 0).ToList(); }
+        <div class="ae-timeline">
+            <h4>Timeline <span class="ae-hint">(click to select, drag to retime)</span></h4>
+            <div class="ae-tl-track" @ref="_tlTrack"
+                 @onpointermove="TlMove" @onpointerup="TlUp" @onpointercancel="TlUp">
+                <div class="ae-tl-ruler"><span>0</span><span>@_durationMs.ToString("0") ms</span></div>
+                @if (lanes.Count == 0)
+                {
+                    <p class="ae-hint">No keyframes yet.</p>
+                }
+                @foreach (var part in lanes)
+                {
+                    <div class="ae-tl-lane">
+                        <div class="ae-tl-label">@PartLabel(part)</div>
+                        <div class="ae-tl-rail">
+                            @foreach (var kf in _keys[part])
+                            {
+                                var pct = (_durationMs > 0 ? kf.TimeMs / _durationMs * 100 : 0)
+                                    .ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+                                var active = _tlDrag is not null && ReferenceEquals(_tlDrag.Key, kf);
+                                var selected = _selKey is not null && ReferenceEquals(_selKey.Key, kf);
+                                <div class="ae-tl-marker @(active ? "active" : "") @(selected ? "selected" : "")"
+                                     style="left:@(pct)%"
+                                     title="@kf.TimeMs.ToString("0") ms"
+                                     @onpointerdown="e => TlDown(part, kf, e)"
+                                     @onpointerdown:preventDefault="true"></div>
+                            }
+                        </div>
+                    </div>
+                }
+                <div class="ae-tl-playhead"
+                     style="left:@((_durationMs > 0 ? _scrubMs / _durationMs * 100 : 0).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+            </div>
+            <div class="ae-row ae-buttons">
+                <button disabled="@(_selKey is null)" @onclick="DuplicateSelectedKey">Duplicate key →</button>
+                <span class="ae-hint">copies the selected marker ~@DupOffsetMs.ToString("0") ms forward</span>
+            </div>
+        </div>
+
+        <div class="ae-kf-list">
+            <h4>Keyframes <span class="ae-hint">(one per part &amp; time — the whole part's pose)</span></h4>
+            @if (AllKeyframes().Count == 0)
+            {
+                <p class="ae-hint">No keyframes yet — scrub to a time and drag a joint (auto-keys), or hit "Key pose".</p>
+            }
+            @foreach (var row in AllKeyframes())
+            {
+                <div class="ae-kf-row">
+                    <span class="ae-kf-label">@PartLabel(row.Part)</span>
+                    <input type="number" step="1" value="@row.Key.TimeMs"
+                           @onchange="e => UpdateKfTime(row.Part, row.Key, e)" />
+                    <span>ms</span>
+                    <span class="ae-kf-summary">@KeySummary(row.Part, row.Key)</span>
+                    <button class="ae-del" @onclick="() => DeleteKf(row.Part, row.Key)">&times;</button>
+                </div>
+            }
+        </div>
+
+        <div class="ae-row ae-buttons">
+            <button @onclick="LoadWhipDefault">Load whip (starter)</button>
+            <button @onclick="ClearAll">Clear all</button>
+            <button @onclick="ExportSnippet">Export</button>
+        </div>
+
+        @if (_exportText is not null)
+        {
+            <textarea readonly class="ae-export" rows="16">@_exportText</textarea>
+        }
+    </div>
+</div>
+
+<style>
+    /* html/body are overflow:hidden site-wide (the game shell is a fixed-
+       viewport terminal UI) — fine for every other page, but this editor's
+       control panel is taller than one phone screen. Make .ae-wrap its own
+       scroll container instead of relying on document scroll, which a
+       touch/wheel gesture on body can't move. */
+    .ae-wrap { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; height: 100vh; overflow-y: auto; background: var(--bg); color: var(--text); font-family: var(--font); box-sizing: border-box; }
+    /* Sticky: dragging a slider or tapping "Set KF" lives below the fold on
+       a phone screen, and scrolling to reach those controls (or a browser
+       auto-scrolling a just-tapped button into view) would otherwise carry
+       the canvas off-screen with it — exactly when the live preview matters
+       most. align-self:flex-start keeps its box sized to its own content
+       instead of stretching to match the taller panel column, so sticky has
+       room to engage. */
+    .ae-canvas-col { flex: 1 1 320px; min-width: 0; max-width: 480px; position: sticky; top: 8px; align-self: flex-start; z-index: 2; }
+    .ae-canvas-box { width: 100%; aspect-ratio: 480 / 500; background: var(--bg-panel); border: var(--border-w) solid var(--border); box-sizing: border-box; }
+    .ae-canvas-box canvas { width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; }
+    .ae-hint { color: var(--text-dim); font-size: 0.8em; margin: 4px 0; }
+    .ae-panel { flex: 1 1 320px; min-width: 0; max-width: 460px; display: flex; flex-direction: column; gap: 8px; }
+    .ae-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .ae-row label { min-width: 90px; color: var(--text-dim); }
+    @@media (max-width: 700px) {
+        .ae-wrap { padding: 8px; gap: 10px; }
+        .ae-canvas-col, .ae-panel { flex-basis: 100%; max-width: 100%; }
+    }
+    .ae-inline { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    .ae-val { color: var(--amber); }
+    select, input[type=number] { background: var(--bg-input); color: var(--text); border: 1px solid var(--border); font-family: var(--font); padding: 2px 4px; }
+    input[type=number] { width: 70px; }
+    input[type=range] { flex: 1 1 auto; }
+    button { background: var(--bg-panel); color: var(--text); border: 1px solid var(--border); font-family: var(--font); padding: 4px 10px; cursor: pointer; }
+    button:hover { border-color: var(--amber); color: var(--amber); }
+    .ae-channel { background: var(--bg-panel); padding: 6px 8px; border: 1px solid var(--border); }
+    .ae-kf-btn { padding: 2px 8px; font-size: 0.85em; }
+    .ae-whip { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 6px 0; display: flex; flex-direction: column; gap: 6px; }
+    .ae-whip h4 { margin: 0; color: var(--purple); font-weight: normal; }
+    .ae-crack-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+    .ae-crack { align-self: stretch; background: var(--purple); color: #fff; border: none; padding: 5px 8px; cursor: pointer; font: inherit; }
+    .ae-crack:disabled { opacity: 0.55; cursor: default; }
+    /* Keyframe timeline */
+    .ae-timeline { border-top: 1px solid var(--border); padding-top: 8px; }
+    .ae-timeline h4 { margin: 0 0 6px; color: var(--text-dim); font-weight: normal; }
+    .ae-tl-track { position: relative; padding: 0; touch-action: none; user-select: none; }
+    .ae-tl-ruler { display: flex; justify-content: space-between; font-size: 0.7em; color: var(--text-dim); margin-bottom: 2px; }
+    .ae-tl-lane { margin-bottom: 6px; }
+    .ae-tl-label { font-size: 0.72em; color: var(--text-dim); margin-bottom: 1px; }
+    .ae-tl-rail { position: relative; height: 16px; background: var(--bg-input); border: 1px solid var(--border); box-sizing: border-box; }
+    .ae-tl-marker { position: absolute; top: 50%; width: 11px; height: 11px; background: var(--amber); border: 1px solid #000; transform: translate(-50%, -50%) rotate(45deg); cursor: ew-resize; touch-action: none; }
+    .ae-tl-marker::after { content: ""; position: absolute; inset: -8px; } /* fat touch/hit area */
+    .ae-tl-marker:hover, .ae-tl-marker.active { background: var(--yellow); width: 13px; height: 13px; z-index: 3; }
+    .ae-tl-marker.selected { outline: 2px solid var(--yellow); outline-offset: 1px; z-index: 4; }
+    .ae-tl-playhead { position: absolute; top: 14px; bottom: 0; width: 1px; background: var(--blue); pointer-events: none; z-index: 2; }
+    .ae-kf-list { border-top: 1px solid var(--border); padding-top: 8px; }
+    .ae-kf-list h4 { margin: 0 0 6px; color: var(--text-dim); font-weight: normal; }
+    .ae-kf-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.85em; }
+    .ae-kf-label { flex: 1 1 auto; color: var(--text-dim); }
+    .ae-del { color: var(--red); padding: 2px 8px; }
+    .ae-buttons { justify-content: flex-start; }
+    .ae-export { width: 100%; background: var(--bg-input); color: var(--green); border: 1px solid var(--border); font-family: var(--font); font-size: 0.8em; }
+</style>
+
+@code {
+    private const string CanvasId = "anim-editor-canvas";
+
+    // A keyframe is a COUPLED snapshot of a whole part's pose at a time — all
+    // of the part's channels together (root: yaw,pitch,dy; arm: ex,ey,ez,hx,
+    // hy,hz), never per-channel. That coupling is what makes interpolation
+    // smooth (every channel shares the same key-times) and lets you pose the
+    // elbow and hand independently without one resetting the other.
+    private sealed class PoseKey
+    {
+        public double TimeMs { get; set; }
+        public double[] Vals { get; set; } = [];
+    }
+
+    // Selectable parts. "0" = root (plain FK). Each arm exposes its ELBOW and
+    // HAND as separate selections; both feed the same voxel.js arm track
+    // (keyed "R"/"L") but on disjoint channels (ex/ey/ez vs hx/hy/hz), so the
+    // shoulder→elbow→hand chain is authored joint by joint (see
+    // computePoseV2's editor branch). StorageKey maps a selection to its track
+    // key; the "-elbow"/"-hand" suffix picks the channel set.
+    private static readonly (string Key, string Label)[] Parts =
+    [
+        ("0",       "Root (body)"),
+        ("R-elbow", "R Elbow"),
+        ("R-hand",  "R Hand (weapon)"),
+        ("L-elbow", "L Elbow"),
+        ("L-hand",  "L Hand (off)"),
+    ];
+
+    private static readonly (string Key, string Label, double Min, double Max)[] RootChannels =
+    [
+        ("yaw",   "Yaw",          -1.5, 1.5),
+        ("pitch", "Pitch",        -1.0, 1.0),
+        ("dy",    "Dy (crouch)",  -3.0, 1.0),
+    ];
+
+    // Elbow/hand channels are offsets FROM REST (0 = arm hanging straight
+    // down), in voxels. Range spans the full bone sphere (~±2·bone length);
+    // anything beyond is projected back onto the sphere by voxel.js anyway.
+    private static readonly (string Key, string Label, double Min, double Max)[] ElbowChannels =
+    [
+        ("ex", "X (side)",     -22, 22),
+        ("ey", "Y (height)",   -22, 22),
+        ("ez", "Z (fwd/back)", -22, 22),
+    ];
+
+    private static readonly (string Key, string Label, double Min, double Max)[] HandChannels =
+    [
+        ("hx", "X (side)",     -22, 22),
+        ("hy", "Y (height)",   -22, 22),
+        ("hz", "Z (fwd/back)", -22, 22),
+    ];
+
+    // The full, ordered channel set for an arm part ("R"/"L") — elbow first,
+    // then hand. A PoseKey.Vals for an arm is these six values, in this order;
+    // ChanIndex maps a channel key to its slot.
+    private static readonly (string Key, string Label, double Min, double Max)[] ArmChannels =
+        [.. ElbowChannels, .. HandChannels];
+
+    // Maps a selection ("R-elbow") to its part storage key ("R"); root and any
+    // unknown value pass through unchanged. Keyframes and the working pose are
+    // stored per part, so both joints of an arm live under one key.
+    private static string StorageKey(string sel) =>
+        sel.StartsWith("R-") ? "R" : sel.StartsWith("L-") ? "L" : sel;
+
+    // The full channel set of a part storage key (drives PoseKey.Vals order).
+    private static (string Key, string Label, double Min, double Max)[] PartChannels(string key) =>
+        key == "0" ? RootChannels : ArmChannels;
+
+    private static int ChanIndex(string key, string chan)
+    {
+        var chans = PartChannels(key);
+        for (int i = 0; i < chans.Length; i++) if (chans[i].Key == chan) return i;
+        return -1;
+    }
+
+    // The channels shown as sliders for the current selection: root's three,
+    // or just the selected joint's three (elbow or hand).
+    private (string Key, string Label, double Min, double Max)[] CurrentChannels =>
+        _selectedPart == "0" ? RootChannels
+        : _selectedPart.EndsWith("-elbow") ? ElbowChannels
+        : HandChannels;
+
+    // Every part storage key that can hold keyframes.
+    private static readonly string[] PartKeys = ["0", "R", "L"];
+
+    // Live whip-physics knobs (see voxel.js get/setLashDebug). Shown only for
+    // lash weapons; tune against the playing swing, then bake the chosen values
+    // into rigs.json + gen_models.py.
+    private static readonly (string Key, string Label, double Min, double Max, double Step, string Fmt)[] LashKnobs =
+    [
+        ("len",   "Length",              0.3,  2.0,  0.01,  "0.00"),
+        ("g",     "Weight (gravity)",    5,    60,   1,     "0"),
+        ("damp",  "Whippiness (damping)",0.90, 0.995,0.001, "0.000"),
+        ("stiff", "Stiffness",           0,    1,    0.01,  "0.00"),
+        ("thick", "Thickness",           1.5,  5.0,  0.1,   "0.0"),
+        // Attack-only (drives the crack, not the hang): strike push + tip snap.
+        ("power", "Strike power",        0,    3,    0.05,  "0.00"),
+        ("taper", "Tip snap (taper)",    0,    8,    0.1,   "0.0"),
+    ];
+    private readonly Dictionary<string, double> _lash = new()
+        { ["len"] = 0.85, ["g"] = 19, ["damp"] = 0.965, ["stiff"] = 0, ["thick"] = 2.6,
+          ["power"] = 1.5, ["taper"] = 4.5 };
+    private bool HasLash => _weaponId is "abyssal_whip" or "corrupted_whip";
+
+    // keys[partKey] = coupled pose keyframes (sorted by time). working[partKey]
+    // = the part's current channel values (the live/preview pose), refreshed
+    // from the keys on scrub and updated in place while editing.
+    private readonly Dictionary<string, List<PoseKey>> _keys = new();
+    private readonly Dictionary<string, double[]> _working = new();
+    private readonly Dictionary<string, double> _liveValues = new();
+
+    private string _selectedPart = "R-elbow";
+    private string _weaponId = "abyssal_whip";
+    private double _durationMs = 480;
+    private double _scrubMs;
+    private bool _playing;
+    private bool _previewing;
+    private bool _loop = true;
+    private string? _exportText;
+    private CancellationTokenSource? _playCts;
+
+    private DotNetObjectReference<AnimEditor>? _selfRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _selfRef = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("voxel.initBattle", CanvasId, new
+        {
+            playerUrl = "assets/player_sakuna.vox",
+            playerRigId = "player_sakuna",
+            enemyId = "goblin",
+            scene = "field",
+            editorMode = true,
+            dotnetRef = _selfRef,
+        });
+        await JS.InvokeVoidAsync("voxel.setBattleWeapon", CanvasId, _weaponId);
+        // Zoom out a bit from the battle default so a fully raised hand
+        // target still sits comfortably inside the frame with margin to spare.
+        await JS.InvokeVoidAsync("voxel.setCameraDebug", CanvasId, new { zoom = 0.72 });
+        await SyncEditorJoint();
+        RefreshLiveValues();
+        await PushPreview();
+        await InitLash();
+    }
+
+    // Direct on-canvas manipulation (see voxel.js's editorDrag handling): the
+    // drag runs entirely in JS for smooth per-frame feedback, calling back
+    // here once on release with the moved joint's final channel values
+    // (offset-from-rest). joint is "elbow" or "hand". We write those three
+    // into the arm's working pose (leaving the OTHER joint untouched) and
+    // AUTO-KEY the whole arm coupled at the current time — so the elbow
+    // persists when you next drag the hand, and every keyed time carries a
+    // complete pose that interpolates smoothly.
+    [JSInvokable]
+    public async Task OnJointDrag(string side, string joint, double v0, double v1, double v2)
+    {
+        var w = WorkingOf(side);
+        var chans = joint == "elbow" ? ElbowChannels : HandChannels;
+        var vals = new[] { v0, v1, v2 };
+        for (int i = 0; i < 3; i++)
+            w[ChanIndex(side, chans[i].Key)] = Math.Clamp(vals[i], chans[i].Min, chans[i].Max);
+        KeyPart(side);
+        SyncLiveFromWorking();
+        await PushPreview();
+        StateHasChanged();
+    }
+
+    // Tapping a joint handle on the canvas selects it (JS already switched the
+    // active handle; sync the dropdown + sliders to match).
+    [JSInvokable]
+    public void OnJointPicked(string sel)
+    {
+        _selectedPart = sel;
+        RefreshLiveValues();
+        StateHasChanged();
+    }
+
+    private Task SyncEditorJoint() =>
+        JS.InvokeVoidAsync("voxel.setEditorJoint", CanvasId, _selectedPart == "0" ? null : _selectedPart).AsTask();
+
+    private async Task OnWeaponChanged()
+    {
+        await JS.InvokeVoidAsync("voxel.setBattleWeapon", CanvasId, string.IsNullOrEmpty(_weaponId) ? null : _weaponId);
+        await InitLash();
+    }
+
+    // Pull the freshly-attached lash's knobs into the sliders (the weapon load
+    // is async, so poll briefly until the lash exists).
+    private async Task InitLash()
+    {
+        if (!HasLash) return;
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            var d = await JS.InvokeAsync<LashCfg?>("voxel.getLashDebug", CanvasId);
+            if (d is { len: > 0 })
+            {
+                _lash["len"] = d.len; _lash["g"] = d.g; _lash["damp"] = d.damp;
+                _lash["stiff"] = d.stiff; _lash["thick"] = d.thick;
+                _lash["power"] = d.power; _lash["taper"] = d.taper;
+                StateHasChanged();
+                return;
+            }
+            await Task.Delay(50);
+        }
+    }
+
+    private async Task OnLashInput(string key, ChangeEventArgs e)
+    {
+        if (!double.TryParse(e.Value?.ToString(), out var v)) return;
+        _lash[key] = v;
+        await JS.InvokeVoidAsync("voxel.setLashDebug", CanvasId,
+            new { len = _lash["len"], g = _lash["g"], damp = _lash["damp"], stiff = _lash["stiff"],
+                  thick = _lash["thick"], power = _lash["power"], taper = _lash["taper"] });
+    }
+
+    private sealed record LashCfg(double len, double g, double damp, double thick, double stiff, double power, double taper);
+
+    private async Task OnDurationChanged(ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v) && v > 0)
+        {
+            _durationMs = v;
+            _scrubMs = Math.Min(_scrubMs, _durationMs);
+            RefreshLiveValues();
+            await PushPreview();
+        }
+    }
+
+    private async Task OnScrubInput(ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v))
+        {
+            _scrubMs = v;
+            RefreshLiveValues();
+            await PushPreview();
+        }
+    }
+
+    private async Task OnPartChanged(ChangeEventArgs e)
+    {
+        if (e.Value is string s)
+        {
+            _selectedPart = s;
+            RefreshLiveValues();
+            await SyncEditorJoint();
+            // Ensure the newly selected arm has a JS track so its handles
+            // (drawn from actor.editorJoints, populated only for tracked
+            // sides) appear immediately.
+            await PushPreview();
+        }
+    }
+
+    // Slider drag: live-preview into the working pose (no key yet). The
+    // committing key happens on @onchange (release) via KeyCurrent, matching
+    // the drag-to-auto-key model.
+    private async Task OnSliderInput(string chan, ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v))
+        {
+            var key = StorageKey(_selectedPart);
+            var w = WorkingOf(key);
+            var idx = ChanIndex(key, chan);
+            if (idx >= 0) w[idx] = v;
+            _liveValues[chan] = v;
+            await PushPreview();
+        }
+    }
+
+    // Auto-key the selected part's whole current pose at the current time
+    // (from a slider release, or the explicit "Key pose" button — the latter
+    // pins a pose without moving, e.g. a rest frame at 0 ms).
+    private async Task KeyCurrent()
+    {
+        KeyPart(StorageKey(_selectedPart));
+        await PushPreview();
+    }
+
+    private async Task TogglePlay()
+    {
+        if (_playing)
+        {
+            _playing = false;
+            _playCts?.Cancel();
+            return;
+        }
+        _playing = true;
+        _playCts = new CancellationTokenSource();
+        var token = _playCts.Token;
+        var last = DateTime.UtcNow;
+        try
+        {
+            while (!token.IsCancellationRequested && _playing)
+            {
+                await Task.Delay(33, token);
+                var now = DateTime.UtcNow;
+                var dt = (now - last).TotalMilliseconds;
+                last = now;
+                _scrubMs += dt;
+                if (_scrubMs >= _durationMs)
+                {
+                    if (_loop) _scrubMs %= _durationMs;
+                    else { _scrubMs = _durationMs; _playing = false; }
+                }
+                RefreshLiveValues();
+                await PushPreview();
+                StateHasChanged();
+            }
+        }
+        catch (TaskCanceledException) { /* Pause clicked mid-delay */ }
+    }
+
+    // Play the SHIPPED whip attack (with the crack physics) in the preview so
+    // the crack — and the Strike power / Tip snap sliders — can be tuned live.
+    // The authored keyframes normally suppress all built-in choreography, so we
+    // pause playback (its scrub timer re-pushes the authored pose every frame),
+    // hand off to voxel.previewWhipAttack (clears customPose, plays a real lash
+    // attack), then restore the authored preview once the swing has finished.
+    private async Task PreviewWhipCrack()
+    {
+        if (_previewing || !HasLash) return;
+        _previewing = true;
+        if (_playing) { _playing = false; _playCts?.Cancel(); }
+        StateHasChanged();
+        try
+        {
+            var dur = await JS.InvokeAsync<double>("voxel.previewWhipAttack", CanvasId);
+            await Task.Delay((int)Math.Max(1, dur) + 80);
+        }
+        finally
+        {
+            _previewing = false;
+            await PushPreview();   // restore the authored pose
+            StateHasChanged();
+        }
+    }
+
+    // The part's working (live/preview) pose, created on demand from the
+    // committed keys interpolated at the current time.
+    private double[] WorkingOf(string key)
+    {
+        if (!_working.TryGetValue(key, out var w))
+            _working[key] = w = Interpolate(key, _scrubMs);
+        return w;
+    }
+
+    // Refill every part's working pose from its keys at the current time, then
+    // mirror the selected joint's three channels into the slider values.
+    private void RefreshLiveValues()
+    {
+        foreach (var key in PartKeys) _working[key] = Interpolate(key, _scrubMs);
+        SyncLiveFromWorking();
+    }
+
+    private void SyncLiveFromWorking()
+    {
+        _liveValues.Clear();
+        var key = StorageKey(_selectedPart);
+        var w = WorkingOf(key);
+        foreach (var ch in CurrentChannels)
+        {
+            var idx = ChanIndex(key, ch.Key);
+            if (idx >= 0) _liveValues[ch.Key] = w[idx];
+        }
+    }
+
+    // Bone lengths of the editor's rig (player_sakuna: shoulder y39 → elbow
+    // y29 → hand y18). Used to project arm channels onto their spheres for
+    // slerp — must match voxel.js's L1/L2 (ruPiv[1]-rlPiv[1], rlPiv[1]-hand[1]).
+    private const double L1 = 10.0, L2 = 11.0;
+
+    // Interpolate a whole part's coupled pose at timeMs → all its channels.
+    // Clamp-holds before the first / after the last key; rest (zeros) if none.
+    // Arm parts blend with slerp (see BlendKeys) so the joints sweep at a
+    // steady speed — the SAME curve voxel.js plays, so the scrubbed working
+    // pose, slider values, "Key pose" snapshots, and the pNorm overlay all sit
+    // on the played arc. Root stays linear.
+    private double[] Interpolate(string key, double timeMs)
+    {
+        var n = PartChannels(key).Length;
+        if (!_keys.TryGetValue(key, out var list) || list.Count == 0) return new double[n];
+        // Seamless loop: outside the keyed span, blend the last key back to the
+        // first across the duration boundary (span W) so a repeating animation
+        // joins smoothly — the same cyclic wrap voxel.js plays. Off (or <2 keys)
+        // it clamp-holds. Must match interpArm/lerpKeysLoop.
+        var first = list[0];
+        var lastKf = list[^1];
+        if (_loop && list.Count >= 2)
+        {
+            var w = (first.TimeMs + _durationMs) - lastKf.TimeMs;
+            if (w > 1e-6 && (timeMs >= lastKf.TimeMs || timeMs < first.TimeMs))
+            {
+                var lt = (timeMs >= lastKf.TimeMs ? timeMs - lastKf.TimeMs : timeMs + _durationMs - lastKf.TimeMs) / w;
+                return BlendKeys(key, lastKf.Vals, first.Vals, lt);
+            }
+        }
+        if (timeMs <= first.TimeMs) return (double[])first.Vals.Clone();
+        for (int i = 1; i < list.Count; i++)
+        {
+            if (timeMs <= list[i].TimeMs)
+            {
+                var a = list[i - 1];
+                var b = list[i];
+                var span = b.TimeMs - a.TimeMs;
+                var t = span > 1e-9 ? (timeMs - a.TimeMs) / span : 1; // coincident keys: avoid /0
+                return BlendKeys(key, a.Vals, b.Vals, t);
+            }
+        }
+        return (double[])lastKf.Vals.Clone();
+    }
+
+    // Blend two coupled keys. Root: plain per-channel lerp. Arm: reconstruct
+    // the elbow (L1) and hand-local (L2) direction vectors, slerp each, and
+    // write back offset-from-rest channels — matching voxel.js's interpArm.
+    private static double[] BlendKeys(string key, double[] a, double[] b, double t)
+    {
+        if (key == "0")
+        {
+            var outv = new double[a.Length];
+            for (int c = 0; c < a.Length; c++) outv[c] = a[c] + (b[c] - a[c]) * t;
+            return outv;
+        }
+        var ea = ToLen(a[0], -L1 + a[1], a[2], L1);
+        var eb = ToLen(b[0], -L1 + b[1], b[2], L1);
+        var e = Slerp(ea, eb, t);
+        var ha = ToLen(a[3], -L2 + a[4], a[5], L2);
+        var hb = ToLen(b[3], -L2 + b[4], b[5], L2);
+        var h = Slerp(ha, hb, t);
+        return [e[0], e[1] + L1, e[2], h[0], h[1] + L2, h[2]];
+    }
+
+    private static double[] ToLen(double x, double y, double z, double L)
+    {
+        var m = Math.Sqrt(x * x + y * y + z * z);
+        return m < 1e-4 ? [0, -L, 0] : [x / m * L, y / m * L, z / m * L];
+    }
+
+    // Constant-velocity spherical interpolation (mirrors voxel.js slerpVec,
+    // including the antipodal Rodrigues fallback).
+    private static double[] Slerp(double[] a, double[] b, double t)
+    {
+        var la = Math.Sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+        var lb = Math.Sqrt(b[0] * b[0] + b[1] * b[1] + b[2] * b[2]);
+        if (la < 1e-9 || lb < 1e-9) return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+        var dot = Math.Clamp((a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb), -1.0, 1.0);
+        var th = Math.Acos(dot);
+        var s = Math.Sin(th);
+        if (s > 1e-4)
+        {
+            double w0 = Math.Sin((1 - t) * th) / s, w1 = Math.Sin(t * th) / s;
+            return [w0 * a[0] + w1 * b[0], w0 * a[1] + w1 * b[1], w0 * a[2] + w1 * b[2]];
+        }
+        if (dot > 0) return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+        // Antipodal: half-turn around an arbitrary axis ⟂ a (Rodrigues).
+        double[] ax = Math.Abs(a[0]) / la > 0.9 ? [0, 1, 0] : [1, 0, 0];
+        double px = a[1] * ax[2] - a[2] * ax[1], py = a[2] * ax[0] - a[0] * ax[2], pz = a[0] * ax[1] - a[1] * ax[0];
+        var pm = Math.Sqrt(px * px + py * py + pz * pz);
+        if (pm < 1e-9) pm = 1;
+        px /= pm; py /= pm; pz /= pm;
+        double ang = t * Math.PI, c = Math.Cos(ang), sn = Math.Sin(ang);
+        double cx = py * a[2] - pz * a[1], cy = pz * a[0] - px * a[2], cz = px * a[1] - py * a[0];
+        return [a[0] * c + cx * sn, a[1] * c + cy * sn, a[2] * c + cz * sn];
+    }
+
+    // Upsert one coupled keyframe for a part at the current time, snapshotting
+    // its whole working pose (all channels together).
+    private void KeyPart(string key)
+    {
+        if (!_keys.TryGetValue(key, out var list)) _keys[key] = list = new();
+        list.RemoveAll(k => Math.Abs(k.TimeMs - _scrubMs) < 1);
+        list.Add(new PoseKey { TimeMs = _scrubMs, Vals = (double[])WorkingOf(key).Clone() });
+        list.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+    }
+
+    private async Task DeleteKf(string part, PoseKey kf)
+    {
+        if (_keys.TryGetValue(part, out var list)) list.Remove(kf);
+        if (_selKey is not null && ReferenceEquals(_selKey.Key, kf)) _selKey = null;
+        RefreshLiveValues();
+        await PushPreview();
+    }
+
+    private async Task UpdateKfTime(string part, PoseKey kf, ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v))
+        {
+            RetimeKey(part, kf, v);
+            RefreshLiveValues();
+            await PushPreview();
+        }
+    }
+
+    // ── Keyframe timeline (drag markers to retime) ──────────────────────────
+    private ElementReference _tlTrack;
+    private sealed record TlDrag(string Part, PoseKey Key);
+    private TlDrag? _tlDrag;
+    private double _tlLeft, _tlWidth;
+    private sealed record TlRect(double left, double width);
+
+    // The persistently-selected keyframe (last one grabbed/clicked on the
+    // timeline) — target of the Duplicate button. Kept after the drag ends.
+    private sealed record SelKey(string Part, PoseKey Key);
+    private SelKey? _selKey;
+    private const double DupOffsetMs = 40; // duplicate lands this far forward
+                                           // (small, just enough to grab)
+
+    // Clamp a key to [0, duration] and keep it ≥1 ms from its part's siblings
+    // (two keys at the same time would divide-by-zero in the interpolators),
+    // then re-sort so ordering stays valid.
+    private void RetimeKey(string part, PoseKey kf, double ms)
+    {
+        ms = Math.Round(Math.Max(0, Math.Min(_durationMs, ms)));
+        if (_keys.TryGetValue(part, out var list))
+        {
+            foreach (var other in list)
+                if (!ReferenceEquals(other, kf) && Math.Abs(other.TimeMs - ms) < 1)
+                    ms = other.TimeMs + (ms >= other.TimeMs ? 1 : -1);
+            ms = Math.Max(0, Math.Min(_durationMs, ms));
+            kf.TimeMs = ms;
+            list.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+        }
+        else kf.TimeMs = ms;
+    }
+
+    private async Task TlDown(string part, PoseKey kf, PointerEventArgs e)
+    {
+        _tlDrag = new TlDrag(part, kf);
+        _selKey = new SelKey(part, kf); // grabbing/clicking a marker selects it
+        // Synchronous interop so the track rect is ready before the first
+        // pointermove (an awaited call leaves _tlWidth=0 during a fast drag).
+        var r = ((IJSInProcessRuntime)JS).Invoke<TlRect>("voxel.timelineGrab", _tlTrack, e.PointerId);
+        _tlLeft = r.left; _tlWidth = r.width;
+        // Grabbing a key selects its part and scrubs to it, so the live preview
+        // shows the pose you're moving.
+        _selectedPart = part switch { "R" => "R-elbow", "L" => "L-elbow", _ => "0" };
+        await SyncEditorJoint();
+        _scrubMs = kf.TimeMs;
+        RefreshLiveValues();
+        await PushPreview();
+    }
+
+    private async Task TlMove(PointerEventArgs e)
+    {
+        if (_tlDrag is null || _tlWidth <= 0) return;
+        var frac = Math.Max(0, Math.Min(1, (e.ClientX - _tlLeft) / _tlWidth));
+        RetimeKey(_tlDrag.Part, _tlDrag.Key, frac * _durationMs);
+        _scrubMs = _tlDrag.Key.TimeMs; // playhead + preview follow the moving key
+        RefreshLiveValues();
+        await PushPreview();
+        StateHasChanged();
+    }
+
+    private void TlUp(PointerEventArgs e) => _tlDrag = null;
+
+    // Copy the selected keyframe and drop it a short step forward (or backward
+    // if that runs past the end) so its marker sits just clear of the original
+    // and is easy to grab. The copy becomes the new selection so repeats chain.
+    private async Task DuplicateSelectedKey()
+    {
+        if (_selKey is null || !_keys.TryGetValue(_selKey.Part, out var list)) return;
+        var src = _selKey.Key;
+        var ms = src.TimeMs + DupOffsetMs > _durationMs ? src.TimeMs - DupOffsetMs : src.TimeMs + DupOffsetMs;
+        var copy = new PoseKey { TimeMs = src.TimeMs, Vals = (double[])src.Vals.Clone() };
+        list.Add(copy);
+        RetimeKey(_selKey.Part, copy, ms); // clamp + nudge off collisions + re-sort
+        _selKey = new SelKey(_selKey.Part, copy);
+        _scrubMs = copy.TimeMs;
+        RefreshLiveValues();
+        await PushPreview();
+    }
+
+    private sealed record KfRow(string Part, PoseKey Key);
+
+    private List<KfRow> AllKeyframes() =>
+        _keys
+            .SelectMany(p => p.Value.Select(kf => new KfRow(p.Key, kf)))
+            .OrderBy(r => r.Part).ThenBy(r => r.Key.TimeMs)
+            .ToList();
+
+    // Compact one-line preview of a coupled key's values for the list.
+    private static string KeySummary(string part, PoseKey kf) =>
+        string.Join(" ", PartChannels(part).Select((c, i) => $"{c.Key}:{kf.Vals[i]:0.#}"));
+
+    // Labels a part storage key ("0"/"R"/"L") for the keyframe list.
+    private static string PartLabel(string key) => key switch
+    {
+        "0" => "Root (body)",
+        "R" => "R Arm",
+        "L" => "L Arm",
+        _   => Parts.FirstOrDefault(p => p.Key == key).Label ?? key,
+    };
+
+    // Expands each part's coupled pose keys into the per-channel JS shape
+    // (voxel.js consumes tracks[key][chan] = [[p,v],…] and interpolates per
+    // channel). Because every channel of a part shares the SAME key-times,
+    // per-channel interpolation reproduces the coupled motion exactly.
+    private Dictionary<string, Dictionary<string, double[][]>> BuildPayload()
+    {
+        var payload = new Dictionary<string, Dictionary<string, double[][]>>();
+        foreach (var (part, list) in _keys)
+        {
+            if (list.Count == 0) continue;
+            var chans = PartChannels(part);
+            var sorted = list.OrderBy(k => k.TimeMs).ToList();
+            var partObj = new Dictionary<string, double[][]>();
+            for (int c = 0; c < chans.Length; c++)
+                partObj[chans[c].Key] = sorted
+                    .Select(k => new[] { k.TimeMs / _durationMs, k.Vals[c] })
+                    .ToArray();
+            payload[part] = partObj;
+        }
+        return payload;
+    }
+
+    // Pushes the committed keys to the JS pose override, plus the selected
+    // part's whole working pose overlaid at the current scrub time — so a
+    // slider drag (or a scrub) previews instantly. Auto-key already commits
+    // drags, so the overlay mainly covers pre-release slider preview.
+    private async Task PushPreview()
+    {
+        var payload = BuildPayload();
+        // While playing, push only the committed keys: the render is
+        // authoritative from them, and an overlay point injected at the moving
+        // scrub time would land inside the loop's wrap region and corrupt the
+        // last→first blend (it would become the "last" key). Overlay only when
+        // paused (live slider/scrub preview), where the wrap isn't traversed.
+        if (!_playing)
+        {
+            var key = StorageKey(_selectedPart);
+            if (!payload.TryGetValue(key, out var partObj))
+            {
+                partObj = new();
+                payload[key] = partObj;
+            }
+            var pNorm = _scrubMs / _durationMs;
+            var chans = PartChannels(key);
+            var w = WorkingOf(key);
+            for (int c = 0; c < chans.Length; c++)
+            {
+                var existing = partObj.TryGetValue(chans[c].Key, out var arr) ? arr.ToList() : new List<double[]>();
+                existing.RemoveAll(pt => Math.Abs(pt[0] - pNorm) < 0.0001);
+                existing.Add([pNorm, w[c]]);
+                partObj[chans[c].Key] = existing.OrderBy(pt => pt[0]).ToArray();
+            }
+        }
+        await JS.InvokeVoidAsync("voxel.setEditorTracks", CanvasId, payload);
+        await JS.InvokeVoidAsync("voxel.setEditorTime", CanvasId, _scrubMs, _durationMs, _loop);
+    }
+
+    private async Task ClearAll()
+    {
+        _keys.Clear();
+        _selKey = null;
+        _exportText = null;
+        RefreshLiveValues();
+        await PushPreview();
+    }
+
+    // A rough starting shape for a whip-style overhand throw, authored as
+    // coupled per-part pose keys (elbow + hand offsets from rest, see
+    // computePoseV2's editor branch): the elbow lifts up and forward, the
+    // hand cocks up above the shoulder, then the forearm snaps forward
+    // through the throw before settling back to hanging. A starting point to
+    // tweak live (mostly by dragging), not a finished curve.
+    private async Task LoadWhipDefault()
+    {
+        _keys.Clear();
+        _selKey = null;
+        _durationMs = 480;
+        // Coupled arm keys: [ex,ey,ez, hx,hy,hz] at each normalized time.
+        void SeedArm(string part, params (double p, double[] v)[] pts)
+        {
+            var list = _keys[part] = new();
+            foreach (var (p, v) in pts) list.Add(new PoseKey { TimeMs = p * _durationMs, Vals = v });
+        }
+        void SeedRoot(params (double p, double[] v)[] pts) // [yaw,pitch,dy]
+        {
+            var list = _keys["0"] = new();
+            foreach (var (p, v) in pts) list.Add(new PoseKey { TimeMs = p * _durationMs, Vals = v });
+        }
+        SeedArm("R",
+            (0,    [0, 0,  0, 0, 0,  0]),
+            (0.25, [0, 8,  3, 0, 6,  4]),
+            (0.4,  [0, 13, 5, 0, 12, 2]),
+            (0.55, [0, 10, 7, 0, -2, 14]),
+            (1,    [0, 0,  0, 0, 0,  0]));
+        SeedArm("L",
+            (0,    [0, 0, 0, 0, 0, 0]),
+            (0.4,  [0, 6, 0, 0, 0, 0]),
+            (0.55, [0, 3, 0, 0, 0, 0]),
+            (1,    [0, 0, 0, 0, 0, 0]));
+        SeedRoot(
+            (0,    [0,    0, 0]),
+            (0.4,  [0.28, 0, -0.4]),
+            (0.55, [0.42, 0, -1.0]),
+            (1,    [0,    0, 0]));
+        _selectedPart = "R-elbow";
+        RefreshLiveValues();
+        await SyncEditorJoint();
+        await PushPreview();
+    }
+
+    private void ExportSnippet()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"// duration: {_durationMs:0} ms");
+        foreach (var (part, list) in _keys.OrderBy(p => p.Key))
+        {
+            if (list.Count == 0) continue;
+            var chans = PartChannels(part);
+            var sorted = list.OrderBy(k => k.TimeMs).ToList();
+            sb.AppendLine($"// {PartLabel(part)} ({part})");
+            for (int c = 0; c < chans.Length; c++)
+            {
+                var pts = string.Join(", ", sorted
+                    .Select(k => $"[{(k.TimeMs / _durationMs):0.###}, {k.Vals[c]:0.###}]"));
+                sb.AppendLine($"{chans[c].Key} = lerpKeys(p, [{pts}]);");
+            }
+        }
+        if (HasLash)
+            sb.AppendLine($"// lash: {{ len: {_lash["len"]:0.###}, segs: 12, g: {_lash["g"]:0.#}, damp: {_lash["damp"]:0.###}, stiff: {_lash["stiff"]:0.##}, thick: {_lash["thick"]:0.#}, power: {_lash["power"]:0.##}, taper: {_lash["taper"]:0.#} }}");
+        sb.AppendLine();
+        sb.AppendLine("// raw JSON (paste back in later to keep editing):");
+        sb.AppendLine(System.Text.Json.JsonSerializer.Serialize(BuildPayload()));
+        _exportText = sb.ToString();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _playCts?.Cancel();
+        try { await JS.InvokeVoidAsync("voxel.destroyBattle", CanvasId); } catch { /* page already unloading */ }
+        _selfRef?.Dispose();
+    }
+}

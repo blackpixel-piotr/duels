@@ -93,10 +93,15 @@
     private static readonly string[] _order =
     [
         "goblin", "swashbuckler", "barbarian", "desert_bandit", "gladiator",
-        "corsair", "berserker", "warlord", "champion",
+        "corsair", "berserker", "warlord", "champion", "maggot_king",
     ];
 
-    private static string StageLabel(string id) => id == "goblin" ? "Starter" : $"Stage {Array.IndexOf(_order, id)}";
+    private static string StageLabel(string id) => id switch
+    {
+        "goblin"      => "Starter",
+        "maggot_king" => "Boss", // standalone — unlocked from the start, off the ladder
+        _             => $"Stage {Array.IndexOf(_order, id)}",
+    };
 
     private static string? SignatureDropId(NpcTemplate template) =>
         template.LootTable.FirstOrDefault(e => e.OnceOnly && e.ItemId != "corrupted_whip")?.ItemId;

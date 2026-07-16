@@ -53,8 +53,8 @@ public sealed class StartDuelHandler : ICommandHandler<StartDuelCommand>
             state.SetLastWager(command.Wager);
         }
 
-        // 5% rare encounter (skip for goblin / rare / endless)
-        if (npcId != "goblin" && !npcId.StartsWith("rare_") && !npcId.StartsWith("endless_") && _random.NextDouble() < 0.05)
+        // 5% rare encounter (skip for goblin / rare / endless / bosses)
+        if (npcId != "goblin" && npcId != "maggot_king" && !npcId.StartsWith("rare_") && !npcId.StartsWith("endless_") && _random.NextDouble() < 0.05)
         {
             var rareId = RareIds[_random.Next(0, RareIds.Length)];
             var rareTemplate = _npcRepo.GetTemplate(rareId);

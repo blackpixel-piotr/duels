@@ -13,7 +13,11 @@
 (function () {
     'use strict';
 
-    const TILT = 0.3;            // isometric-ish downward tilt
+    // Mutable (not const): the battle debug camera panel (test fights only)
+    // overrides these live via setCameraDebug. Defaults restored when the
+    // test battle unmounts (destroyBattle) so a real duel is never affected.
+    let TILT = 0.3;               // isometric-ish downward tilt (voxel depth squash)
+    const DEFAULT_TILT = TILT;
     const SPIN_SPEED = 0.008;    // rad/frame idle auto-spin (~28s/rev)
     const DRAG_SPEED = 0.02;     // rad per dragged px
     const RESUME_MS = 2000;      // hold still after drag before spinning again
@@ -29,7 +33,7 @@
     // else uses the legacy 40-wide / 6-part scheme.
     const VOX_OPTS = {
         'assets/player.vox': { band: 16, parts: 12 },
-        'assets/player_sakuna.vox': { band: 16, parts: 12 },
+        'assets/player_sakuna.vox': { band: 20, parts: 12 },
     };
 
     // ── .vox parsing ─────────────────────────────────────────────────────────
@@ -156,12 +160,18 @@
 
     // Draw one model at voxel size S with its ground-center at (cx, baseY).
     // pose (optional): array indexed by part → transform or null. A transform
-    // is { pivot:[x,y,z], pitch, yaw, dz, dy, up }: pitch rotates the part
-    // about its pivot (positive folds a hanging limb toward the model's
-    // back), yaw sweeps it horizontally, dz/dy translate it. `up` chains to
-    // the parent joint's transform — a foot voxel rotates about the ankle,
-    // then the knee, then the hip, then takes the root offset (leg IK).
-    function renderModel(ctx, model, angle, S, cx, baseY, pose) {
+    // is { pivot:[x,y,z], pitch, yaw, roll, dz, dy, up }: pitch rotates the
+    // part about its pivot (positive folds a hanging limb toward the model's
+    // back), yaw sweeps it horizontally, roll tilts it sideways, dz/dy
+    // translate it. `up` chains to the parent joint's transform — a foot
+    // voxel rotates about the ankle, then the knee, then the hip, then takes
+    // the root offset (leg IK).
+    // depthBuf (optional): a Float32Array(bufW*bufH) sibling to ctx's pixels,
+    // stamped with each voxel's local rz in the same painter's-algorithm
+    // order — so after the loop it holds, per screen pixel, the rz of the
+    // nearest body voxel drawn there. Lets drawLash test the lash against the
+    // actor's real rasterized silhouette instead of a single whole-body depth.
+    function renderModel(ctx, model, angle, S, cx, baseY, pose, depthBuf, bufW, bufH) {
         const c = Math.cos(angle), sn = Math.sin(angle);
         const vs = model.voxels, out = model.scratch;
         if (pose) // precompute trig once per transform, following up-chains
@@ -169,6 +179,7 @@
                 for (; t && t._cp === undefined; t = t.up) {
                     t._cp = Math.cos(t.pitch || 0); t._sp = Math.sin(t.pitch || 0);
                     t._cy = Math.cos(t.yaw || 0);   t._sy = Math.sin(t.yaw || 0);
+                    t._cr = Math.cos(t.roll || 0);  t._sr = Math.sin(t.roll || 0);
                 }
         for (let i = 0; i < vs.length; i++) {
             const v = vs[i];
@@ -179,6 +190,7 @@
                     x -= pv[0]; y -= pv[1]; z -= pv[2];
                     if (t.pitch) { const y2 = y * t._cp - z * t._sp; z = y * t._sp + z * t._cp; y = y2; }
                     if (t.yaw)   { const x2 = x * t._cy - z * t._sy; z = x * t._sy + z * t._cy; x = x2; }
+                    if (t.roll)  { const x2 = x * t._cr - y * t._sr; y = x * t._sr + y * t._cr; x = x2; }
                     x += pv[0]; y += pv[1]; z += pv[2];
                 }
                 z += t.dz || 0; y += t.dy || 0;
@@ -195,7 +207,16 @@
             let lvl = ((v.rz + model.radius) * invSpan * SHADES) | 0;
             if (lvl < 0) lvl = 0; else if (lvl >= SHADES) lvl = SHADES - 1;
             ctx.fillStyle = model.shadeTable[v.ci][lvl];
-            ctx.fillRect((cx + v.rx * S) | 0, (baseY - v.y * S + v.rz * S * TILT) | 0, S + 1, S + 1);
+            const px = (cx + v.rx * S) | 0, py = (baseY - v.y * S + v.rz * S * TILT) | 0;
+            ctx.fillRect(px, py, S + 1, S + 1);
+            if (depthBuf) {
+                const x0 = Math.max(0, px), x1 = Math.min(bufW, px + S + 1);
+                const y0 = Math.max(0, py), y1 = Math.min(bufH, py + S + 1);
+                for (let yy = y0; yy < y1; yy++) {
+                    const row = yy * bufW;
+                    for (let xx = x0; xx < x1; xx++) depthBuf[row + xx] = v.rz;
+                }
+            }
         }
     }
 
@@ -303,6 +324,7 @@
         'bandos_godsword', 'zamorak_godsword', 'saradomin_godsword',
         'armadyl_godsword', 'dragon_claws', 'granite_maul', 'elder_maul',
         'abyssal_bludgeon', 'zamorakian_hasta', 'scythe_of_vitur',
+        'shark', 'karambwan', 'anglerfish', // food (eat anim + icons)
     ]);
 
     // dataURL for an item's icon, or null when the item has no model yet
@@ -328,6 +350,7 @@
     const NPC_ASSETS = new Set([
         'goblin', 'swashbuckler', 'barbarian', 'desert_bandit', 'gladiator',
         'corsair', 'berserker', 'warlord', 'champion', 'rare_tourist', 'rare_gladiator',
+        'maggot_king',
     ]);
 
     // Single source of truth for scene geometry. Actors live at world
@@ -343,19 +366,35 @@
     const CAM_ANGLE0 = 0.10;   // initial camera yaw
     const CAM_DRAG = 0.010;    // camera yaw per dragged px
     const TAP_PX = 6;          // pointer travel below this = click, above = drag
-    const ARENA_R = 5.2;       // arena circle radius, world units
     const WALK_R = 5;          // walkable tile radius (matches GameState.ArenaRadius)
-    const FIELD_R = 12;        // grass extent of the field scene, world units
+    const FIELD_R = 12;        // grass extent of the field scene, tiles
     const TILE_MS = 600;       // move-segment duration: one sim step per game tick
+    const TILE = 1.75;         // world units per sim tile — sets tile size RELATIVE
+                               // to the characters (they keep their world size, so
+                               // bigger TILE = bigger grid around a smaller-reading
+                               // fighter; 1.75 puts the 2.8wu player at ~1.6 tiles
+                               // tall, the OSRS ratio). Actors sit at tile CENTERS
+                               // (tx*TILE), so grid lines fall BETWEEN tiles.
+    const ARENA_R = 4.2 * TILE; // camera-framing radius: scales with the tile so
+                               // the camera zooms out to fit the bigger floor
     const STRIDE = Math.PI;    // walk-phase radians per world unit (a step per tile)
-    const CAM_FOV = 25;        // perspective divide (world units); larger = less distortion
+    // Movement pacing: actors glide toward the latest sim tile at a CONSTANT speed
+    // matched to the sim cadence (player RUNS 2 tiles/tick, enemy WALKS 1), so a
+    // multi-tile jump can never render as a sprint. A large desync (tab
+    // backgrounded, long hitch) snaps instead of catching up at speed.
+    const MOVE_SPEED = { player: 2 * TILE / TILE_MS, enemy: TILE / TILE_MS }; // wu/ms
+    const SNAP_DIST = 4.5 * TILE;  // fell this far behind → snap rather than sprint
+    let CAM_FOV = 25;          // perspective divide (world units); larger = less distortion
+    const DEFAULT_CAM_FOV = CAM_FOV;
     const ZOOM_MIN = 0.4, ZOOM_MAX = 2.5;
     const PITCH_MIN = 0.25, PITCH_MAX = 1.4;
     // Spawn tiles — must match GameState.StartDuel; live positions then come
     // from setBattlePositions as the sim moves the combatants.
+    // Spawn tiles (0,3) and (1,-3) as world units (tile*TILE), matching
+    // GameState's initial tiles so the first setBattlePositions doesn't slide.
     const LAYOUT = {
-        player: { wx: 0.0, wz: 3.0,  facing: Math.PI, worldH: 2.8 },
-        enemy:  { wx: 1.0, wz: -3.0, facing: 0,       worldH: 2.6 },
+        player: { wx: 0.0,        wz: 3.0 * TILE,  facing: Math.PI, worldH: 2.8 },
+        enemy:  { wx: 1.0 * TILE,  wz: -3.0 * TILE, facing: 0,       worldH: 2.6 },
     };
 
     // Joint pivots / hand anchors / weapon grips, written by gen_models.py.
@@ -414,11 +453,29 @@
     const WEAPON_ANIMS = {
         abyssal_whip: 'lash', corrupted_whip: 'lash', dragon_claws: 'flurry',
         granite_maul: 'crush', elder_maul: 'crush', abyssal_bludgeon: 'crush',
+        dragon_dagger: 'rstab', venomous_fang: 'rstab', // reverse (karambit) grip
+    };
+    // Special-attack choreography per weapon (used when the hit tier is 'spec')
+    const SPEC_ANIMS = { dragon_dagger: 'ddspec' };
+    // Base AttackType per weapon (mirrors InMemoryItemRepository — this is
+    // what the server sends as evt.kind for weapons with no WEAPON_ANIMS
+    // override) so the client-predicted pre-approach swing (see
+    // maybeStartPreemptiveSwing) guesses the same kind the real event would
+    // carry, instead of defaulting everything to 'slash'.
+    const WEAPON_BASE_KIND = {
+        rune_scimitar: 'slash', dragon_scimitar: 'slash', armadyl_sword: 'slash',
+        bandos_godsword: 'slash', zamorak_godsword: 'slash', saradomin_godsword: 'slash',
+        armadyl_godsword: 'slash', scythe_of_vitur: 'slash',
+        abyssal_whip: 'slash', corrupted_whip: 'slash', dragon_claws: 'slash',
+        granite_maul: 'crush', abyssal_bludgeon: 'crush', elder_maul: 'crush',
+        dragon_dagger: 'stab', zamorakian_hasta: 'stab', ghrazi_rapier: 'stab',
+        venomous_fang: 'stab',
     };
     const NPC_ANIMS = {
         goblin: 'crush', barbarian: 'crush', berserker: 'crush', warlord: 'crush',
         swashbuckler: 'slash', gladiator: 'slash', corsair: 'slash', champion: 'slash',
         rare_gladiator: 'slash', desert_bandit: 'slash', rare_tourist: 'stab',
+        maggot_king: 'crush',
     };
 
     const battles = new Map(); // canvasId → state
@@ -427,13 +484,35 @@
     // erosion chips voxels off the outside while the silhouette survives.
     // view is what actually renders: the first visCount entries of ordered.
     function makeActor(model, base, tint, rig) {
-        let cy = 0;
-        for (const v of model.voxels) cy += v.y;
-        cy /= model.voxels.length || 1;
+        // Erosion order: each horizontal slice erodes outside-in (distance
+        // from its own slice centroid), so damage pits the whole silhouette
+        // evenly. Ordering by distance from the body centroid instead would
+        // eat the extremities first — on a head-heavy model the feet and
+        // shins vanish after the first few hits.
+        const slices = new Map(); // y → { sx, sz, n }
+        for (const v of model.voxels) {
+            const s = slices.get(v.y) ?? { sx: 0, sz: 0, n: 0 };
+            s.sx += v.x; s.sz += v.z; s.n++;
+            slices.set(v.y, s);
+        }
         const ordered = model.voxels
-            .map(v => ({ v, k: Math.hypot(v.x, (v.y - cy) * 0.7, v.z) + Math.random() * model.radius * 0.5 }))
+            .map(v => {
+                const s = slices.get(v.y);
+                return { v, k: Math.hypot(v.x - s.sx / s.n, v.z - s.sz / s.n)
+                              + Math.random() * model.radius * 0.5 };
+            })
             .sort((a, b) => a.k - b.k)
             .map(o => o.v);
+        // Gait amplitudes scale with the rig's actual leg length so chibi
+        // proportions (short legs on a tall model) don't over-reach the IK.
+        let ik = null;
+        if (rig?.parts && rig.ik) {
+            const L = rig.ik.legs[0];
+            const legLen = rig.parts[L.hip].pivot[1] - rig.parts[L.foot].pivot[1];
+            const step = Math.min(IK_STEP, legLen * 0.45);
+            const k = step / IK_STEP;
+            ik = { step, lift: step * 0.5, crouch: IK_CROUCH * k, bob: IK_BOB * k };
+        }
         return {
             model, base, tint: tint ?? null, anims: [],
             bobPhase: Math.random() * 6.28, off: document.createElement('canvas'),
@@ -441,10 +520,11 @@
             view: { ...model, voxels: ordered.slice(), scratch: new Array(ordered.length) },
             crumbled: false,
             rig: rig ?? null,               // rigs.json entry (legacy or v2)
-            // v2 rigs stride so one stance half-cycle sweeps ±IK_STEP voxels
+            ik,                             // per-rig gait amplitudes (v2 only)
+            // v2 rigs stride so one stance half-cycle sweeps ±ik.step voxels
             // — the phase-exact condition for planted, skate-free feet.
-            stride: rig?.parts
-                ? Math.PI * model.height / (base.worldH * 2 * IK_STEP)
+            stride: ik
+                ? Math.PI * model.height / (base.worldH * 2 * ik.step)
                 : STRIDE,
             st: null,                       // back-ref to the battle (camera access)
             pos: { wx: base.wx, wz: base.wz },
@@ -492,7 +572,8 @@
         const p = anchor(actor, W, H);
         const S = actorScale(actor, W, H);
         const ps = CAM_FOV / (CAM_FOV - p.rz);
-        return { x: p.x, y: p.y - actor.model.height * S * ps * 0.55 };
+        const ws = actorWorldScale(actor, W, H);
+        return { x: p.x, y: p.y - actor.model.height * S * ps * ws * 0.55 };
     }
 
     // Voxel size for an actor: world height × camera scale, rounded to a whole
@@ -502,6 +583,17 @@
     function actorScale(actor, W, H) {
         const cm = camera(W, H, actor.st?.camZoom ?? 1);
         return Math.max(1, Math.round(cm.px * actor.base.worldH / actor.model.height));
+    }
+
+    // Fractional correction: actorScale rounds to an integer, but the true
+    // ratio px*worldH/height is rarely an exact integer. This returns the
+    // remaining factor so every blit-time size matches worldH exactly —
+    // e.g. the HD player (57 vox) renders into an offscreen at S=1 but is
+    // then blitted at ~0.66× so it occupies the same screen real-estate as
+    // a 35-voxel NPC of the same worldH.
+    function actorWorldScale(actor, W, H) {
+        const S = actorScale(actor, W, H);
+        return (camera(W, H, actor.st?.camZoom ?? 1).px * actor.base.worldH) / (actor.model.height * S);
     }
 
     // Motion amplitudes (lunges, knockback, debris velocity) scale with the
@@ -518,10 +610,66 @@
         const q = (p - 0.55) / 0.45;
         return b + (c - b) * q * (2 - q);
     }
+    // General keyframe curve for choreography with more shape than lerp3's
+    // single anticipation/strike/settle points can hold — e.g. the whip's
+    // two-stage windup (rises in front, THEN arcs behind the head) before
+    // the strike. keys: [[p0,v0],[p1,v1],...] sorted ascending by p.
+    function lerpKeys(p, keys) {
+        if (p <= keys[0][0]) return keys[0][1];
+        for (let i = 1; i < keys.length; i++) {
+            if (p <= keys[i][0]) {
+                const [p0, v0] = keys[i - 1], [p1, v1] = keys[i];
+                if (p1 <= p0) return v1;            // coincident keys: avoid /0
+                return v0 + (v1 - v0) * (p - p0) / (p1 - p0);
+            }
+        }
+        return keys[keys.length - 1][1];
+    }
+    // Loop-aware lerpKeys for the animation editor: when looping, the region
+    // past the last key and before the first is one cyclic segment blending the
+    // last key back to the first across the duration boundary (span W), so a
+    // repeating animation joins seamlessly instead of snapping at the wrap.
+    // Off (or <2 keys) it's plain lerpKeys (clamp-hold).
+    function lerpKeysLoop(p, keys, loop) {
+        const n = keys.length;
+        if (loop && n >= 2) {
+            const tFirst = keys[0][0], tLast = keys[n - 1][0], W = tFirst + 1 - tLast;
+            if (W > 1e-6 && (p >= tLast || p < tFirst)) {
+                const local = (p >= tLast ? p - tLast : p + 1 - tLast) / W;
+                return keys[n - 1][1] + (keys[0][1] - keys[n - 1][1]) * local;
+            }
+        }
+        return lerpKeys(p, keys);
+    }
     const ATTACK_POSES = {
         stab:   (p, t) => { t.pitch = lerp3(p, -0.55, 1.45, 0); t.dz = lerp3(p, -1.5, 3.5, 0); },
+        // reverse-grip dagger: cock the fist high behind, rip down-forward
+        rstab:  (p, t) => { t.pitch = lerp3(p, 1.7, -0.45, 0); t.dz = lerp3(p, -1, 2.6, 0); },
+        // dragon dagger special (OSRS "puncture"): one deliberate infinity
+        // stroke — the hand sweeps UP-AND-LEFT, dives through the center
+        // crossover, loops DOWN-AND-RIGHT, and settles. A forward thrust
+        // pulses once per lobe (p≈0.30 and p≈0.72): the two spec hits, which
+        // is also where battleEvent schedules the two stab sounds.
+        ddspec: (p, t) => {
+            t.pitch = lerpKeys(p, [[0, 0.3], [0.18, 1.9], [0.32, 0.9], [0.45, 0.35],
+                                   [0.60, 1.15], [0.72, 0.55], [1, 0]]);
+            t.yaw = lerpKeys(p, [[0, 0], [0.18, -1.2], [0.32, -0.35], [0.45, 0.15],
+                                 [0.60, 1.15], [0.72, 0.75], [1, 0]]);
+            t.dz = lerpKeys(p, [[0, 0], [0.22, 0.4], [0.30, 3.4], [0.40, 0.6],
+                                [0.62, 0.5], [0.72, 3.4], [0.85, 0.6], [1, 0]]);
+        },
         slash:  (p, t) => { t.pitch = lerp3(p, 1.15, 1.25, 0); t.yaw = lerp3(p, -1.15, 1.2, 0); },
-        lash:   (p, t) => { t.pitch = lerp3(p, 1.3, 1.35, 0); t.yaw = lerp3(p, -1.3, 1.6, 0); },
+        // whip: an OVERHEAD FORWARD crack. Small cock, mostly forward — the
+        // upper arm raises up-and-FORWARD (negative pitch swings the arm toward
+        // the front; positive would fold it behind the back, see computePoseV2's
+        // pitch convention) to roughly overhead by p≈0.3, then drives down-and-
+        // forward through the strike (0.34-0.64) toward the target, snapping the
+        // physics lash (actor.lash) out ahead of the player where it cracks. It
+        // must NEVER cock behind the head — that reads as a backwards swing.
+        lash:   (p, t) => {
+            t.pitch = lerpKeys(p, [[0, 0], [0.34, -2.5], [0.6, -0.6], [1, 0]]);
+            t.yaw = lerp3(p, 0.12, -0.12, 0);
+        },
         crush:  (p, t) => { t.pitch = lerp3(p, 2.5, 0.75, 0); },
         flurry: (p, t) => {
             t.pitch = lerp3(p, 1.2, 1.3, 0);
@@ -530,6 +678,40 @@
         bow:    (p, t) => { t.pitch = lerp3(p, 1.35, 0.9, 0); },
         cast:   (p, t) => { t.pitch = lerp3(p, 1.5, 1.1, 0); },
     };
+
+    // Full-body drive behind each swing (v2 rigs): the hips wind back and
+    // snap through (yaw), the body rears then lunges (pitch, about the
+    // ground pivot — doubles as a step into the blow), and the legs load
+    // then extend (dip). The whip gets the biggest hip rotation.
+    const ATTACK_BODY = {
+        stab:   { yaw: 0.18, lunge: 0.10, dip: 1.2 },
+        rstab:  { yaw: 0.22, lunge: 0.12, dip: 1.4 },
+        slash:  { yaw: 0.30, lunge: 0.08, dip: 1.0 },
+        lash:   { yaw: 0.42, lunge: 0.0, dip: 0.0 },
+        crush:  { yaw: 0.15, lunge: 0.14, dip: 2.2 },
+        flurry: { yaw: 0.25, lunge: 0.06, dip: 0.8 },
+        ddspec: { yaw: 0.35, lunge: 0.10, dip: 1.4 },
+        bow:    { yaw: 0.12, lunge: 0.02, dip: 0.6 },
+        cast:   { yaw: 0.15, lunge: 0.03, dip: 0.8 },
+    };
+
+    // Eased combat-stance weight: →1 when squared up with a live opponent
+    // (a recent exchange, or standing inside melee reach), →0 when the
+    // fight is over or the player disengages. ~180ms blend both ways.
+    function stanceWeight(actor, now, dt) {
+        const st = actor.st;
+        let engaged = false;
+        if (st) {
+            const other = actor === st.player ? st.enemy : st.player;
+            const dist = Math.hypot(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+            engaged = !actor.crumbled && !other.crumbled
+                && (now - (st.lastCombatAt ?? -1e9) < 4000 || dist <= 2.3)
+                && !(actor === st.player && st.flags.holdPosition);
+        }
+        actor.stanceBlend = Math.max(0, Math.min(1,
+            (actor.stanceBlend ?? 0) + (engaged ? 1 : -1) * dt / 180));
+        return actor.stanceBlend;
+    }
 
     // Build the pose array for a rigged actor at scene time `now`.
     // Returns null when nothing poses (fast path in renderModel).
@@ -543,6 +725,9 @@
             if (!pose) pose = [null, null, null, null, null, null];
             return pose[i] ??= mk(i);
         };
+        const dt = Math.min(50, now - (actor._poseAt ?? now));
+        actor._poseAt = now;
+        stanceWeight(actor, now, dt); // advances the blend even though legacy rigs have no stance pose
 
         const atk = actor.anims.find(a => a.type === 'attack');
         if (atk) {
@@ -562,24 +747,64 @@
             // raise the weapon arm while the attack winds up
             ensure(P_RARM).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
         }
+        // Between swings the arms hang at rest (no standing "guard") — only
+        // the windup cue and the attack's own curve move them.
+
+        // Hit flinch (legacy rigs have no root transform — head + arms carry
+        // the reaction, the body slide comes from animState's knockback).
+        const react = actor.anims.find(a => a.type === 'hit' || a.type === 'dodge');
+        if (react) {
+            const p = (now - react.t0) / react.dur;
+            if (p >= 0 && p <= 1) {
+                const k = react.type === 'hit' ? Math.min(1, (react.amp ?? 4) / 7) : 0.45;
+                const env = Math.sin(Math.pow(Math.min(1, p * 1.08), 0.6) * Math.PI);
+                ensure(1).pitch -= 0.35 * k * env;        // head snaps back (part 1 = head)
+                ensure(P_RARM).pitch += 0.5 * k * env;
+                ensure(P_LARM).pitch += 0.5 * k * env;
+            }
+        }
         return pose;
     }
 
     // ── v2 rig: hierarchical FK + analytic leg IK ─────────────────────────
     // The gait is phase-exact foot planting: walkPhase advances with ground
     // covered at actor.stride rad/wu, tuned so one stance half-cycle sweeps
-    // the foot from +IK_STEP to −IK_STEP voxels — i.e. the planted foot
-    // moves backward under the body at EXACTLY the body's speed, which is
-    // the definition of a foot that does not skate. The swing leg arcs
-    // forward with knee lift; the pelvis dips so knees stay bent; the foot
-    // counter-rotates to stay flat through the whole stride.
-    const IK_STEP = 8;         // stance half-sweep, voxels
-    const IK_LIFT = 4;         // swing foot lift, voxels
+    // the foot from +step to −step voxels — i.e. the planted foot moves
+    // backward under the body at EXACTLY the body's speed, which is the
+    // definition of a foot that does not skate. Amplitudes live in actor.ik,
+    // scaled from these by the rig's leg length (see makeActor).
+    const IK_STEP = 8;         // stance half-sweep, voxels (19-voxel leg)
     const IK_CROUCH = 1.4;     // moving pelvis drop base, voxels
-    const IK_SWING_BOB = 1.2;  // pelvis bob amplitude (sine wave engine)
-    const IK_HIP_SWAY = 0.15;  // hip yaw amplitude (radians)
-    const IK_HIP_ROLL = 0.08;  // hip roll tilt (radians)
-    const IK_TORSO_LEAN = 0.12; // torso forward lean on acceleration
+    const IK_BOB = 1.0;        // extra pelvis dip at heel-strike, voxels
+    const IK_SWAY = 0.08;      // pelvis yaw sway amplitude, radians
+    const IK_ROLL = 0.05;      // pelvis roll (weight shift) amplitude, radians
+    const IK_LEAN = 0.10;      // upper-body forward lean while moving, radians
+    // Movement-feel knobs, live-tunable from the test fight's MOVE panel
+    // (setMovementDebug). Running (multi-tile segments): the stride LENGTHENS
+    // up to ×(1+runStride) and the cycle slows to match, instead of the walk
+    // loop just spinning faster. The no-skate law survives any runStride
+    // because the multiplier cancels between phase rate (movement block) and
+    // foot sweep (computePoseV2) — both read MOVE_TUNE.runStride. Other
+    // amplitudes (crouch, lift, bob, lean, arm swing) grow with runBlend.
+    const MOVE_TUNE_DEFAULTS = {
+        speedMult: 1,          // × MOVE_SPEED, both actors
+        turnRate: 0.03,        // facing lerp per ms
+        strideIn: 0.006,       // runBlend ease-in per ms
+        strideOut: 0.01,       // runBlend ease-out per ms (after arrival)
+        runStride: 0.6,        // extra stride length at full run — long, bouncy lunges
+        maxStepHz: 4.3,        // gait frequency cap, steps/s (0 = uncapped): distance
+                               // above the cap skates slightly instead of the legs
+                               // going frantic — keeps cadence sane at any TILE scale
+        instantGait: false,    // runBlend snaps to target — no ease-in
+        hardStop: false,       // arrival plants instantly: runBlend → 0
+    };
+    const MOVE_TUNE = { ...MOVE_TUNE_DEFAULTS };
+    try { // tuned values survive reloads; corrupt/absent storage = defaults
+        const saved = JSON.parse(localStorage.getItem('duels_move_tune'));
+        if (saved && typeof saved === 'object')
+            for (const k in MOVE_TUNE_DEFAULTS)
+                if (typeof saved[k] === typeof MOVE_TUNE_DEFAULTS[k]) MOVE_TUNE[k] = saved[k];
+    } catch { /* defaults stand */ }
 
     // 2-bone solve in the sagittal plane: hip at (0, hipY) reaching an ankle
     // at (tz forward, ty up). Returns forward-positive thigh/shin/foot
@@ -596,10 +821,204 @@
         return { thigh, shin, foot: -(thigh + shin) };
     }
 
+    // 2-bone arm IK, for the animation editor (see AnimEditor.razor):
+    // aims the shoulder and bends the elbow so the hand reaches a target
+    // given relative to the shoulder pivot, in the same model-local space
+    // the FK pose transform uses. This rig's shoulder→elbow→hand chain has
+    // the identical "bones hang straight down at rest, pivots share X/Z"
+    // shape as hip→knee→foot (confirmed against rigs.json), so a yaw
+    // pre-rotation to face the target's horizontal direction, followed by
+    // solveLeg's exact planar solve for the now in-plane reach, gives the
+    // shoulder pitch+yaw and elbow pitch directly — no separate pole/swivel
+    // needed, since (like a real elbow) the fixed sign in solveLeg's
+    // formula always bends the same physically-natural way.
+    function solveArm(L1, L2, tx, ty, tz) {
+        const yaw = Math.atan2(tx, tz);
+        const horiz = Math.hypot(tx, tz);
+        const s = solveLeg(0, L1, L2, horiz, ty);
+        return { shoulderPitch: s.thigh, shoulderYaw: yaw, elbowPitch: s.shin };
+    }
+
+    // Per-bone aim for the animation editor's two-handle arm rig (elbow +
+    // hand posed independently, see computePoseV2's editor branch). Returns
+    // the { pitch, yaw } that renderModel's pitch-then-yaw rotation applies
+    // to a bone's rest down-vector (0,-|t|,0) to land it exactly on the
+    // target offset (tx,ty,tz). Verified by substitution against renderModel
+    // (voxel.js:191-192): Yaw(yaw)·Pitch(pitch)·(0,-L,0) = (tx,ty,tz); the
+    // rest target (0,-L,0) gives {0,0}. No elbow bend here — each bone is
+    // aimed on its own, so shoulder→elbow→hand can't stretch or detach.
+    function aimDown(tx, ty, tz) {
+        return { pitch: Math.atan2(Math.hypot(tx, tz), -ty), yaw: Math.atan2(tx, -tz) };
+    }
+    // renderModel's per-part rotation applied to a vector: pitch about X,
+    // then yaw about Y (matches voxel.js:191-192). Used to fold a desired
+    // forearm world-direction back into the upper-arm-local frame so the
+    // child bone can be aimed within it.
+    function rotateVec(pitch, yaw, x, y, z) {
+        const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
+        const y1 = y * cp - z * sp, z1 = y * sp + z * cp;       // pitch about X
+        return [x * cy - z1 * sy, y1, x * sy + z1 * cy];        // yaw about Y
+    }
+    function invRotateVec(pitch, yaw, x, y, z) {
+        const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw);
+        const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;      // inverse yaw
+        return [x1, y * cp + z1 * sp, -y * sp + z1 * cp];       // inverse pitch
+    }
+    // Clamp a raw offset to an exact length L (fallback: straight down). The
+    // editor's "you can't move a joint farther than the bone allows" rule —
+    // every elbow/hand target is projected onto its bone-length sphere before
+    // it ever reaches the pose, so the chain is rigid everywhere (drag,
+    // slider, and interpolated in-between frames alike).
+    function toLen(x, y, z, L) {
+        const m = Math.hypot(x, y, z);
+        return m < 1e-4 ? [0, -L, 0] : [x / m * L, y / m * L, z / m * L];
+    }
+    // Constant-velocity spherical interpolation of two equal-length vectors
+    // (from toLen). Interpolating the joint DIRECTION on its bone-length
+    // sphere — instead of lerping the raw offsets and re-normalizing — is what
+    // makes the arm sweep at a steady speed between keyframes. (Lerp-then-
+    // normalize crawls near the keys and whips through the middle: a straight
+    // line between two points on a sphere dips toward the centre, so for
+    // far-apart poses the normalized direction barely moves, then snaps —
+    // which jerked the whip.) θ→0 falls back to lerp; both inputs share L, so
+    // the great-circle blend preserves it.
+    function slerpVec(a, b, t) {
+        const la = Math.hypot(a[0], a[1], a[2]) || 1, lb = Math.hypot(b[0], b[1], b[2]) || 1;
+        let dot = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb);
+        dot = Math.max(-1, Math.min(1, dot));
+        const th = Math.acos(dot), s = Math.sin(th);
+        if (s > 1e-4) {
+            const w0 = Math.sin((1 - t) * th) / s, w1 = Math.sin(t * th) / s;
+            return [w0 * a[0] + w1 * b[0], w0 * a[1] + w1 * b[1], w0 * a[2] + w1 * b[2]];
+        }
+        // Parallel: plain lerp. Antipodal (θ≈π): the great circle is undefined
+        // (sin θ → 0), so sweep a half-turn around an arbitrary axis ⟂ a via
+        // Rodrigues, keeping length — otherwise the arm would NaN-explode when
+        // two keyframes point exactly opposite (e.g. hand left ↔ hand right).
+        if (dot > 0) return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+        let ax = Math.abs(a[0]) / la > 0.9 ? [0, 1, 0] : [1, 0, 0];
+        let px = a[1] * ax[2] - a[2] * ax[1], py = a[2] * ax[0] - a[0] * ax[2], pz = a[0] * ax[1] - a[1] * ax[0];
+        const pm = Math.hypot(px, py, pz) || 1; px /= pm; py /= pm; pz /= pm;
+        const ang = t * Math.PI, c = Math.cos(ang), sn = Math.sin(ang);
+        const cx = py * a[2] - pz * a[1], cy = pz * a[0] - px * a[2], cz = px * a[1] - py * a[0];
+        return [a[0] * c + cx * sn, a[1] * c + cy * sn, a[2] * c + cz * sn]; // a·cos + (axis×a)·sin
+    }
+    // Animation editor: interpolate an arm's elbow + hand targets between its
+    // coupled keyframes with slerp (see slerpVec). trk holds per-channel
+    // [[p,v],…] arrays that all share the same key-times (the editor keys the
+    // whole arm at once), so one bracket search on ex indexes every channel.
+    // Each key's elbow/hand offsets are projected to their bone spheres, then
+    // the DIRECTIONS are slerped — giving a steady great-circle sweep that the
+    // lash trails naturally.
+    function interpArm(trk, p, L1, L2, loop) {
+        const kt = trk.ex ?? trk.ey ?? trk.ez ?? trk.hx ?? trk.hy ?? trk.hz;
+        const g = (ch, i) => trk[ch]?.[i]?.[1] ?? 0;
+        const elbowAt = i => toLen(g('ex', i), -L1 + g('ey', i), g('ez', i), L1);
+        const handAt  = i => toLen(g('hx', i), -L2 + g('hy', i), g('hz', i), L2);
+        if (!kt || !kt.length) return { E: toLen(0, -L1, 0, L1), H: toLen(0, -L2, 0, L2) };
+        const last = kt.length - 1;
+        // Seamless loop: past the last key / before the first is one cyclic
+        // segment slerping the last arm pose back to the first across the
+        // duration boundary (span W), so a repeating swing joins smoothly.
+        if (loop && kt.length >= 2) {
+            const tFirst = kt[0][0], tLast = kt[last][0], W = tFirst + 1 - tLast;
+            if (W > 1e-6 && (p >= tLast || p < tFirst)) {
+                const t = (p >= tLast ? p - tLast : p + 1 - tLast) / W;
+                return { E: slerpVec(elbowAt(last), elbowAt(0), t), H: slerpVec(handAt(last), handAt(0), t) };
+            }
+        }
+        if (p <= kt[0][0]) return { E: elbowAt(0), H: handAt(0) };
+        for (let i = 1; i < kt.length; i++) {
+            if (p <= kt[i][0]) {
+                const span = kt[i][0] - kt[i - 1][0];
+                const t = span > 1e-9 ? (p - kt[i - 1][0]) / span : 1; // coincident keys: take the later
+                return { E: slerpVec(elbowAt(i - 1), elbowAt(i), t), H: slerpVec(handAt(i - 1), handAt(i), t) };
+            }
+        }
+        return { E: elbowAt(last), H: handAt(last) };
+    }
+
     function computePoseV2(actor, now, windup) {
         const rig = actor.rig, parts = rig.parts;
         const T = new Array(parts.length).fill(null);
-        const mk = i => ({ pivot: parts[i].pivot, pitch: 0, yaw: 0, dz: 0, dy: 0 });
+        // Animation editor override (see AnimEditor.razor): user-authored
+        // keyframe tracks replace the normal attack/walk/stance choreography
+        // entirely, so the editor can preview exactly what will ship. Each
+        // track is a lerpKeys-style [[p,v],...] array in the same normalized
+        // 0-1 time used everywhere else (ATTACK_POSES, ATTACK_BODY). Two
+        // kinds of track: plain FK by part index (e.g. "0" for root,
+        // channels pitch/yaw/roll/dz/dy), and arm tracks keyed "R"/"L" that
+        // author the ELBOW and HAND positions directly — six channels,
+        // ex,ey,ez (elbow) and hx,hy,hz (hand), all offsets FROM REST in
+        // model-local voxels (see the per-joint frames below). The two joints
+        // are posed independently (drag the elbow, then the hand), but every
+        // frame both are projected onto their bone-length spheres, so the
+        // shoulder→elbow→hand chain is always rigidly connected and can't be
+        // pushed past the arm's reach. (This replaced a single hand IK
+        // target whose auto-solved elbow drifted and detached — see the whip
+        // saga.)
+        if (actor.customPose) {
+            const { p, tracks, loop } = actor.customPose;
+            for (const key of Object.keys(tracks)) {
+                if (key === 'R' || key === 'L') continue;
+                const i = +key;
+                const t = { pivot: i === 0 ? [0, 0, 0] : parts[i].pivot, pitch: 0, yaw: 0, roll: 0, dz: 0, dy: 0 };
+                const chans = tracks[key];
+                for (const ch of ['pitch', 'yaw', 'roll', 'dz', 'dy'])
+                    if (chans[ch]?.length) t[ch] = lerpKeysLoop(p, chans[ch], loop);
+                T[i] = t;
+            }
+            actor.editorJoints = {};
+            const armDefs = { R: [2, 6], L: [3, 7] };
+            for (const side of ['R', 'L']) {
+                const trk = tracks[side];
+                if (!trk) continue;
+                const [ruIdx, rlIdx] = armDefs[side];
+                const ruPiv = parts[ruIdx].pivot, rlPiv = parts[rlIdx].pivot;
+                const L1 = ruPiv[1] - rlPiv[1];
+                const L2 = rlPiv[1] - (rig.hand ? rig.hand[1] : rlPiv[1] - 7);
+                // Channels are offsets FROM REST (0 = arm hanging straight
+                // down), so an un-keyframed arm rests and the sliders read 0
+                // at rest. Elbow = offset from rest (0,-L1,0) relative to the
+                // shoulder; hand = the forearm's bend, stored in the UPPER-
+                // ARM-LOCAL frame as an offset from rest (0,-L2,0) relative to
+                // the elbow. interpArm projects both onto their bone-length
+                // spheres (rigid chain) and SLERPS the directions between
+                // keyframes for a steady-speed sweep. Storing the hand LOCAL
+                // to the upper arm is what makes an elbow drag carry the hand
+                // rigidly for free: the bend is untouched, so the forearm just
+                // swings with the upper arm.
+                const { E, H: handLocal } = interpArm(trk, p, L1, L2, loop);
+                const up = aimDown(E[0], E[1], E[2]);
+                const fore = aimDown(handLocal[0], handLocal[1], handLocal[2]);
+                // World hand = elbow + the forearm direction rotated by the
+                // upper arm.
+                const HrelWorld = rotateVec(up.pitch, up.yaw, handLocal[0], handLocal[1], handLocal[2]);
+                const Hf = [E[0] + HrelWorld[0], E[1] + HrelWorld[1], E[2] + HrelWorld[2]];
+                T[ruIdx] = { pivot: ruPiv, pitch: up.pitch, yaw: up.yaw, roll: 0, dz: 0, dy: 0 };
+                T[rlIdx] = { pivot: rlPiv, pitch: fore.pitch, yaw: fore.yaw, roll: 0, dz: 0, dy: 0 };
+                // Stash for the drag handles (see editorJointScreenPos,
+                // drawActor, onMove): elbowModel/handModel are model-local
+                // points (shoulder pivot + offset) for screen projection; E/Hf
+                // are the same offsets relative to the shoulder, and up is the
+                // upper-arm rotation — the drag constraint math works in these.
+                actor.editorJoints[side] = {
+                    elbowModel: [ruPiv[0] + E[0], ruPiv[1] + E[1], ruPiv[2] + E[2]],
+                    handModel:  [ruPiv[0] + Hf[0], ruPiv[1] + Hf[1], ruPiv[2] + Hf[2]],
+                    E, Hf, up, L1, L2,
+                };
+            }
+            // Link each posed part to its nearest posed ancestor (foot→knee→
+            // hip→root, and crucially forearm→upper arm) so renderModel walks
+            // the joint chain — the forearm inherits the shoulder rotation
+            // instead of pivoting about its rest elbow in isolation.
+            return linkPose(parts, T);
+        }
+        // Root (part 0) pivots at the model's ground center so its yaw sways
+        // the pelvis about the vertical axis and its roll rocks the whole
+        // body over the planted feet (weight shift) without skating them.
+        const mk = i => ({ pivot: i === 0 ? [0, 0, 0] : parts[i].pivot,
+                           pitch: 0, yaw: 0, roll: 0, dz: 0, dy: 0 });
         const ensure = i => T[i] ??= mk(i);
 
         // Gait blend eases limbs between authored idle and the moving gait
@@ -610,28 +1029,46 @@
         actor.gaitBlend = Math.max(0, Math.min(1,
             (actor.gaitBlend ?? 0) + (actor.moving ? 1 : -1) * dt / 120));
         const g = actor.gaitBlend;
+        const sb = stanceWeight(actor, now, dt);
         const phase = ((actor.walkPhase % 6.2832) + 6.2832) % 6.2832;
 
         // Legs: IK gait while moving/blending, authored pose at rest.
-        if (g > 0.001) {
-            
-            // 1. PELVIS ENGINE: Sine wave vertical motion (not cosine crouch)
-            // Lowest at passing structure (phase 0, π) when feet spread wide
-            // Highest at single-leg support (phase π/2, 3π/2)
-            const passingStructurePhase = Math.abs(Math.sin(phase)); // 0 at passing, 1 at single support
-            const pelvisY = -(IK_CROUCH + (1 - passingStructurePhase) * IK_SWING_BOB) * g;
-            ensure(0).dy = pelvisY;
-            
-            // 2. HIP SWAYING & ROTATION: Counter-phase rotation + roll tilt
-            // Yaw sways opposite to leg swing (left leg forward = right hip rotates forward)
-            const hipYaw = Math.sin(phase) * IK_HIP_SWAY * g;
-            ensure(0).yaw = hipYaw;
-            
-            // Hip roll: when foot leaves ground, that side's pelvis drops slightly
-            // Phase crossover at π marks right foot takeoff
-            const hipRoll = Math.sin(phase + Math.PI * 0.5) * IK_HIP_ROLL * g;
-            ensure(0).dz = hipRoll;  // roll tilt around forward axis
-            
+        // Phase convention: 0 = right heel-strike (right foot max forward),
+        // 0..π right stance / left swing, π..2π the mirror.
+        const run = actor.runBlend ?? 0;
+        if (g > 0.001 && actor.ik) {
+            const ik = actor.ik;
+            const root = ensure(0);
+            // Run scaling: longer stride, higher knee lift, deeper crouch
+            // and heel-strike bounce — the visual difference between a walk
+            // and a run at the same cycle math.
+            const m = 1 + MOVE_TUNE.runStride * run;
+            const step = ik.step * m;
+            const liftAmp = ik.lift * (1 + 0.6 * run);
+
+            // Pelvis engine: high at mid-stance (leg vertical under the
+            // body), dipping into each heel-strike. The ^1.3 sharpens the
+            // dip at contact so each step lands with visible weight.
+            const dip = ik.crouch * (1 + 0.8 * run)
+                + Math.pow(1 - Math.abs(Math.sin(phase)), 1.3) * ik.bob * (1 + 0.6 * run);
+            root.dy = -dip * g;
+
+            // Pelvis yaw follows the leading leg (right side forward at
+            // phase 0); roll rocks the body over the stance leg. Both ride
+            // the root, whose ground pivot keeps the feet planted.
+            const sway = Math.cos(phase) * IK_SWAY * g;
+            root.yaw = sway;
+            root.roll = Math.sin(phase) * IK_ROLL * g;
+
+            // Forward lean, from the ankles (sprinter-style): the root
+            // pitches the whole body about its ground pivot — positive
+            // pitch tips above-ground mass toward +z, the facing/travel
+            // direction — and the leg IK targets below are counter-rotated
+            // so the feet stay planted while only the body tips forward.
+            const lean = (IK_LEAN + 0.15 * run) * g;
+            root.pitch = lean;
+            const lc = Math.cos(lean), ls = Math.sin(lean);
+
             for (let li = 0; li < 2; li++) {
                 const leg = rig.ik.legs[li];
                 const hipPiv = parts[leg.hip].pivot, kneePiv = parts[leg.knee].pivot,
@@ -639,82 +1076,181 @@
                 const L1 = hipPiv[1] - kneePiv[1], L2 = kneePiv[1] - ankPiv[1];
                 // this leg's phase: left leads by half a cycle
                 const ph = li === 0 ? phase : (phase + Math.PI) % 6.2832;
-                let relZ, lift = 0, droop = 0, hipYawLeg = 0;
-                
+                let relZ, lift = 0;
                 if (ph < Math.PI) {
-                    // STANCE: Smooth backward sweep (not sharp linear)
-                    // Use ease-out for natural weight transfer
-                    const stance = ph / Math.PI;
-                    const easeOut = 1 - (1 - stance) * (1 - stance);
-                    relZ = IK_STEP * (1 - 2 * easeOut);
+                    // Stance: strictly linear sweep — the planted foot must
+                    // move backward at exactly body speed (no-skate law).
+                    relZ = step * (1 - 2 * ph / Math.PI);
                 } else {
-                    // SWING: Parabolic arc (quick lift, glide, gentle landing)
+                    // Swing: cubic Hermite from −step to +step whose END
+                    // SLOPES MATCH THE STANCE SWEEP, so the foot leaves and
+                    // lands already moving at ground speed — no velocity pop
+                    // at contact, with a natural follow-through/reach
+                    // overshoot (~9%) baked into the curve.
                     const p = (ph - Math.PI) / Math.PI;
-                    // Lift: sharp parabola upward then gentle ease down
-                    lift = (4 * p * (1 - p)) * IK_LIFT;
-                    // Forward motion: smooth ease-in-out along horizontal
-                    const easeIO = p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) * (-2 * p + 2) / 2;
-                    relZ = -IK_STEP + 2 * IK_STEP * easeIO;
-                    // Subtle knee droop during swing for ground clearance
-                    droop = Math.sin(p * Math.PI) * 0.3;
-                    // Hip internal rotation during swing leg (adds realism)
-                    hipYawLeg = (li === 1 ? -1 : 1) * Math.sin(p * Math.PI) * 0.1;
+                    relZ = step * (((-8 * p + 12) * p - 2) * p - 1);
+                    // Lift arcs like a landing plane: peaks early (~40%),
+                    // then eases down into the step.
+                    lift = liftAmp * Math.sin(Math.PI * Math.pow(p, 0.8));
                 }
-                
-                // solve pre-root-offset: ankle target rises by crouch so the
-                // root drop lands the foot exactly on the ground
-                const s = solveLeg(hipPiv[1], L1, L2, relZ * g,
-                                   ankPiv[1] + lift * g - pelvisY);
+                // solve pre-root-offset: the ankle target rises by the pelvis
+                // dip so the root drop lands the foot exactly on the ground;
+                // the sway-induced z-shift at this hip is subtracted so the
+                // planted foot doesn't drift when the pelvis yaws; the whole
+                // target is rotated by the inverse of the body lean so the
+                // root pitch lands the foot back on its world spot; and the
+                // stride recenters forward under the LEANED hip (+hipY·ls)
+                // so neither leg over-extends.
+                const tzW = relZ * g - hipPiv[0] * Math.sin(sway) + hipPiv[1] * ls;
+                const tyW = ankPiv[1] + lift * g + dip * g;
+                const s = solveLeg(hipPiv[1], L1, L2,
+                                   tzW * lc - tyW * ls,
+                                   tyW * lc + tzW * ls);
                 ensure(leg.hip).pitch = -s.thigh;
                 ensure(leg.knee).pitch = -s.shin;
-                ensure(leg.foot).pitch = -(s.foot + droop * g);
-                
-                // Hip internal rotation during swing for natural gait
-                if (hipYawLeg !== 0) {
-                    ensure(leg.hip).yaw = (ensure(leg.hip).yaw || 0) + hipYawLeg * g;
-                }
+                // -lean keeps the sole flat once the root pitch folds in
+                ensure(leg.foot).pitch = -s.foot - lean;
+            }
+        } else if (actor.ik && sb > 0.01) {
+            // Combat stance: feet staggered (weapon-side foot back), light
+            // crouch with a slow breathing bob, body bladed toward the
+            // opponent, slight forward press. Fades out of fights (~180ms).
+            const ik = actor.ik;
+            const root = ensure(0);
+            const breathe = Math.sin(now * 0.0016 + actor.bobPhase);
+            const dip = (ik.crouch * 0.55 + breathe * 0.25) * sb;
+            root.dy = -dip;
+            root.yaw = 0.22 * sb;   // weapon shoulder toward the enemy
+            root.pitch = 0.05 * sb;
+            const stag = 2.4 * sb * (ik.step / IK_STEP);
+            for (let li = 0; li < 2; li++) {
+                const leg = rig.ik.legs[li];
+                const hipPiv = parts[leg.hip].pivot, kneePiv = parts[leg.knee].pivot,
+                      ankPiv = parts[leg.foot].pivot;
+                const L1 = hipPiv[1] - kneePiv[1], L2 = kneePiv[1] - ankPiv[1];
+                const s = solveLeg(hipPiv[1], L1, L2,
+                                   li === 0 ? -stag : stag,   // right back, left forward
+                                   ankPiv[1] + dip);
+                ensure(leg.hip).pitch = -s.thigh;
+                ensure(leg.knee).pitch = -s.shin;
+                ensure(leg.foot).pitch = -s.foot;
             }
         }
 
         // Arms: attack/windup choreography wins; otherwise the run pump.
         const atk = actor.anims.find(a => a.type === 'attack');
         const RU = 2, LU = 3, RL = rig.handPart ?? 6, LL = 7;
-        
-        // 5. TORSO LAG & SECONDARY MOTION
-        // Torso forward lean on acceleration (makes character feel responsive)
-        if (g > 0.001 && actor.moving) {
-           ensure(0).pitch = IK_TORSO_LEAN * g;  // lean forward slightly
-        }
-        
-        // Impact jerks: when foot transitions from swing to stance (phase = π, 2π)
-        // This simulates weight impact and removes floaty feeling
-        const nextFootImpactL = (phase < Math.PI) ? false : (phase - Math.PI < 0.3); // right foot just landed
-        const nextFootImpactR = (phase >= Math.PI) ? false : (phase < 0.3); // left foot just landed
-        if ((nextFootImpactL || nextFootImpactR) && g > 0.001) {
-           // Sharp downward impulse on pelvis and chest on landing
-           const impactStrength = Math.max(0, 1 - (nextFootImpactL ? (phase - Math.PI) : phase) * 5);
-           ensure(0).dy = (ensure(0).dy || 0) - impactStrength * 0.15 * g;
-        }
-        
         if (atk) {
             const p = (now - atk.t0) / atk.dur;
             if (p >= 0 && p <= 1) {
                 (ATTACK_POSES[atk.kind] ?? ATTACK_POSES.slash)(p, ensure(RU));
-                ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
+                if (atk.kind === 'lash') {
+                    // RL is relative to the upper arm (RU). For the overhead-
+                    // FORWARD crack: the forearm cocks well BACK at the top
+                    // (negative bends it back/up so the hand ends high behind the
+                    // head — the farthest, most-loaded position), then a strong
+                    // forward extension on the down-snap (positive curls the
+                    // forearm forward-and-down) whips the hand out ahead of the
+                    // player, releasing the lash toward the target.
+                    ensure(RL).pitch = lerpKeys(p, [[0, 0], [0.34, -1.3], [0.6, 0.9], [1, 0]]);
+                } else {
+                    ensure(RL).pitch = T[RU].pitch * 0.35;   // elbow follow-through
+                }
                 if (atk.kind === 'bow') ensure(LU).pitch = lerp3(p, 1.35, 1.35, 0);
                 if (atk.kind === 'cast') ensure(LU).pitch = lerp3(p, 0.9, 0.5, 0);
+                // Full-body drive: hips wind back through the anticipation
+                // and snap through the strike, the body rears then lunges,
+                // the legs load then extend; the off arm counter-swings and
+                // the head counter-yaws to stay on target.
+                const b = ATTACK_BODY[atk.kind] ?? ATTACK_BODY.slash;
+                const root = ensure(0);
+                let wy;
+                if (atk.kind === 'lash') {
+                    // Overhead-forward crack: the character stays planted — no
+                    // hip turn, no lunge/dip (root fully static, see ATTACK_BODY
+                    // lash) — the arm/forearm crack curves carry the whole
+                    // motion. The off arm only raises to counterbalance while the
+                    // main hand is overhead, then lowers as it snaps down-forward.
+                    wy = 0;
+                    ensure(LU).pitch += lerpKeys(p, [[0, 0], [0.3, -0.5], [0.55, -0.2], [1, 0]]);
+                } else {
+                    wy = lerp3(p, -b.yaw, b.yaw * 0.8, 0);
+                    ensure(LU).pitch += lerp3(p, b.yaw * 0.7, -b.yaw * 0.5, 0);
+                }
+                root.yaw += wy;
+                root.pitch += lerp3(p, -b.lunge * 0.5, b.lunge, 0);
+                root.dy -= lerp3(p, b.dip * 0.4, b.dip, 0);
+                ensure(1).yaw -= wy * 0.5;
             }
         } else if (g > 0.001) {
-            const s = Math.sin(((actor.walkPhase % 6.2832) + 6.2832) % 6.2832) * 0.55 * g;
+            // Counter-swing IN PHASE with the legs: phase 0 = right foot max
+            // forward = right arm max back (cos, not sin — a quarter-cycle
+            // lag here is what reads as "robotic"). The forward posture
+            // comes from the root's ankle-lean above; here the arms just
+            // pump — wider swing and tighter elbows as the run blends in
+            // (elbow flex is negative: positive pitch folds a hanging limb
+            // toward the model's back).
+            const s = Math.cos(phase) * (0.55 + 0.35 * run) * g;
             ensure(RU).pitch = s;  ensure(LU).pitch = -s;
-            ensure(RL).pitch = 0.5 * g; ensure(LL).pitch = 0.5 * g; // elbows pump bent
+            ensure(RL).pitch = -(0.4 + 0.45 * run) * g;
+            ensure(LL).pitch = -(0.4 + 0.45 * run) * g;
+            if (actor.ik) // head sits ABOVE its pivot: negative pitch tips it
+                ensure(1).pitch = -(IK_LEAN + 0.15 * run) * g * 0.4; // back a touch — gaze stays level under the body lean
         } else if (windup) {
             ensure(RU).pitch = 0.5 + Math.sin(now * 0.02) * 0.12;
         }
+        // Between swings the arms hang at rest (no standing "guard") — only
+        // the windup cue and the attack's own curve move them.
+
+        // Eating: the LEFT arm brings the food to the mouth, two chewing
+        // nibbles, then lowers — overrides the walk pump on that arm and
+        // composes with right-arm attacks (OSRS eats mid-fight).
+        const eat = actor.anims.find(a => a.type === 'eat');
+        if (eat) {
+            const p = (now - eat.t0) / eat.dur;
+            if (p >= 0 && p <= 1) {
+                // envelope: 0→1 over the raise, hold, 1→0 over the lower
+                const env = p < 0.25 ? p / 0.25 : p > 0.8 ? (1 - p) / 0.2 : 1;
+                const e2 = env * env * (3 - 2 * env);
+                // nibbles: two elbow beats while held at the mouth
+                const chew = (p >= 0.25 && p < 0.8)
+                    ? Math.abs(Math.sin((p - 0.25) / 0.55 * Math.PI * 2)) * 0.14 : 0;
+                ensure(LU).pitch = -1.2 * e2;               // FK-solved: hand
+                ensure(LL).pitch = (-2.35 + chew) * e2;     // lands at the mouth
+                ensure(1).pitch = (0.12 + chew * 0.5) * e2; // head dips to bite
+            }
+        }
+
+        // Hit flinch / miss dodge overlay: the BODY reacts to being struck —
+        // a stagger back from the ankles, head snap, and arm jerk, scaled by
+        // damage — layered additively over whatever else the actor is doing.
+        // A dodge is the same shape at half strength with a sideways roll.
+        const react = actor.anims.find(a => a.type === 'hit' || a.type === 'dodge');
+        if (react) {
+            const p = (now - react.t0) / react.dur;
+            if (p >= 0 && p <= 1) {
+                const k = react.type === 'hit' ? Math.min(1, (react.amp ?? 4) / 7) : 0.45;
+                // sharp attack, smooth recovery
+                const env = Math.sin(Math.pow(Math.min(1, p * 1.08), 0.6) * Math.PI);
+                const root = ensure(0);
+                root.pitch -= 0.15 * k * env;             // stagger back
+                ensure(1).pitch -= 0.30 * k * env;        // head snaps back
+                ensure(RU).pitch += 0.45 * k * env;       // arms jerk up-back
+                ensure(LU).pitch += 0.45 * k * env;
+                if (react.type === 'dodge') root.roll += 0.12 * env; // lean out of the line
+            }
+        }
 
         if (!T.some(t => t)) return null;
-        // Link each part to its nearest posed ancestor so renderModel walks
-        // the joint chain (foot → knee → hip → root).
+        return linkPose(parts, T);
+    }
+
+    // Link each posed part to its nearest posed ancestor (via .up) so
+    // renderModel walks the joint chain: foot → knee → hip → root, and
+    // forearm → upper arm. Without this a child bone rotates about its own
+    // rest pivot in isolation and detaches from its parent when the parent
+    // moves.
+    function linkPose(parts, T) {
         const pose = new Array(parts.length).fill(null);
         const resolve = i => {
             if (i === null || i === undefined) return null;
@@ -743,23 +1279,37 @@
         const ctx = off.getContext('2d');
         ctx.clearRect(0, 0, w, h);
 
-        // Merge held-weapon voxels into the render list (rebuilt when erosion
-        // or the weapon changes) so the painter's sort occludes correctly.
+        // Merge held-weapon (and mid-eat food) voxels into the render list
+        // (rebuilt when erosion or the held items change) so the painter's
+        // sort occludes correctly.
         let view = actor.view;
-        if (actor.weaponVox) {
-            if (!actor.combined || actor.combined.src !== actor.view.voxels || actor.combined.wsrc !== actor.weaponVox) {
-                const voxels = actor.view.voxels.concat(actor.weaponVox);
+        if (actor.weaponVox || actor.foodVox) {
+            if (!actor.combined || actor.combined.src !== actor.view.voxels
+                || actor.combined.wsrc !== actor.weaponVox || actor.combined.fsrc !== actor.foodVox) {
+                const voxels = actor.view.voxels
+                    .concat(actor.weaponVox ?? [])
+                    .concat(actor.foodVox ?? []);
                 actor.combined = {
-                    src: actor.view.voxels, wsrc: actor.weaponVox,
+                    src: actor.view.voxels, wsrc: actor.weaponVox, fsrc: actor.foodVox,
                     view: {
                         ...actor.view, voxels, scratch: new Array(voxels.length),
-                        shadeTable: { ...actor.view.shadeTable, ...actor.weaponShade },
+                        shadeTable: { ...actor.view.shadeTable, ...actor.weaponShade, ...actor.foodShade },
                     },
                 };
             }
             view = actor.combined.view;
         }
-        renderModel(ctx, view, angle ?? (actor.st.camYaw - actor.facing), S, w / 2, h - m.radius * TILT * S - S - 1, pose);
+        // Only actors wielding a physics lash need a depth buffer (drawLash's
+        // per-pixel occlusion test) — skip the extra per-voxel stamping cost
+        // for everyone else.
+        let depthBuf = null;
+        if (actor.lash) {
+            if (!actor.depthBuf || actor.depthBuf.length !== w * h) actor.depthBuf = new Float32Array(w * h);
+            actor.depthBuf.fill(-1e9);
+            actor.depthW = w; actor.depthH = h;
+            depthBuf = actor.depthBuf;
+        }
+        renderModel(ctx, view, angle ?? (actor.st.camYaw - actor.facing), S, w / 2, h - m.radius * TILT * S - S - 1, pose, depthBuf, w, h);
         const tint = flashTint ?? actor.tint;
         if (tint) {
             ctx.globalCompositeOperation = 'source-atop';
@@ -790,12 +1340,19 @@
                     st.dy += (towardY / len) * 5 * ms * e - Math.max(0, e) * 2 * ms;
                     break;
                 }
-                case 'hit': { // white → red flash + damage-scaled knockback
-                    st.flash = p < 0.3 ? 'rgba(255,255,255,0.85)' : `rgba(224,32,16,${0.6 * (1 - p)})`;
-                    const e = Math.sin(Math.PI * Math.min(1, p * 1.4));
+                case 'hit': { // flash pop + sharp shove that settles back
+                    // one-two flash: a 2-frame white pop, then a red wash
+                    // that dies fast (the long lingering wash read as cheap)
+                    st.flash = p < 0.10 ? 'rgba(255,255,255,0.9)'
+                             : p < 0.5 ? `rgba(224,44,20,${0.45 * (1 - (p - 0.10) / 0.40)})`
+                             : st.flash;
+                    // knockback: near-instant shove out, exponential settle
+                    const e = p < 0.15 ? p / 0.15 : Math.exp(-(p - 0.15) * 4.5);
                     const amp = (a.amp ?? 4) * ms;
                     st.dx -= (towardX / len) * amp * e;
-                    st.dy -= (towardY / len) * amp * e;
+                    st.dy -= (towardY / len) * amp * e * 0.6;
+                    // damage-scaled hop: heavy hits lift the victim briefly
+                    st.dy -= Math.max(0, amp - 3 * ms) * 0.5 * Math.sin(Math.PI * Math.min(1, p * 2));
                     break;
                 }
                 case 'dodge': { // sidestep, no flash (miss)
@@ -819,6 +1376,22 @@
         return st;
     }
 
+    // Animation editor (AnimEditor.razor): screen position of a model-local
+    // point [lx,ly,lz] (a posed joint), for drawing a grab handle and
+    // hit-testing pointer-down against it. Mirrors renderModel's per-voxel
+    // local rotation + TILT shear followed by the offscreen blit's own scale
+    // and offset — the same pipeline the actual arm voxels go through, so the
+    // handle tracks the rendered joint exactly.
+    function editorJointScreenPos(actor, r, destX, destY, psTot, lx, ly, lz) {
+        const angle = actor.st.camYaw - actor.facing;
+        const c = Math.cos(angle), sn = Math.sin(angle);
+        const rx = lx * c - lz * sn, rz = lx * sn + lz * c;
+        const baseY = r.h - actor.model.radius * TILT * r.S - r.S - 1;
+        const offX = r.w / 2 + rx * r.S;
+        const offY = baseY - ly * r.S + rz * r.S * TILT;
+        return { x: destX + offX * psTot, y: destY + offY * psTot };
+    }
+
     // Draws an actor. Crumbled actors are gone — their voxels are particles.
     function drawActor(ctx, W, H, actor, other, now, windup) {
         if (actor.crumbled) return null;
@@ -838,17 +1411,25 @@
             a.dy += (1 - Math.cos(s)) * (actor.rig.pivots?.rHip?.[1] ?? 12) * r.S;
         }
 
-        // Perspective scale at this actor's depth; psTot folds in the anim scale.
+        // Perspective scale at this actor's depth; psTot folds in the anim scale
+        // and the worldH correction (ws) so the blit matches worldH exactly.
         const ps = CAM_FOV / (CAM_FOV - p.rz);
-        const psTot = a.scale * ps;
+        const ws = actorWorldScale(actor, W, H);
+        const psTot = a.scale * ps * ws;
+
+        // Physics whip: simulate against this frame's posed hand; drawing is
+        // deferred until after the body blit below (see drawLash), which
+        // samples the depth buffer built alongside that blit's sprite to
+        // occlude the rope against the actor's actual rasterized silhouette.
+        if (actor.lash) updateLash(actor, pose, now);
 
         // Shadow on ground plane (player only — no distracting circle under every NPC).
         if (actor === actor.st.player) {
             ctx.fillStyle = `rgba(0,0,0,${0.30 * a.alpha})`;
             ctx.beginPath();
             ctx.ellipse(ax + a.dx * 0.4, ay,
-                        actor.model.radius * r.S * ps * 0.9,
-                        actor.model.radius * r.S * (actor.st?.camPitch ?? POS_TILT) * ps * 0.62, 0, 0, 6.2832);
+                        actor.model.radius * r.S * ps * ws * 0.9,
+                        actor.model.radius * r.S * (actor.st?.camPitch ?? POS_TILT) * ps * ws * 0.62, 0, 0, 6.2832);
             ctx.fill();
         }
 
@@ -856,12 +1437,80 @@
         // Place that pixel exactly at ay (ground), solving the "floating" offset.
         const bw = (r.w * psTot) | 0;
         const bh = (r.h * psTot) | 0;
+        const destX = (ax + a.dx - r.w / 2 * psTot) | 0;
+        const destY = (ay + a.dy - (r.h - actor.model.radius * r.S * TILT - 1) * psTot) | 0;
         ctx.globalAlpha = a.alpha;
-        ctx.drawImage(actor.off,
-            (ax + a.dx - r.w / 2 * psTot) | 0,
-            (ay + a.dy - (r.h - actor.model.radius * r.S * TILT - 1) * psTot) | 0,
-            bw, bh);
+        ctx.drawImage(actor.off, destX, destY, bw, bh);
         ctx.globalAlpha = 1;
+        if (actor.lash) drawLash(actor.st, ctx, actor, W, H, p.rz, { destX, destY, psTot });
+        // Eating: crumbs fall from the mouth on each chew beat; the held
+        // food disappears with the anim.
+        const eat = actor.anims.find(t => t.type === 'eat');
+        if (eat) {
+            const ep = (now - eat.t0) / eat.dur;
+            const beat = ep >= 0.66 ? 2 : ep >= 0.39 ? 1 : 0;
+            if (beat > (eat._crumbed ?? 0)) {
+                eat._crumbed = beat;
+                const tbl = actor.foodShade && Object.values(actor.foodShade)[0];
+                const msc = motionScale(W, H);
+                const my = ay - actor.model.height * r.S * ps * ws * 0.72;
+                for (let i = 0; i < 3; i++)
+                    actor.st.particles.push({
+                        x: ax + (Math.random() - 0.5) * 4, y: my,
+                        vx: (Math.random() - 0.5) * 0.7 * msc,
+                        vy: -0.2 * msc,
+                        size: 1, color: tbl ? tbl[3] : '#d8c090',
+                        t0: now, life: 480, floor: ay + 1,
+                    });
+            }
+        } else if (actor.foodVox) {
+            attachFood(actor, null);
+        }
+
+        // Animation editor: draggable handles for the selected arm's ELBOW
+        // and HAND — direct manipulation instead of sliders (which don't fit,
+        // or work with touch, on a phone). Draws the whole shoulder→elbow→
+        // hand chain so the rig reads at a glance; the selected joint is
+        // bright, its sibling dim, the shoulder a fixed anchor. Screen
+        // positions are cached on the actor for onDown's hit-test.
+        const sel = actor.st.editorSelectedJoint; // 'R-elbow' | 'R-hand' | 'L-…'
+        if (actor.st.editorMode && actor === actor.st.player && sel && sel.includes('-')) {
+            const [side, joint] = sel.split('-');
+            const j = actor.editorJoints?.[side];
+            const parts = actor.rig.parts;
+            const shPiv = parts[side === 'R' ? 2 : 3].pivot;
+            if (j) {
+                const scr = (pt) => editorJointScreenPos(actor, r, destX, destY, psTot, pt[0], pt[1], pt[2]);
+                const shoulder = scr(shPiv), elbow = scr(j.elbowModel), hand = scr(j.handModel);
+                actor.editorHandles = { side, shoulder, elbow, hand };
+                actor.editorHandleScreen = joint === 'hand' ? hand : elbow; // active (test helper)
+                ctx.save();
+                // Chain bones.
+                ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(shoulder.x, shoulder.y);
+                ctx.lineTo(elbow.x, elbow.y);
+                ctx.lineTo(hand.x, hand.y);
+                ctx.stroke();
+                // Shoulder: fixed anchor (small, hollow).
+                ctx.beginPath(); ctx.arc(shoulder.x, shoulder.y, 3.5, 0, 6.2832);
+                ctx.fillStyle = '#222'; ctx.fill();
+                ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff'; ctx.stroke();
+                // Elbow + hand joints; the selected one is brighter/larger and
+                // turns yellow while dragging.
+                const dot = (pos, active) => {
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, active ? 7 : 5, 0, 6.2832);
+                    ctx.fillStyle = active ? (actor.st.editorDrag ? '#ffe066' : '#4fc3f7') : '#7a8a99';
+                    ctx.fill();
+                    ctx.lineWidth = 2; ctx.strokeStyle = '#000'; ctx.stroke();
+                };
+                dot(elbow, joint === 'elbow');
+                dot(hand, joint === 'hand');
+                ctx.restore();
+            }
+        }
         return a;
     }
 
@@ -870,10 +1519,11 @@
     // they can carry their own shade table into the merged render list. The
     // painter's sort then occludes weapon vs body correctly, and the whole
     // thing follows the rArm pose (swings, walk counter-swing, wind-up).
-    function attachWeapon(actor, model, grip) {
+    function attachWeapon(actor, model, grip, lashCfg) {
         if (!model) {
             actor.weaponVox = null; actor.weaponShade = null;
             actor.weaponReach = 0; actor.combined = null;
+            actor.lash = null;
             return;
         }
         const hand = actor.rig?.hand ?? [actor.model.radius * 0.6, actor.model.height * 0.4, 0];
@@ -882,7 +1532,12 @@
         for (const k of Object.keys(model.shadeTable)) shade[1000 + (+k)] = model.shadeTable[k];
         let reach = 0;
         const handPart = actor.rig?.handPart ?? P_RARM; // v2: forearm chain
-        actor.weaponVox = model.voxels.map(v => {
+        // Whips: only the handle column rides the hand — the model's coiled
+        // lash is icon dressing, replaced in battle by a physics rope.
+        const src = lashCfg
+            ? model.voxels.filter(v => Math.abs(v.x - g[0]) <= 1 && Math.abs(v.z - g[2]) <= 1)
+            : model.voxels;
+        actor.weaponVox = src.map(v => {
             const y = v.y - g[1] + hand[1];
             if (y - hand[1] > reach) reach = y - hand[1];
             return {
@@ -893,6 +1548,369 @@
         actor.weaponShade = shade;
         actor.weaponReach = Math.ceil(reach);
         actor.combined = null;
+        actor.lash = lashCfg ? {
+            segs: lashCfg.segs ?? 12,
+            len: lashCfg.len ?? 1.15,
+            segLen: (lashCfg.len ?? 1.15) / (lashCfg.segs ?? 12),
+            color: lashCfg.color ?? '#a050d8',
+            // Per-lash "feel" knobs (defaults = the global tunings). Kept on
+            // the lash so different whips can weigh differently and the anim
+            // editor can tune them live (see get/setLashDebug): g = gravity
+            // (heavier hang), damp = velocity kept per substep (lower =
+            // calmer/heavier), thick = base render width.
+            g: lashCfg.g ?? LASH_G,
+            damp: lashCfg.damp ?? LASH_DAMP,
+            thick: lashCfg.thick ?? 2.6,
+            stiff: lashCfg.stiff ?? 0, // bending resistance: 0 = floppy, →1 = rigid
+            // Attack "power": strike-impulse scale and how sharply mass falls
+            // off toward the tip (higher taper = a snappier crack). These drive
+            // the lash-attack choreography only, not the passive hang.
+            power: lashCfg.power ?? LASH_POWER,
+            taper: lashCfg.taper ?? LASH_TAPER,
+
+            // model-space anchor: top of the handle, riding the arm chain
+            anchorM: [hand[0], hand[1] + (lashCfg.top ?? 3), hand[2]],
+            pts: null, lastT: 0,
+        } : null;
+    }
+
+    // Food held in the LEFT hand for the eat animation: same merge trick as
+    // attachWeapon but mirrored, riding the left forearm (part 7). Cleared
+    // by drawActor once the eat anim expires.
+    function attachFood(actor, model) {
+        if (!model) { actor.foodVox = null; actor.foodShade = null; actor.combined = null; return; }
+        const hand = actor.rig?.hand ?? [actor.model.radius * 0.6, actor.model.height * 0.4, 0];
+        const shade = {};
+        for (const k of Object.keys(model.shadeTable)) shade[2000 + (+k)] = model.shadeTable[k];
+        actor.foodVox = model.voxels.map(v => ({
+            x: v.x - hand[0], y: v.y + hand[1], z: v.z + hand[2],
+            ci: 2000 + v.ci, part: 7,
+        }));
+        actor.foodShade = shade;
+        actor.combined = null;
+    }
+
+    // Posed model-space position of a point riding the weapon-arm chain
+    // (same transform walk renderModel does per voxel, for one point).
+    function posePoint(actor, pose, mx, my, mz) {
+        let x = mx, y = my, z = mz;
+        let t = pose ? pose[actor.rig?.handPart ?? P_RARM] : null;
+        for (let c = t; c && c._cp === undefined; c = c.up) {
+            c._cp = Math.cos(c.pitch || 0); c._sp = Math.sin(c.pitch || 0);
+            c._cy = Math.cos(c.yaw || 0);   c._sy = Math.sin(c.yaw || 0);
+            c._cr = Math.cos(c.roll || 0);  c._sr = Math.sin(c.roll || 0);
+        }
+        for (; t; t = t.up) {
+            if (t.pivot) {
+                const pv = t.pivot;
+                x -= pv[0]; y -= pv[1]; z -= pv[2];
+                if (t.pitch) { const y2 = y * t._cp - z * t._sp; z = y * t._sp + z * t._cp; y = y2; }
+                if (t.yaw)   { const x2 = x * t._cy - z * t._sy; z = x * t._sy + z * t._cy; x = x2; }
+                if (t.roll)  { const x2 = x * t._cr - y * t._sr; y = x * t._sr + y * t._cr; x = x2; }
+                x += pv[0]; y += pv[1]; z += pv[2];
+            }
+            z += t.dz || 0; y += t.dy || 0;
+        }
+        return { x, y, z };
+    }
+
+    // ── Whip physics ────────────────────────────────────────────────────────
+    // The lash is a verlet rope in world space (wu): pinned to the posed
+    // handle tip, pulled by gravity, dragged behind the runner, folded by
+    // constraint relaxation. During a 'lash' attack the rope is first
+    // gathered up behind the shoulder, then slung hard at the target —
+    // the crack falls out of the physics.
+    const LASH_G = 19;         // gravity, wu/s² (1 wu ≈ 0.64 m) — heavier hang
+    const LASH_DAMP = 0.965;   // per substep — more energy loss, calmer/heavier, less jitter
+    const LASH_ANCHOR_RATE = 5.5;    // wu/s — hand-OFFSET drag cap: a hard turn drags, not teleports
+    const LASH_ANCHOR_STRIKE_RATE = 33; // wu/s — through the strike flick the pin is free to fling — the crack's source
+    const LASH_TETHER = 0.5;   // wu — absolute pin↔hand error bound (belt & braces)
+    const LASH_TAPER = 4.5;    // tip inverse-mass gain: 0 = uniform rope, higher = the tip whips
+    const LASH_POWER = 1.5;    // strike-impulse multiplier (attack "power")
+
+    function updateLash(actor, pose, now) {
+        const lash = actor.lash, st = actor.st;
+        if (!lash || !st) return;
+        const vpw = actor.model.height / actor.base.worldH; // voxels per wu
+        const a = posePoint(actor, pose, lash.anchorM[0], lash.anchorM[1], lash.anchorM[2]);
+        const cF = Math.cos(actor.facing), sF = Math.sin(actor.facing);
+        // Pin = body position + world-oriented hand offset. Only the OFFSET
+        // can teleport (pose swing, facing flip), so only the offset is
+        // clamped below — body translation always passes straight through,
+        // so running (at any speed or frame rate) can never strand the rope
+        // behind the actor.
+        const trueOff = {
+            x: (a.x * cF + a.z * sF) / vpw,
+            y: a.y / vpw,
+            z: (-a.x * sF + a.z * cF) / vpw,
+        };
+        let off = trueOff;
+
+        if (!lash.pts) { // first frame: hang straight down from the anchor
+            const ix = actor.pos.wx + off.x, iy = off.y, iz = actor.pos.wz + off.z;
+            lash.pts = [];
+            for (let i = 0; i <= lash.segs; i++) {
+                const y = Math.max(0.02, iy - i * lash.segLen);
+                lash.pts.push({ x: ix, y, z: iz, px: ix, py: y, pz: iz });
+            }
+            lash.lastT = now;
+            lash.anchor = { x: ix, y: iy, z: iz };
+            lash.anchorOff = { ...off };
+        }
+        // Progress of an active lash attack (−1 = none). The strike is where
+        // the hand flicks the base to launch the crack; the wind-up cocks it.
+        const atk = actor.anims.find(t => t.type === 'attack' && t.kind === 'lash');
+        const ap = atk ? (now - atk.t0) / atk.dur : -1;
+        const winding  = ap >= 0    && ap < 0.34;
+        const striking = ap >= 0.34 && ap < 0.64;
+        const flick    = ap >= 0.30 && ap < 0.66;
+
+        const dt = Math.max(0, Math.min(40, now - lash.lastT));
+        lash.lastT = now;
+
+        // Fast facing turns can move the hand OFFSET several body-widths in
+        // one frame; clamp the offset's travel (rate-based, so frame rate
+        // doesn't change behavior) so the rope is dragged through a swept
+        // arc instead of receiving a teleport impulse (the spasm) — except
+        // through the strike flick, where that fast base motion IS the crack
+        // and has to get through. A tether bounds any residual error (e.g.
+        // sustained fast spinning) so the pin can never drift from the hand.
+        const po = lash.anchorOff ?? trueOff;
+        if (dt > 0) {
+            const maxJump = (flick ? LASH_ANCHOR_STRIKE_RATE : LASH_ANCHOR_RATE) * dt / 1000;
+            const jx = trueOff.x - po.x, jy = trueOff.y - po.y, jz = trueOff.z - po.z;
+            const jump = Math.hypot(jx, jy, jz);
+            const k = jump > maxJump ? maxJump / jump : 1;
+            off = { x: po.x + jx * k, y: po.y + jy * k, z: po.z + jz * k };
+            const ex = trueOff.x - off.x, ey = trueOff.y - off.y, ez = trueOff.z - off.z;
+            const err = Math.hypot(ex, ey, ez);
+            if (err > LASH_TETHER) {
+                const t = 1 - LASH_TETHER / err;
+                off.x += ex * t; off.y += ey * t; off.z += ez * t;
+            }
+            lash.anchorOff = off;
+        } else {
+            off = po; // hit-stop: freeze the offset — re-pin only
+        }
+        const prev = lash.anchor;
+        const ax = actor.pos.wx + off.x, ay = off.y, az = actor.pos.wz + off.z;
+
+        // Attack drive. Shoving every node equally billows; instead the wind-up
+        // lifts the rope up OVERHEAD (in front, not behind), then the strike
+        // flings it forward-and-down at the target with the push CONCENTRATED at
+        // the base — a wave the tip-taper below carries out into a crack.
+        const G = lash.g ?? LASH_G;
+        const power = lash.power ?? LASH_POWER;
+        let sdx = 0, sdy = 0, sdz = 0, strikeMag = 0, strikeProg = 0, windMag = 0, windLift = 0;
+        if (winding) {
+            const w = ap / 0.34;
+            windMag = 18 * w;          // small FORWARD drape as it lifts (never behind)
+            windLift = G + 55 * w;     // cancel gravity + raise the rope overhead
+        } else if (striking) {
+            strikeProg = (ap - 0.34) / 0.30; // 0 → 1: the crest travels base → tip
+            let tx, ty, tz;
+            if (st.editorMode) {       // no live opponent: crack forward-and-down
+                tx = ax + sF * 3; tz = az + cF * 3; ty = ay - 0.6;
+            } else {
+                const other = actor === st.player ? st.enemy : st.player;
+                tx = other.pos.wx; tz = other.pos.wz; ty = other.base.worldH * 0.3;
+            }
+            const dx = tx - ax, dy = ty - ay, dz = tz - az;
+            const dl = Math.hypot(dx, dy, dz) || 1;
+            sdx = dx / dl; sdy = dy / dl; sdz = dz / dl;
+            strikeMag = 260 * power;
+        }
+        // Inverse mass rising GEOMETRICALLY toward the tip (tip lightest) — the
+        // split below yields more at the light end, so a disturbance handed up
+        // the rope amplifies segment after segment into a tip crack. Geometric
+        // (not +linear) keeps a real mass ratio between every adjacent pair, so
+        // the whole rope tapers rather than just the last node or two.
+        const taper = lash.taper ?? LASH_TAPER;
+        const n = lash.pts.length;
+        const imOf = i => Math.pow(2, taper * (i / (n - 1)));
+
+        // Integrate in substeps with the pin interpolated across the frame,
+        // so even the clamped anchor motion arrives as a sweep. dt === 0
+        // (hit-stop) skips integration entirely — re-pin only — so frozen
+        // frames don't keep feeding stale per-frame velocity into the rope.
+        const SUB = 3;
+        // Bending resistance: pull each interior node toward the midpoint of
+        // its two neighbours, which flattens local curvature; interleaved with
+        // the distance pass (which re-expands the segments) the rope holds a
+        // straighter, more rod-like line the higher `stiff` is. 0 = today's
+        // floppy chain. The 0.5 keeps high values stable across the rounds.
+        const bend = (lash.stiff ?? 0) * 0.5;
+        const relax = (rounds, px2, py2, pz2) => {
+            const p0 = lash.pts[0];
+            p0.x = p0.px = px2; p0.y = p0.py = py2; p0.z = p0.pz = pz2;
+            for (let it = 0; it < rounds; it++) {
+                for (let i = 0; i < lash.pts.length - 1; i++) {
+                    const A = lash.pts[i], B = lash.pts[i + 1];
+                    let dx = B.x - A.x, dy = B.y - A.y, dz = B.z - A.z;
+                    const d = Math.hypot(dx, dy, dz) || 1e-6;
+                    const f = (d - lash.segLen) / d;
+                    if (i === 0) { B.x -= dx * f; B.y -= dy * f; B.z -= dz * f; }
+                    else {
+                        // Split by inverse mass so the lighter tip-ward node
+                        // yields more — disturbances amplify toward the tip
+                        // (this is what makes it crack instead of sag).
+                        const imA = imOf(i), imB = imOf(i + 1), s = imA + imB;
+                        const wa = imA / s, wb = imB / s;
+                        A.x += dx * f * wa; A.y += dy * f * wa; A.z += dz * f * wa;
+                        B.x -= dx * f * wb; B.y -= dy * f * wb; B.z -= dz * f * wb;
+                    }
+                }
+                if (bend > 0) {
+                    for (let i = 1; i < lash.pts.length - 1; i++) {
+                        const A = lash.pts[i - 1], B = lash.pts[i], C = lash.pts[i + 1];
+                        B.x += ((A.x + C.x) * 0.5 - B.x) * bend;
+                        B.y += ((A.y + C.y) * 0.5 - B.y) * bend;
+                        B.z += ((A.z + C.z) * 0.5 - B.z) * bend;
+                    }
+                }
+            }
+        };
+        if (dt === 0) {
+            relax(6, ax, ay, az);
+        } else for (let s = 1; s <= SUB; s++) {
+            const dts = dt / SUB / 1000, dts2 = dts * dts;
+            const q = s / SUB;
+            const sx = prev.x + (ax - prev.x) * q,
+                  sy = prev.y + (ay - prev.y) * q,
+                  sz = prev.z + (az - prev.z) * q;
+            const damp = lash.damp ?? LASH_DAMP;
+            for (let i = 1; i < n; i++) {
+                const pt = lash.pts[i];
+                const frac = i / (n - 1);          // 0 = handle end … 1 = tip
+                // Per-node accel: gravity everywhere; the wind-up gathers the
+                // whole rope (tip most), the strike kicks the base hardest.
+                let dvx = 0, dvy = -G, dvz = 0;
+                if (winding) {
+                    const wgt = 0.6 + 0.8 * frac;  // tail lifts highest
+                    dvx += sF * windMag * wgt; dvz += cF * windMag * wgt; // +fwd drape
+                    dvy += windLift * wgt;
+                } else if (striking) {
+                    // A forward push localised at a crest that sweeps from the
+                    // base out to the tip across the strike — a travelling wave.
+                    // Reaching the light, barely-damped tip, it spikes: the crack.
+                    const w = Math.exp(-(((frac - strikeProg) / 0.26) ** 2));
+                    const k = strikeMag * w;
+                    dvx += sdx * k; dvy += sdy * k + 0.1 * k; dvz += sdz * k;
+                }
+                // Damping lighter toward the tip and loosened during the strike,
+                // so the wave survives the trip out and the tip keeps its speed
+                // instead of being bled dry before it can crack.
+                const nd = Math.min(0.999, damp + (striking ? 0.028 : 0) + 0.03 * frac);
+                const vx = (pt.x - pt.px) * nd,
+                      vy = (pt.y - pt.py) * nd,
+                      vz = (pt.z - pt.pz) * nd;
+                pt.px = pt.x; pt.py = pt.y; pt.pz = pt.z;
+                pt.x += vx + dvx * dts2;
+                pt.y += vy + dvy * dts2;
+                pt.z += vz + dvz * dts2;
+                if (pt.y < 0.02) { // ground contact: rest + friction drag
+                    pt.y = 0.02;
+                    pt.x += (pt.px - pt.x) * 0.35;
+                    pt.z += (pt.pz - pt.z) * 0.35;
+                }
+            }
+            relax(6, sx, sy, sz);
+        }
+        lash.anchor = { x: ax, y: ay, z: az };
+    }
+
+    // Voxel-style rope: a continuous tapered stroke per inter-node segment
+    // (not a sampled square) guarantees no gaps regardless of how close
+    // together or far apart the physics nodes land on screen (a short
+    // 12-segment rope can put adjacent nodes just 1-2px apart, which left
+    // isolated dots under the old point-sampling approach — "pieces" instead
+    // of a rope). Segment order is back-to-front by depth so occlusion still
+    // reads correctly within the rope itself; the low-res canvas + nearest-
+    // neighbor upscaling keeps
+    // everything looking chunky/pixelated, not smooth vector art.
+    // Real bitmap texture (a downsampled, palette-quantized photo of woven
+    // leather, kept as a small tileable pixel-art swatch to match the
+    // game's art style) instead of any procedurally-drawn pattern. Loaded
+    // once and cached as a repeating CanvasPattern.
+    let lashTexImg = null, lashTexPattern = null;
+    function getLashPattern(ctx) {
+        if (!lashTexImg) {
+            lashTexImg = new Image();
+            lashTexImg.src = 'assets/textures/whip_rope.png';
+        }
+        if (!lashTexPattern && lashTexImg.complete && lashTexImg.naturalWidth > 0)
+            lashTexPattern = ctx.createPattern(lashTexImg, 'repeat');
+        return lashTexPattern;
+    }
+
+    // Per-pixel occlusion against the actor's own rasterized silhouette:
+    // each node pair is cut into SUB sub-segments, and each sub-segment's
+    // midpoint is looked up in the depth buffer renderActorOffscreen stamped
+    // alongside the body sprite (same painter's-algorithm order, so it holds
+    // the nearest body voxel's local rz at every screen pixel). A sub-segment
+    // draws only where the rope is nearer than whatever body voxel (if any)
+    // occupies that pixel — real masking instead of an all-or-nothing guess,
+    // so the whip can correctly duck behind an arm or the torso and re-emerge
+    // without either always winning (the original bug) or vanishing whole.
+    //
+    // depthBuf's rz is in the actor's local voxel space (same rotation used
+    // for the body sprite), while the lash's rz is world-space relative to
+    // the camera focus — converted via (rz - bodyRz) * vpw, since bodyRz
+    // (the actor's own screen depth) is local-rz-zero by construction and
+    // vpw is voxels-per-world-unit.
+    const LASH_SUB = 3;
+    function drawLash(st, ctx, actor, W, H, bodyRz, blit) {
+        const lash = actor.lash;
+        if (!lash?.pts || actor.crumbled) return;
+        const vpw = actor.model.height / actor.base.worldH;
+        const n = lash.pts.length;
+        const bw = lash.thick ?? 2.6; // base render width (taper floor + scale)
+        const scr = lash.pts.map((pt, i) => {
+            const p = proj(st, pt.x, pt.z, W, H);
+            const ps = CAM_FOV / (CAM_FOV - p.rz);
+            const S = p.px * ps / vpw; // px per voxel at depth
+            return { x: p.x, y: p.y - pt.y * p.px * ps, rz: p.rz,
+                     width: Math.max(bw, S * (bw - i / (n - 1))) };
+        });
+
+        // Base cord: one continuous tapered stroke per (sub-)segment
+        // (guarantees no gaps regardless of on-screen node spacing), filled
+        // with the woven-leather pattern — falls back to a flat color for
+        // the handful of frames before the texture image finishes loading.
+        const pattern = getLashPattern(ctx);
+        const depthBuf = actor.depthBuf, bufW = actor.depthW, bufH = actor.depthH;
+        const segsArr = [];
+        for (let i = 0; i < n - 1; i++) {
+            const A = scr[i], B = scr[i + 1];
+            for (let k = 0; k < LASH_SUB; k++) {
+                const u0 = k / LASH_SUB, u1 = (k + 1) / LASH_SUB, um = (u0 + u1) / 2;
+                const x0 = A.x + (B.x - A.x) * u0, y0 = A.y + (B.y - A.y) * u0;
+                const x1 = A.x + (B.x - A.x) * u1, y1 = A.y + (B.y - A.y) * u1;
+                const rz = A.rz + (B.rz - A.rz) * um;
+                const width = A.width + (B.width - A.width) * um;
+
+                if (depthBuf) {
+                    const ox = (((x0 + x1) / 2 - blit.destX) / blit.psTot) | 0;
+                    const oy = (((y0 + y1) / 2 - blit.destY) / blit.psTot) | 0;
+                    if (ox >= 0 && ox < bufW && oy >= 0 && oy < bufH
+                        && depthBuf[oy * bufW + ox] > (rz - bodyRz) * vpw) continue; // body pixel is nearer
+                }
+                segsArr.push({ x0, y0, x1, y1, width, rz });
+            }
+        }
+        if (!segsArr.length) return;
+        segsArr.sort((a, b) => a.rz - b.rz);
+        ctx.save();
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        for (const s of segsArr) {
+            ctx.strokeStyle = pattern ?? lash.color;
+            ctx.lineWidth = s.width;
+            ctx.beginPath();
+            ctx.moveTo(s.x0, s.y0);
+            ctx.lineTo(s.x1, s.y1);
+            ctx.stroke();
+        }
+        ctx.restore();
     }
 
     // Debris burst at (a subset of) the given voxels' positions.
@@ -953,9 +1971,10 @@
         const p = anchor(actor, W, H);
         const S = actorScale(actor, W, H);
         const ps = CAM_FOV / (CAM_FOV - p.rz);
+        const ws = actorWorldScale(actor, W, H);
         const cx = p.x;
-        const cy = p.y - actor.model.height * S * ps * 0.45;
-        const rad = actor.model.height * S * ps * 0.85;
+        const cy = p.y - actor.model.height * S * ps * ws * 0.45;
+        const rad = actor.model.height * S * ps * ws * 0.85;
         const pulse = 0.22 + 0.14 * Math.sin(now * 0.006);
         const g = ctx.createRadialGradient(cx, cy, rad * 0.15, cx, cy, rad);
         g.addColorStop(0, `rgba(204,68,255,${pulse})`);
@@ -966,41 +1985,30 @@
 
     // ── Ground scenes ─────────────────────────────────────────────────────────
     // Drawn every frame (the camera rotates and follows the player, so the
-    // ground can't be pre-rendered). 'arena': the round checkered duel ring.
+    // ground can't be pre-rendered). 'arena': the square checkered duel floor.
     // 'field': open grass with prop set-dressing (test fights).
-
-    function tileQuad(st, ctx, tx, tz, W, H) {
-        const p0 = proj(st, tx, tz, W, H), p1 = proj(st, tx + 1, tz, W, H),
-              p2 = proj(st, tx + 1, tz + 1, W, H), p3 = proj(st, tx, tz + 1, W, H);
-        ctx.beginPath();
-        ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
-        ctx.closePath(); ctx.fill();
-    }
+    // Both use the tileQuad/traceQuad primitives defined below, alongside the
+    // ground overlays (walk marker, target tile, hazard tiles).
 
     function drawArenaScene(st, ctx, W, H) {
-        const ring = new Path2D();
-        for (let i = 0; i <= 64; i++) {
-            const a = i / 64 * Math.PI * 2;
-            const p = proj(st, Math.cos(a) * ARENA_R, Math.sin(a) * ARENA_R, W, H);
-            if (i === 0) ring.moveTo(p.x, p.y); else ring.lineTo(p.x, p.y);
-        }
-        ring.closePath();
-
-        // checker tiles clipped to the ring so the arena edge is clean
-        ctx.save();
-        ctx.clip(ring);
-        const R = Math.ceil(ARENA_R);
-        for (let tx = -R - 1; tx <= R; tx++) {
-            for (let tz = -R - 1; tz <= R; tz++) {
+        // Square walkable floor, bounded by WALK_R (matches GameState.InArena)
+        // — no circular clip, so every rendered tile is actually reachable.
+        for (let tx = -WALK_R; tx <= WALK_R; tx++) {
+            for (let tz = -WALK_R; tz <= WALK_R; tz++) {
                 ctx.fillStyle = ((tx + tz) & 1) ? '#2b2331' : '#241d29';
-                tileQuad(st, ctx, tx, tz, W, H);
+                traceQuad(ctx, tileQuad(st, tx * TILE, tz * TILE, W, H));
+                ctx.fill();
             }
         }
-        ctx.restore();
+        // Square edge marker (same visual role the old ring played) just
+        // outside the last row of tiles.
+        const edge = (WALK_R + 0.5) * TILE;
+        const corners = [proj(st, -edge, -edge, W, H), proj(st, edge, -edge, W, H),
+                          proj(st, edge, edge, W, H), proj(st, -edge, edge, W, H)];
         ctx.strokeStyle = '#4a3a55';
         ctx.lineWidth = 1.5;
-        ctx.stroke(ring);
+        traceQuad(ctx, corners);
+        ctx.stroke();
     }
 
     // Deterministic per-tile grass shade (cached) — mostly quiet greens with
@@ -1022,10 +2030,11 @@
         const m = camera(W, H).px * 1.5; // cull margin
         for (let tx = -FIELD_R; tx < FIELD_R; tx++) {
             for (let tz = -FIELD_R; tz < FIELD_R; tz++) {
-                const p = proj(st, tx + 0.5, tz + 0.5, W, H);
+                const p = proj(st, tx * TILE, tz * TILE, W, H); // cell center
                 if (p.x < -m || p.x > W + m || p.y < -m || p.y > H + m) continue;
                 ctx.fillStyle = grassColor(st, tx, tz);
-                tileQuad(st, ctx, tx, tz, W, H);
+                traceQuad(ctx, tileQuad(st, tx * TILE, tz * TILE, W, H));
+                ctx.fill();
             }
         }
     }
@@ -1049,30 +2058,66 @@
 
     // Field set-dressing, placed outside the walkable radius. Loaded lazily
     // into st.props; drawn depth-sorted with the actors.
+    // Positions in TILE multiples so the dressing scales with the grid: trees
+    // stay ≥ ~1.8 tiles beyond the walkable square (WALK_R = 5) so their
+    // canopies never occlude a fight at the edge; low rocks/bushes hug the
+    // boundary just outside it.
     const FIELD_PROPS = [
-        // trees stay ≥ 8.5 wu out so their canopies never occlude a fight
-        // at the walkable edge (WALK_R = 5)
-        { id: 'tree', wx: -9.0, wz: -4.5, worldH: 5.4 },
-        { id: 'tree', wx: 8.5,  wz: -7.5, worldH: 4.6 },
-        { id: 'tree', wx: 9.2,  wz: 5.5,  worldH: 5.8 },
-        { id: 'tree', wx: -8.5, wz: 8.0,  worldH: 5.0 },
-        { id: 'rock', wx: -6.6, wz: 1.5,  worldH: 1.4 },
-        { id: 'rock', wx: 3.5,  wz: -7.4, worldH: 1.1 },
-        { id: 'bush', wx: 6.6,  wz: -1.8, worldH: 1.1 },
-        { id: 'bush', wx: -3.0, wz: -7.1, worldH: 0.9 },
-        { id: 'bush', wx: 1.5,  wz: 7.4,  worldH: 1.0 },
+        { id: 'tree', wx: -7.2 * TILE, wz: -3.6 * TILE, worldH: 5.4 },
+        { id: 'tree', wx: 6.8 * TILE,  wz: -6.8 * TILE, worldH: 4.6 },
+        { id: 'tree', wx: 7.4 * TILE,  wz: 4.4 * TILE,  worldH: 5.8 },
+        { id: 'tree', wx: -6.8 * TILE, wz: 6.4 * TILE,  worldH: 5.0 },
+        { id: 'rock', wx: -5.4 * TILE, wz: 1.2 * TILE,  worldH: 1.4 },
+        { id: 'rock', wx: 2.8 * TILE,  wz: -5.9 * TILE, worldH: 1.1 },
+        { id: 'bush', wx: 5.4 * TILE,  wz: -1.4 * TILE, worldH: 1.1 },
+        { id: 'bush', wx: -2.4 * TILE, wz: -5.7 * TILE, worldH: 0.9 },
+        { id: 'bush', wx: 1.2 * TILE,  wz: 5.9 * TILE,  worldH: 1.0 },
     ];
 
+    // Like actorScale/actorWorldScale: S is the integer voxel raster scale
+    // (perspective-independent, so it stays stable while the camera moves),
+    // ws is the leftover fractional correction. Rounding perspective's
+    // continuous ps into S directly (as this used to) made props visibly pop
+    // between whole-voxel sizes on every camera move/zoom.
     function drawProp(st, ctx, pr, W, H) {
         const p = proj(st, pr.wx, pr.wz, W, H);
         const ps = CAM_FOV / (CAM_FOV - p.rz);
-        const S = Math.max(1, Math.round(p.px * pr.worldH * ps / pr.model.height));
+        const m = pr.model;
+        const S = Math.max(1, Math.round(p.px * pr.worldH / m.height));
+        const ws = (p.px * pr.worldH) / (m.height * S);
+        const psTot = ps * ws;
+
+        if (!pr.off) pr.off = document.createElement('canvas');
+        const w = Math.ceil((m.radius * 2 + 1) * S) + 2;
+        const h = Math.ceil((m.height + 1 + m.radius * 2 * TILT) * S) + 2;
+        if (pr.off.width !== w || pr.off.height !== h) { pr.off.width = w; pr.off.height = h; }
+        const octx = pr.off.getContext('2d');
+        octx.clearRect(0, 0, w, h);
+        const feetY = h - m.radius * TILT * S - 1;
+        renderModel(octx, m, st.camYaw, S, w / 2, feetY - S);
+
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
         ctx.beginPath();
-        ctx.ellipse(p.x, p.y, pr.model.radius * S * 0.9,
-            pr.model.radius * S * (st.camPitch ?? POS_TILT) * 0.6, 0, 0, 6.2832);
+        ctx.ellipse(p.x, p.y, m.radius * S * psTot * 0.9,
+            m.radius * S * (st.camPitch ?? POS_TILT) * psTot * 0.6, 0, 0, 6.2832);
         ctx.fill();
-        renderModel(ctx, pr.model, st.camYaw, S, p.x, p.y);
+        ctx.drawImage(pr.off, (p.x - w / 2 * psTot) | 0, (p.y - feetY * psTot) | 0,
+            (w * psTot) | 0, (h * psTot) | 0);
+    }
+
+    // Projected corners of the ground square centered on world (wx, wz) —
+    // the shared primitive for every tile-aligned ground overlay (walk
+    // marker, enemy target tile, hazard tiles).
+    function tileQuad(st, wx, wz, W, H, half = TILE / 2) {
+        return [proj(st, wx - half, wz - half, W, H), proj(st, wx + half, wz - half, W, H),
+                proj(st, wx + half, wz + half, W, H), proj(st, wx - half, wz + half, W, H)];
+    }
+
+    function traceQuad(ctx, q) {
+        ctx.beginPath();
+        ctx.moveTo(q[0].x, q[0].y);
+        for (let i = 1; i < 4; i++) ctx.lineTo(q[i].x, q[i].y);
+        ctx.closePath();
     }
 
     // Pulsing tile outline where the last ground click landed (walk order).
@@ -1080,18 +2125,57 @@
         if (!st.moveMarker) return;
         const age = now - st.moveMarker.t0;
         if (age > 900) { st.moveMarker = null; return; }
-        const { wx, wz } = st.moveMarker;
-        const p0 = proj(st, wx - 0.5, wz - 0.5, W, H), p1 = proj(st, wx + 0.5, wz - 0.5, W, H),
-              p2 = proj(st, wx + 0.5, wz + 0.5, W, H), p3 = proj(st, wx - 0.5, wz + 0.5, W, H);
         ctx.save();
         ctx.globalAlpha = 1 - age / 900;
         ctx.strokeStyle = '#ffd166';
         ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
-        ctx.closePath(); ctx.stroke();
+        traceQuad(ctx, tileQuad(st, st.moveMarker.wx * TILE, st.moveMarker.wz * TILE, W, H));
+        ctx.stroke();
         ctx.restore();
+    }
+
+    // Boss tile hazards, drawn on the ground under the actors: pending
+    // warnings pulse (faster and redder on their final tick — the "last
+    // chance to move" beat), pools sit as sickly slime that blows the odd
+    // rising bubble.
+    function drawHazards(st, ctx, W, H, now) {
+        const { pending, pools } = st.hazards;
+        for (const t of pools) {
+            const wx = t.x * TILE, wz = t.z * TILE;
+            ctx.save();
+            ctx.fillStyle = 'rgba(122,148,38,0.34)';
+            traceQuad(ctx, tileQuad(st, wx, wz, W, H, TILE * 0.48));
+            ctx.fill();
+            ctx.globalAlpha = 0.25 + 0.15 * Math.sin(now * 0.004 + t.x * 3 + t.z * 7);
+            ctx.strokeStyle = '#9db830';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.restore();
+            if (Math.random() < 0.05) {
+                const p = proj(st, wx, wz, W, H);
+                st.particles.push({
+                    x: p.x + (Math.random() - 0.5) * TILE * p.px * 0.7, y: p.y,
+                    vx: 0, vy: -0.5 * motionScale(W, H),
+                    size: 1, color: '#c2e04a',
+                    t0: now, life: 420, floor: p.y + 1,
+                });
+            }
+        }
+        for (const t of pending) {
+            const urgent = t.t <= 1;
+            const pulse = 0.5 + 0.5 * Math.sin(now * (urgent ? 0.022 : 0.009));
+            const color = urgent ? '#ff5555' : '#ffd166';
+            ctx.save();
+            ctx.globalAlpha = 0.16 + 0.26 * pulse;
+            ctx.fillStyle = color;
+            traceQuad(ctx, tileQuad(st, t.x * TILE, t.z * TILE, W, H, TILE * 0.44));
+            ctx.fill();
+            ctx.globalAlpha = 0.45 + 0.5 * pulse;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = urgent ? 1.5 : 1;
+            ctx.stroke();
+            ctx.restore();
+        }
     }
 
     // Pulsing starburst above the enemy while their attack winds up; color
@@ -1100,14 +2184,15 @@
         const p = anchor(actor, W, H);
         const S = actorScale(actor, W, H);
         const ps = CAM_FOV / (CAM_FOV - p.rz);
+        const ws = actorWorldScale(actor, W, H);
         const x = p.x;
-        const y = p.y - actor.model.height * S * ps - S * ps * 3;
+        const y = p.y - actor.model.height * S * ps * ws - S * ps * ws * 3;
         const pulse = 0.5 + 0.5 * Math.sin(now * 0.02);
-        const r = actor.model.height * S * ps * 0.22 * (0.7 + 0.5 * pulse);
+        const r = actor.model.height * S * ps * ws * 0.22 * (0.7 + 0.5 * pulse);
         ctx.save();
         ctx.globalAlpha = 0.5 + 0.5 * pulse;
         ctx.strokeStyle = color;
-        ctx.lineWidth = Math.max(1.5, S * ps * 0.7);
+        ctx.lineWidth = Math.max(1.5, S * ps * ws * 0.7);
         for (let i = 0; i < 4; i++) {
             const ang = i * Math.PI / 4 + now * 0.003;
             ctx.beginPath();
@@ -1118,32 +2203,170 @@
         ctx.restore();
     }
 
-    // Impact slash over the defender: sweeping arcs + radial sparks, fading out.
+    // Impact burst at the point of contact: a 2-frame white core pop, then
+    // style-colored pixel rays that shoot out fast and die — reads as a hit
+    // landing rather than a UI decal. Ray heads leave a fading trail pixel.
     function drawSlash(ctx, x, y, r, p, color) {
         ctx.save();
+        const R = r * 0.95;
+        const reach = 1 - Math.pow(1 - Math.min(1, p * 1.2), 2.4); // expo out
         ctx.globalAlpha = 1 - p;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = Math.max(2, r * 0.06);
-        const sweep = p * 1.4;
-        for (let i = 0; i < 3; i++) {
-            ctx.beginPath();
-            ctx.arc(x, y, r * (0.45 + i * 0.25), -2.2 + sweep, -0.9 + sweep);
-            ctx.stroke();
+        ctx.fillStyle = color;
+        for (let i = 0; i < 7; i++) {
+            const ang = i * 0.897 + 0.35; // 7 rays, deliberately irregular
+            const rr = R * (0.2 + 0.75 * reach);
+            const hx = x + Math.cos(ang) * rr, hy = y + Math.sin(ang) * rr * 0.72;
+            const s = Math.max(1, Math.round((1 - p) * 2.5));
+            ctx.fillRect((hx - s / 2) | 0, (hy - s / 2) | 0, s, s);
+            ctx.fillRect((x + Math.cos(ang) * rr * 0.55) | 0,
+                         (y + Math.sin(ang) * rr * 0.55 * 0.72) | 0, 1, 1);
         }
-        ctx.lineWidth = Math.max(1, r * 0.03);
-        for (let i = 0; i < 5; i++) {
-            const ang = i * 1.2566 + 0.6;
-            const r0 = r * (0.25 + 0.55 * p), r1 = r * (0.5 + 0.8 * p);
-            ctx.beginPath();
-            ctx.moveTo(x + Math.cos(ang) * r0, y + Math.sin(ang) * r0);
-            ctx.lineTo(x + Math.cos(ang) * r1, y + Math.sin(ang) * r1);
-            ctx.stroke();
+        if (p < 0.22) { // white core flash
+            ctx.globalAlpha = 1 - p / 0.22;
+            ctx.fillStyle = '#ffffff';
+            const c = Math.max(2, Math.round(R * 0.32 * (1 - p / 0.22)));
+            ctx.fillRect((x - c / 2) | 0, (y - c / 2) | 0, c, c);
         }
         ctx.restore();
     }
 
+    // ── In-canvas pixel-art overlays: overhead prayers + hitsplats ─────────
+    // Both draw straight into the low-res battle canvas as chunky pixels so
+    // they read as part of the voxel world (the old DOM overlays floated in
+    // crisp UI-space above it).
+
+    // Tiny bitmaps: rows of chars, '.' = transparent, letters index colors.
+    function drawBitmap(ctx, rows, colors, cx, cy, u) {
+        const w = rows[0].length, h = rows.length;
+        const x0 = cx - (w * u / 2) | 0, y0 = cy - (h * u / 2) | 0;
+        for (let r = 0; r < h; r++)
+            for (let c = 0; c < w; c++) {
+                const ch = rows[r][c];
+                if (ch === '.') continue;
+                ctx.fillStyle = colors[ch];
+                ctx.fillRect(x0 + c * u, y0 + r * u, u, u);
+            }
+    }
+
+    // Overhead prayer icons (OSRS-style, 9×9)
+    const OVERHEAD_ICONS = {
+        melee: { // crossed swords
+            rows: ['s.......s', '.s..d..s.', '..s.d.s..', '...sds...',
+                   '....s....', '...gsg...', '..g.s.g..', '.g..s..g.', '....s....'],
+            colors: { s: '#cdd6e4', d: '#8a97ac', g: '#d8b545' },
+        },
+        ranged: { // arrow, fletching at the base
+            rows: ['....a....', '...aaa...', '..a.a.a..', '....a....',
+                   '....a....', '....a....', '.f..a..f.', '..f.a.f..', '....a....'],
+            colors: { a: '#9fdc8a', f: '#4f9a44' },
+        },
+        magic: { // four-point spark
+            rows: ['....b....', '....b....', '....l....', '.b.lwl.b.',
+                   'bblwwwlbb', '.b.lwl.b.', '....l....', '....b....', '....b....'],
+            colors: { b: '#6ec6ff', l: '#a8ddff', w: '#eef8ff' },
+        },
+        piety: { // lightning bolt
+            rows: ['...yyy...', '..yyy....', '..yy.....', '.yyyyy...',
+                   '...yy....', '..yy.....', '..y......', '.y.......', 'y........'],
+            colors: { y: '#ffd166' },
+        },
+    };
+
+    function drawOverhead(st, ctx, actor, key, W, H, now) {
+        const icon = OVERHEAD_ICONS[key];
+        if (!icon || actor.crumbled) return;
+        const p = anchor(actor, W, H);
+        const ps = CAM_FOV / (CAM_FOV - p.rz);
+        const ws = actorWorldScale(actor, W, H);
+        const S = actorScale(actor, W, H);
+        const top = p.y - actor.model.height * S * ps * ws;
+        const u = Math.max(1, Math.round(ps));            // pixel unit at depth
+        const cy = top - 9 * u + Math.sin(now * 0.003 + actor.bobPhase) * 1.5;
+        // dark plate so the icon pops on any ground/sky
+        ctx.fillStyle = 'rgba(8,6,12,0.72)';
+        ctx.fillRect((p.x - 6.5 * u) | 0, (cy - 6.5 * u) | 0, 13 * u, 13 * u);
+        ctx.fillStyle = 'rgba(255,255,255,0.10)';
+        ctx.fillRect((p.x - 6.5 * u) | 0, (cy - 6.5 * u) | 0, 13 * u, u); // top bevel
+        drawBitmap(ctx, icon.rows, icon.colors, p.x | 0, cy | 0, u);
+    }
+
+    // Hitsplats: OSRS-style starburst with a 3×5 pixel digit font.
+    const SPLAT_ROWS = [
+        '......xxx......',
+        '..x.xxXXXxx.x..',
+        '.xxxXXXXXXXxxx.',
+        '.xXXXXXXXXXXXx.',
+        'xxXXXXXXXXXXXxx',
+        '.xXXXXXXXXXXXx.',
+        '.xxxXXXXXXXxxx.',
+        '..x.xxXXXxx.x..',
+        '......xxx......',
+    ];
+    const SPLAT_COLORS = { // [fill, rim] per tier
+        normal: ['#b3281e', '#6d140f'],
+        heavy:  ['#d8a018', '#8a6208'],
+        max:    ['#d8a018', '#8a6208'],
+        spec:   ['#d86a10', '#8a3f08'],
+        boss:   ['#9932cc', '#5c1a80'],
+        poison: ['#3f8f3f', '#255c25'],
+        hazard: ['#a8781e', '#6b4a0e'], // ground eruption (dodge-only damage)
+        miss:   ['#2f4d8a', '#1b2d54'],
+    };
+    const DIGITS = {
+        '0': ['xxx', 'x.x', 'x.x', 'x.x', 'xxx'], '1': ['.x.', 'xx.', '.x.', '.x.', 'xxx'],
+        '2': ['xxx', '..x', 'xxx', 'x..', 'xxx'], '3': ['xxx', '..x', '.xx', '..x', 'xxx'],
+        '4': ['x.x', 'x.x', 'xxx', '..x', '..x'], '5': ['xxx', 'x..', 'xxx', '..x', 'xxx'],
+        '6': ['xxx', 'x..', 'xxx', 'x.x', 'xxx'], '7': ['xxx', '..x', '.x.', '.x.', '.x.'],
+        '8': ['xxx', 'x.x', 'xxx', 'x.x', 'xxx'], '9': ['xxx', 'x.x', 'xxx', '..x', 'xxx'],
+    };
+
+    function drawSplats(st, ctx, W, H, now) {
+        st.splats = st.splats.filter(s => now - s.t0 < 900);
+        const perActor = {};
+        for (const s of st.splats) {
+            if (now < s.t0) continue;
+            const actor = s.on === 'player' ? st.player : st.enemy;
+            if (actor.crumbled) continue;
+            const idx = perActor[s.on] = (perActor[s.on] ?? -1) + 1;
+            const p = anchor(actor, W, H);
+            const ps = CAM_FOV / (CAM_FOV - p.rz);
+            const ws = actorWorldScale(actor, W, H);
+            const S = actorScale(actor, W, H);
+            const u = Math.max(2, Math.round(ps * 1.5)); // 1.5× bigger splats (container + font scale with u)
+            const off = [[0, 0], [11, -9], [-11, -7], [7, 9]][idx & 3];
+            const cx = (p.x + off[0] * u) | 0;
+            const cy = (p.y - actor.model.height * S * ps * ws * 0.55 + off[1] * u) | 0;
+            const age = now - s.t0;
+            ctx.globalAlpha = age > 600 ? 1 - (age - 600) / 300 : 1;
+            const [fill, rim] = SPLAT_COLORS[s.tier] ?? SPLAT_COLORS.normal;
+            drawBitmap(ctx, SPLAT_ROWS, { X: fill, x: rim }, cx, cy, u);
+            // centered damage number ('miss' shows 0, OSRS-style)
+            const txt = s.tier === 'miss' ? '0' : String(s.dmg);
+            const tw = txt.length * 4 - 1;
+            let x = cx - (tw * u / 2) | 0;
+            for (const ch of txt) {
+                drawBitmap(ctx, DIGITS[ch] ?? DIGITS['0'], { x: '#ffffff' },
+                           x + 1.5 * u, cy, u);
+                x += 4 * u;
+            }
+            ctx.globalAlpha = 1;
+        }
+    }
+
     function npcModelUrl(enemyId) {
         return NPC_ASSETS.has(enemyId) ? `assets/npcs/${enemyId}.vox` : 'assets/player.vox';
+    }
+
+    // Map a client (screen) point to canvas-pixel coordinates, undoing the
+    // landscape view rotation (0 or 90°) so taps still hit the right world spot
+    // when the fight is CSS-rotated in portrait. For a 90° CW content rotation,
+    // screen-down is the canvas +x axis and screen-left is the canvas +y axis.
+    function clientToCanvas(st, canvas, clientX, clientY) {
+        const r = canvas.getBoundingClientRect();
+        let fx = (clientX - r.left) / (r.width || 1);
+        let fy = (clientY - r.top) / (r.height || 1);
+        if (st.viewRot === 90) { const nx = fy, ny = 1 - fx; fx = nx; fy = ny; }
+        return { x: fx * canvas.width, y: fy * canvas.height };
     }
 
     // Unmodeled enemies reuse the player model with a permanent red wash so a
@@ -1178,6 +2401,8 @@
         const st = {
             canvas,
             ctx: canvas.getContext('2d'),
+            viewRot: 0,   // 0 or 90: CSS view rotation for the landscape fight,
+                          // so pointer taps/orbit map back to canvas space
             rigs,
             player: makeActor(playerModel, LAYOUT.player, null, playerRig),
             enemy: makeActor(enemyModel, LAYOUT.enemy, npcFallbackTint(opts.enemyId), rigOf(opts.enemyId)),
@@ -1185,7 +2410,10 @@
             enemyId: opts.enemyId,
             enemySwapToken: 0,
             weaponToken: 0,
-            weaponId: null,
+            weaponId: null,     // base equipped weapon (what setBattleWeapon sets)
+            heldWeaponId: null, // weapon model currently attached (a one-shot spec
+                                // weapon overrides it for the duration of its swing)
+            weaponWanted: null, // weapon a load is currently in flight toward
             flags: { telegraph: false, windup: null, holdPosition: false },
             lastWindupStyle: null,
             targetPulse: -1e9,    // click-to-target chevron
@@ -1197,11 +2425,14 @@
             camFocus: { wx: LAYOUT.player.wx, wz: LAYOUT.player.wz },
             tileColors: new Map(),
             props: [],            // { model, wx, wz, worldH } (field scene)
+            hazards: { pending: [], pools: [] }, // boss tile hazards (sim tiles)
             moveMarker: null,     // last ground-click tile pulse
             drag: null,           // active pointer gesture
             effects: [],
             particles: [],
             projectiles: [],
+            splats: [],           // in-canvas pixel hitsplats
+            overheads: { player: null, enemy: null }, // active prayer icons
             // Scene time: freezes during hit-stop, crawls during slow-mo.
             time: 0,
             lastReal: performance.now(),
@@ -1217,6 +2448,15 @@
         };
         st.player.st = st;
         st.enemy.st = st;
+
+        // Animation editor (see AnimEditor.razor): a stationary player with
+        // no opponent to react to — park the enemy far off-screen instead
+        // of touching the render loop's shared player/enemy iteration.
+        if (opts.editorMode) {
+            st.editorMode = true;
+            st.enemy.pos = { wx: 200, wz: 200 };
+            st.enemy.target = { wx: 200, wz: 200 };
+        }
 
         // Field props load in the background and pop in as they arrive.
         if (st.scene === 'field') {
@@ -1239,27 +2479,6 @@
         st.ro = new ResizeObserver(fit);
         st.ro.observe(canvas);
 
-        // Hitsplat zones + overhead prayer icons follow the actors' projected
-        // positions (throttled — they move at walk speed, not frame speed).
-        const tracked = [ // element id, actor key (survives enemy swaps), height frac, x offset
-            [opts.zonePlayerId, 'player', 0.85, 0],
-            [opts.zoneNpcId, 'enemy', 0.85, 0],
-            ['overhead-player', 'player', 1.02, -0.06],
-            ['overhead-npc', 'enemy', 1.02, 0.10],
-        ];
-        st.trackAnchors = (W, H) => {
-            for (const [id, key, hFrac, xOff] of tracked) {
-                const el = document.getElementById(id);
-                if (!el) continue;
-                const actor = st[key];
-                const p = anchor(actor, W, H);
-                const ps = CAM_FOV / (CAM_FOV - p.rz);
-                const top = p.y - actor.model.height * actorScale(actor, W, H) * ps * hFrac;
-                el.style.left = ((p.x / W + xOff) * 100) + '%';
-                el.style.top = (Math.max(0, top) / H * 100) + '%';
-            }
-        };
-
         // Pointer gestures:
         //   1 finger horizontal drag → orbit (yaw)
         //   2 fingers pinch          → zoom
@@ -1273,6 +2492,39 @@
             canvas.setPointerCapture(ev.pointerId);
             st.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
             if (st.pointers.size === 1) {
+                // Animation editor: grab the elbow or hand handle of the
+                // active arm instead of orbiting, if the gesture starts on one
+                // (see drawActor's handle draw and the pointermove branch
+                // below). Tapping the sibling joint switches the selection to
+                // it (and tells Blazor so the dropdown follows).
+                const eh = st.editorMode && st.player.editorHandles;
+                if (eh) {
+                    const rect = canvas.getBoundingClientRect();
+                    const sx = (ev.clientX - rect.left) / rect.width * canvas.width;
+                    const sy = (ev.clientY - rect.top) / rect.height * canvas.height;
+                    const hitR = 26 * (canvas.width / rect.width); // generous for touch
+                    const dHand = Math.hypot(sx - eh.hand.x, sy - eh.hand.y);
+                    const dElbow = Math.hypot(sx - eh.elbow.x, sy - eh.elbow.y);
+                    let joint = null;
+                    if (dHand < hitR && dHand <= dElbow) joint = 'hand';
+                    else if (dElbow < hitR) joint = 'elbow';
+                    if (joint) {
+                        const side = eh.side;
+                        const sel = side + '-' + joint;
+                        if (st.editorSelectedJoint !== sel) {
+                            st.editorSelectedJoint = sel;
+                            st.dotnet?.invokeMethodAsync('OnJointPicked', sel);
+                        }
+                        const j = st.player.editorJoints[side];
+                        st.editorDrag = {
+                            side, joint,
+                            startClientX: ev.clientX, startClientY: ev.clientY,
+                            E0: j.E.slice(), Hf0: j.Hf.slice(), up0: j.up,
+                            L1: j.L1, L2: j.L2,
+                        };
+                        return;
+                    }
+                }
                 st.drag = { x: ev.clientX, y: ev.clientY, yaw0: st.camYaw, moved: 0 };
             } else if (st.pointers.size === 2) {
                 const pts = [...st.pointers.values()];
@@ -1287,6 +2539,55 @@
         };
         st.onMove = ev => {
             st.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+            if (st.editorDrag) {
+                // Screen delta → a delta in the actor's own model-local space.
+                // Vertical drag maps straight to height (Y isn't touched by
+                // the camera's local-facing rotation); horizontal drag moves
+                // along whatever reads as "sideways" on screen, holding depth
+                // fixed — so a depth adjustment is just "orbit 90°, then drag
+                // sideways again." Inverts the same local rotation + TILT
+                // shear + blit-scale pipeline editorJointScreenPos uses, so
+                // the drag tracks the cursor. The moved joint is then clamped
+                // to its bone-length sphere and written as offset-from-rest
+                // channels (see computePoseV2's editor branch).
+                const d = st.editorDrag;
+                const actor = st.player;
+                const W = canvas.width, H = canvas.height;
+                const S = actorScale(actor, W, H);
+                const psTot = actorWorldScale(actor, W, H); // player is always at camera focus: ps=1, a.scale=1
+                const angle = st.camYaw - actor.facing;
+                const c = Math.cos(angle), sn = Math.sin(angle);
+                const rect = canvas.getBoundingClientRect();
+                const pxScale = canvas.width / rect.width; // CSS px → canvas px
+                const dOffX = (ev.clientX - d.startClientX) * pxScale / psTot;
+                const dOffY = (ev.clientY - d.startClientY) * pxScale / psTot;
+                const dRxLocal = dOffX / S;
+                const dY = -dOffY / S;
+                const dX = dRxLocal * c, dZ = -dRxLocal * sn;
+                const cp = (actor.customPose ??= { p: 0, tracks: {} });
+                const trk = (cp.tracks[d.side] ??= {});
+                const p0 = cp.p ?? 0;
+                if (d.joint === 'elbow') {
+                    // Move the elbow on its L1 sphere; the hand rides along
+                    // rigidly because its bend is stored local to the upper arm
+                    // and left untouched here.
+                    const e1 = toLen(d.E0[0] + dX, d.E0[1] + dY, d.E0[2] + dZ, d.L1);
+                    const ex = e1[0], ey = e1[1] + d.L1, ez = e1[2];
+                    trk.ex = [[p0, ex]]; trk.ey = [[p0, ey]]; trk.ez = [[p0, ez]];
+                    d.last = { joint: 'elbow', v: [ex, ey, ez] };
+                } else {
+                    // Move the hand: desired world point → clamp to the L2
+                    // sphere about the elbow → fold back into the upper-arm-
+                    // local frame for storage (so future elbow moves carry it).
+                    const Hw = [d.Hf0[0] + dX, d.Hf0[1] + dY, d.Hf0[2] + dZ];
+                    const hrel = toLen(Hw[0] - d.E0[0], Hw[1] - d.E0[1], Hw[2] - d.E0[2], d.L2);
+                    const hl = invRotateVec(d.up0.pitch, d.up0.yaw, hrel[0], hrel[1], hrel[2]);
+                    const hx = hl[0], hy = hl[1] + d.L2, hz = hl[2];
+                    trk.hx = [[p0, hx]]; trk.hy = [[p0, hy]]; trk.hz = [[p0, hz]];
+                    d.last = { joint: 'hand', v: [hx, hy, hz] };
+                }
+                return;
+            }
             if (st.pointers.size >= 2 && st.pinch) {
                 const pts = [...st.pointers.values()];
                 const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -1300,11 +2601,24 @@
             } else if (st.drag && st.pointers.size === 1) {
                 st.drag.moved = Math.max(st.drag.moved,
                     Math.hypot(ev.clientX - st.drag.x, ev.clientY - st.drag.y));
-                if (st.drag.moved > TAP_PX)
-                    st.camYaw = st.drag.yaw0 + (ev.clientX - st.drag.x) * CAM_DRAG;
+                if (st.drag.moved > TAP_PX) {
+                    // Under a 90° view rotation the canvas' horizontal axis runs
+                    // down the physical screen, so orbit off the screen-Y drag.
+                    const along = st.viewRot === 90
+                        ? (ev.clientY - st.drag.y) : (ev.clientX - st.drag.x);
+                    st.camYaw = st.drag.yaw0 + along * CAM_DRAG;
+                }
             }
         };
         st.onUp = ev => {
+            if (st.editorDrag) {
+                const d = st.editorDrag;
+                st.pointers.delete(ev.pointerId);
+                if (d.last) st.dotnet?.invokeMethodAsync('OnJointDrag',
+                    d.side, d.last.joint, d.last.v[0], d.last.v[1], d.last.v[2]);
+                st.editorDrag = null;
+                return;
+            }
             const wasSingle = st.pointers.size === 1;
             const d = st.drag;
             st.pointers.delete(ev.pointerId);
@@ -1312,9 +2626,7 @@
 
             // Tap: only when a single pointer lifted with < TAP_PX travel.
             if (wasSingle && d && d.moved <= TAP_PX) {
-                const rect = canvas.getBoundingClientRect();
-                const x = (ev.clientX - rect.left) / rect.width * canvas.width;
-                const y = (ev.clientY - rect.top) / rect.height * canvas.height;
+                const { x, y } = clientToCanvas(st, canvas, ev.clientX, ev.clientY);
                 const W = canvas.width, H = canvas.height;
 
                 // Enemy first: generous screen-rect hit-test.
@@ -1323,8 +2635,9 @@
                     const p = anchor(e, W, H);
                     const S = actorScale(e, W, H);
                     const ePs = CAM_FOV / (CAM_FOV - p.rz);
-                    if (Math.abs(x - p.x) < e.model.radius * S * ePs * 1.5 &&
-                        y > p.y - e.model.height * S * ePs - 8 && y < p.y + 6) {
+                    const eWs = actorWorldScale(e, W, H);
+                    if (Math.abs(x - p.x) < e.model.radius * S * ePs * eWs * 1.5 &&
+                        y > p.y - e.model.height * S * ePs * eWs - 8 && y < p.y + 6) {
                         st.targetPulse = st.time;
                         st.dotnet?.invokeMethodAsync('OnEnemyClick');
                         st.drag = null;
@@ -1332,14 +2645,11 @@
                     }
                 }
 
-                // Ground: unproject to a tile, clamp to the walkable circle.
+                // Ground: unproject to a tile, clamp to the walkable square.
                 const w = screenToWorld(st, x, y, W, H);
-                let tx = Math.round(w.wx), tz = Math.round(w.wz);
-                let guard = 40;
-                while (tx * tx + tz * tz > WALK_R * WALK_R && guard-- > 0) {
-                    if (Math.abs(tx) >= Math.abs(tz)) tx -= Math.sign(tx);
-                    else tz -= Math.sign(tz);
-                }
+                let tx = Math.round(w.wx / TILE), tz = Math.round(w.wz / TILE);
+                tx = Math.max(-WALK_R, Math.min(WALK_R, tx));
+                tz = Math.max(-WALK_R, Math.min(WALK_R, tz));
                 st.moveMarker = { wx: tx, wz: tz, t0: st.time };
                 st.dotnet?.invokeMethodAsync('OnGroundClick', tx, tz);
             }
@@ -1356,6 +2666,7 @@
             st.pointers.delete(ev.pointerId);
             if (st.pointers.size < 2) st.pinch = null;
             if (st.pointers.size === 0) st.drag = null;
+            st.editorDrag = null;
         };
         // Scroll wheel: zoom in/out.
         st.onWheel = ev => {
@@ -1387,6 +2698,11 @@
                     st.pendingFreezes.splice(i, 1);
                 }
             }
+            // Once a one-shot spec swing (e.g. a dds special) finishes, restore
+            // the base equipped weapon — the swing kept its own model to the end.
+            if (st.heldWeaponId !== st.weaponId && st.weaponWanted !== st.weaponId
+                && !st.player.anims.some(a => a.type === 'attack' && now - a.t0 < a.dur))
+                attachWeaponId(canvasId, st.weaponId);
 
             const W = canvas.width, H = canvas.height;
             const ctx = st.ctx;
@@ -1413,31 +2729,62 @@
                                   ((Math.random() * 2 - 1) * st.shake.mag * ms) | 0);
             }
 
-            // Movement: play each actor's segment at constant velocity, timed
-            // to land exactly when the next sim step is due (TILE_MS) — no
-            // per-tile stall, and longer (running) segments just move faster.
-            // Face travel direction while moving, else the opponent.
+            // Movement: constant-speed pursuit of the latest sim target (tile
+            // centre). Speed is fixed per actor (MOVE_SPEED), so a multi-tile
+            // jump never sprints — it just takes proportionally longer; a huge
+            // desync snaps. The sim now emits a straight (or obstacle-routed)
+            // tile line, so pursuing the latest target traces that path. The
+            // gait absorbs speed as a LONGER stride via runBlend, not a faster
+            // cycle. Face travel direction while moving, else the opponent.
             for (const key of ['player', 'enemy']) {
                 const actor = st[key];
                 const other = key === 'player' ? st.enemy : st.player;
                 if (actor.crumbled) { actor.moving = false; continue; }
                 const disengagedIdlePlayer = key === 'player' && st.flags.holdPosition === true;
-                let destFacing;
-                if (actor.seg) {
-                    const s = actor.seg;
-                    const p = Math.min(1, (st.time - s.t0) / TILE_MS);
-                    const nx = s.x0 + (s.x1 - s.x0) * p, nz = s.z0 + (s.z1 - s.z0) * p;
-                    actor.walkPhase += Math.hypot(nx - actor.pos.wx, nz - actor.pos.wz) * actor.stride;
-                    actor.pos.wx = nx; actor.pos.wz = nz;
-                    actor.moving = p < 1;
-                    destFacing = Math.atan2(s.x1 - s.x0, s.z1 - s.z0);
-                    if (p >= 1) {
-                        actor.seg = null;
-                        if (!disengagedIdlePlayer)
-                            destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+                const tgt = actor.target;
+                const remX = tgt.wx - actor.pos.wx, remZ = tgt.wz - actor.pos.wz;
+                let rem = Math.hypot(remX, remZ);
+                if (rem > SNAP_DIST) {
+                    // Teleport, not a glide — carry the whip rope rigidly so it
+                    // arrives with the body instead of stretching across the arena.
+                    if (actor.lash?.pts) {
+                        for (const p of actor.lash.pts) { p.x += remX; p.px += remX; p.z += remZ; p.pz += remZ; }
+                        if (actor.lash.anchor) { actor.lash.anchor.x += remX; actor.lash.anchor.z += remZ; }
                     }
+                    actor.pos.wx = tgt.wx; actor.pos.wz = tgt.wz; rem = 0;
+                }
+                const EPS = 0.02 * TILE;
+                let destFacing;
+                if (rem > EPS) {
+                    const stepD = Math.min(rem, MOVE_SPEED[key] * MOVE_TUNE.speedMult * dt);
+                    // Run blend from ACTUAL speed: a full-speed step reads as a
+                    // run, closing a small gap as a walk. Eased (strideIn) so
+                    // walk↔run transitions glide — or snapped when instantGait.
+                    const runTarget = Math.max(0, Math.min(1,
+                        (stepD / Math.max(1, dt)) / MOVE_SPEED.enemy - 1));
+                    actor.runBlend = MOVE_TUNE.instantGait ? runTarget
+                        : (actor.runBlend ?? 0)
+                          + (runTarget - (actor.runBlend ?? 0)) * Math.min(1, dt * MOVE_TUNE.strideIn);
+                    // Longer stride ⇒ proportionally slower cycle at the same
+                    // ground speed. Must mirror computePoseV2's step scale.
+                    // The cadence cap (maxStepHz, one step = π phase) bounds
+                    // how fast the legs may cycle regardless of TILE scale or
+                    // speedMult — distance above the cap skates slightly
+                    // rather than sending the gait frantic.
+                    const m = actor.ik ? 1 + MOVE_TUNE.runStride * actor.runBlend : 1;
+                    let phaseAdv = stepD * actor.stride / m;
+                    if (MOVE_TUNE.maxStepHz > 0)
+                        phaseAdv = Math.min(phaseAdv, MOVE_TUNE.maxStepHz * Math.PI * dt / 1000);
+                    actor.walkPhase += phaseAdv;
+                    actor.pos.wx += remX / rem * stepD;
+                    actor.pos.wz += remZ / rem * stepD;
+                    actor.moving = true;
+                    destFacing = Math.atan2(remX, remZ);
                 } else {
+                    if (rem > 0) { actor.pos.wx = tgt.wx; actor.pos.wz = tgt.wz; } // land on centre
                     actor.moving = false;
+                    actor.runBlend = MOVE_TUNE.hardStop ? 0
+                        : (actor.runBlend ?? 0) * (1 - Math.min(1, dt * MOVE_TUNE.strideOut));
                     destFacing = disengagedIdlePlayer
                         ? actor.facing
                         : Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
@@ -1445,7 +2792,7 @@
                 let da = destFacing - actor.facing;
                 while (da > Math.PI) da -= 6.2832;
                 while (da < -Math.PI) da += 6.2832;
-                actor.facing += da * Math.min(1, dt * 0.03);
+                actor.facing += da * Math.min(1, dt * MOVE_TUNE.turnRate);
             }
 
             // Camera: rigid lock on the player (OSRS-style). The actor's own
@@ -1453,10 +2800,39 @@
             // just reads as the world swimming.
             st.camFocus.wx = st.player.pos.wx;
             st.camFocus.wz = st.player.pos.wz;
-            st.trackAnchors(W, H);
 
             drawScene(st, ctx, W, H);
+            drawHazards(st, ctx, W, H, now); // ground layer: under markers and actors
             drawMoveMarker(st, ctx, W, H, now);
+
+            // Persistent target tile on the ground under the current enemy
+            // (OSRS-style). Drawn before the actors so the enemy renders on top
+            // and reads as standing on it. Uses the enemy's LIVE position, so it
+            // tracks movement and the camera yaw/zoom for free (see proj/tileQuad).
+            if (!st.enemy.crumbled && !st.editorMode) {
+                const cs = tileQuad(st, st.enemy.pos.wx, st.enemy.pos.wz, W, H, TILE * 0.42);
+                const pulse = 0.5 + 0.5 * Math.sin(now * 0.006);
+                const tap = Math.max(0, 1 - (now - st.targetPulse) / 400); // brief tap emphasis
+                ctx.strokeStyle = STYLE_COLORS.melee; // '#ff5555'
+                // thin full outline
+                ctx.globalAlpha = 0.42 + 0.33 * pulse + 0.25 * tap;
+                ctx.lineWidth = Math.max(1, (1.3 + 0.7 * tap) * ms);
+                ctx.beginPath();
+                ctx.moveTo(cs[0].x, cs[0].y);
+                for (let i = 1; i < 4; i++) ctx.lineTo(cs[i].x, cs[i].y);
+                ctx.closePath(); ctx.stroke();
+                // bold corner brackets (short segment toward each neighbour)
+                ctx.lineWidth = Math.max(1.5, (2.2 + 0.9 * tap) * ms);
+                ctx.beginPath();
+                for (let i = 0; i < 4; i++) {
+                    const a = cs[i], nx = cs[(i + 1) % 4], pv = cs[(i + 3) % 4], f = 0.34;
+                    ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + (nx.x - a.x) * f, a.y + (nx.y - a.y) * f);
+                    ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + (pv.x - a.x) * f, a.y + (pv.y - a.y) * f);
+                }
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+            }
+
             if (st.flags.telegraph) drawTelegraphGlow(ctx, W, H, st.enemy, now);
             // Painter's order: props and actors sorted far → near (the camera
             // rotates, so either combatant can be the near one).
@@ -1473,32 +2849,21 @@
             if (st.flags.windup && !st.enemy.crumbled)
                 drawWindupGlint(ctx, W, H, st.enemy, now, STYLE_COLORS[st.flags.windup] ?? '#ffffff');
 
-            // Target chevron pulse (click-to-target scaffold)
-            if (now - st.targetPulse < 900 && !st.enemy.crumbled) {
-                const tp = anchor(st.enemy, W, H);
-                const tS = actorScale(st.enemy, W, H);
-                const tPs = CAM_FOV / (CAM_FOV - tp.rz);
-                const ty = tp.y - st.enemy.model.height * tS * tPs - 10 * ms - Math.sin((now - st.targetPulse) * 0.02) * 3 * ms;
-                ctx.globalAlpha = 1 - (now - st.targetPulse) / 900;
-                ctx.fillStyle = '#ffd166';
-                ctx.beginPath();
-                ctx.moveTo(tp.x, ty);
-                ctx.lineTo(tp.x - 5 * ms, ty - 7 * ms);
-                ctx.lineTo(tp.x + 5 * ms, ty - 7 * ms);
-                ctx.closePath(); ctx.fill();
-                ctx.globalAlpha = 1;
-            }
-
-            // Impact slashes (style-color cue; debris carries the weight now)
+            // Impact bursts (style-color cue; debris carries the weight now)
+            // — drawn at the CONTACT side of the defender, toward the attacker.
             st.effects = st.effects.filter(e => now - e.t0 < e.dur);
             for (const e of st.effects) {
                 if (now < e.t0) continue;
                 const on = e.on === 'player' ? st.player : st.enemy;
-                const t = torso(on, W, H);
+                const from = e.on === 'player' ? st.enemy : st.player;
+                const t = torso(on, W, H), f = torso(from, W, H);
+                const dl = Math.hypot(f.x - t.x, f.y - t.y) || 1;
                 const onP = anchor(on, W, H);
                 const onPs = CAM_FOV / (CAM_FOV - onP.rz);
-                drawSlash(ctx, t.x, t.y, on.model.height * actorScale(on, W, H) * onPs * 0.5,
-                    (now - e.t0) / e.dur, e.color);
+                const r = on.model.height * actorScale(on, W, H) * onPs * actorWorldScale(on, W, H) * 0.5;
+                drawSlash(ctx, t.x + (f.x - t.x) / dl * r * 0.45,
+                          t.y + (f.y - t.y) / dl * r * 0.3,
+                          r, (now - e.t0) / e.dur, e.color);
             }
 
             // Projectiles (arrow line / swirling motes)
@@ -1521,6 +2886,11 @@
                         ctx.fillRect((x - dx / L * i * pxl) | 0, (y - dy / L * i * pxl) | 0, pxl, pxl);
                 }
             }
+
+            // Overhead prayers + hitsplats (in-canvas pixel art, top layer)
+            if (st.overheads.player) drawOverhead(st, ctx, st.player, st.overheads.player, W, H, now);
+            if (st.overheads.enemy) drawOverhead(st, ctx, st.enemy, st.overheads.enemy, W, H, now);
+            drawSplats(st, ctx, W, H, now);
 
             // Debris: gravity, floor bounce, fade over the last 30% of life
             st.particles = st.particles.filter(pt => now - pt.t0 < pt.life);
@@ -1545,6 +2915,64 @@
         battles.set(canvasId, st);
     }
 
+    // Admin/debug camera panel (test fights only): live-tweak the global
+    // perspective strength (FOV) and voxel depth-squash (TILT), and the
+    // per-battle zoom/pitch already driven by touch/wheel gestures. FOV and
+    // TILT are module-wide (only one battle canvas is ever mounted at a
+    // time), so setting them here affects the live scene immediately with
+    // no threading through the render path.
+    // Movement-feel debug (test fight's MOVE panel): values apply globally
+    // to every mounted battle and persist across reloads so a tuning session
+    // survives an F5. getMovementDebug seeds the panel.
+    function getMovementDebug() { return { ...MOVE_TUNE }; }
+    function setMovementDebug(canvasId, tune) {
+        for (const k in MOVE_TUNE_DEFAULTS)
+            if (tune && typeof tune[k] === typeof MOVE_TUNE_DEFAULTS[k]) MOVE_TUNE[k] = tune[k];
+        try { localStorage.setItem('duels_move_tune', JSON.stringify(MOVE_TUNE)); }
+        catch { /* private mode: session-only tuning still works */ }
+    }
+
+    function getCameraDebug(canvasId) {
+        const st = battles.get(canvasId);
+        return {
+            fov: CAM_FOV, tilt: TILT,
+            pitch: st?.camPitch ?? POS_TILT, zoom: st?.camZoom ?? 1,
+        };
+    }
+    function setCameraDebug(canvasId, d) {
+        if (typeof d.fov === 'number' && d.fov > 1) CAM_FOV = d.fov;
+        if (typeof d.tilt === 'number') TILT = Math.max(0, d.tilt);
+        const st = battles.get(canvasId);
+        if (!st) return;
+        if (typeof d.pitch === 'number') st.camPitch = Math.max(0.05, d.pitch);
+        if (typeof d.zoom === 'number') st.camZoom = Math.max(0.05, d.zoom);
+    }
+
+    // Live whip-physics tuning for the anim editor (see AnimEditor.razor):
+    // read/write the player lash's per-lash "feel" knobs so a whip's length
+    // and weight can be dialled in against the authored swing and then baked
+    // into rigs.json.
+    function getLashDebug(canvasId) {
+        const lash = battles.get(canvasId)?.player?.lash;
+        return lash ? { len: lash.len, g: lash.g, damp: lash.damp, thick: lash.thick,
+                        stiff: lash.stiff, power: lash.power, taper: lash.taper } : null;
+    }
+    function setLashDebug(canvasId, d) {
+        const lash = battles.get(canvasId)?.player?.lash;
+        if (!lash) return;
+        if (typeof d.g === 'number') lash.g = d.g;
+        if (typeof d.damp === 'number') lash.damp = Math.max(0.5, Math.min(0.999, d.damp));
+        if (typeof d.thick === 'number') lash.thick = Math.max(0.5, d.thick);
+        if (typeof d.stiff === 'number') lash.stiff = Math.max(0, Math.min(1, d.stiff));
+        if (typeof d.power === 'number') lash.power = Math.max(0, Math.min(3, d.power));
+        if (typeof d.taper === 'number') lash.taper = Math.max(0, Math.min(8, d.taper));
+        if (typeof d.len === 'number' && d.len > 0.01 && d.len !== lash.len) {
+            lash.len = d.len;
+            lash.segLen = d.len / lash.segs;
+            lash.pts = null; // re-hang at the new length
+        }
+    }
+
     function destroyBattle(canvasId) {
         const st = battles.get(canvasId);
         if (!st) return;
@@ -1558,6 +2986,10 @@
             st.canvas.removeEventListener('wheel', st.onWheel);
         }
         battles.delete(canvasId);
+        // Debug overrides are global (module-scope) — restore defaults so a
+        // real duel started next never inherits a test-fight camera tweak.
+        CAM_FOV = DEFAULT_CAM_FOV;
+        TILT = DEFAULT_TILT;
     }
 
     // Swap the enemy actor in place (endless waves) with a pop-in.
@@ -1584,49 +3016,160 @@
         if (st.flags.windup) st.lastWindupStyle = st.flags.windup;
     }
 
+    // Active overhead prayer per side: 'melee' | 'ranged' | 'magic' |
+    // 'piety' | null. Drawn as pixel icons above the heads.
+    function setBattleOverheads(canvasId, o) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        st.overheads.player = o.player ?? null;
+        st.overheads.enemy = o.enemy ?? null;
+    }
+
     // HP fractions (0..1) drive voxel erosion/regrow; called every game tick.
+    // The player is exempt — the hero always renders whole; damage reads
+    // through hitsplats, flashes, and the HP bar instead.
     function setBattleVitals(canvasId, vitals) {
         const st = battles.get(canvasId);
         if (!st) return;
-        for (const [actor, frac] of [[st.player, vitals.player], [st.enemy, vitals.enemy]]) {
-            if (actor.crumbled || typeof frac !== 'number') continue;
-            const f = Math.max(0, Math.min(1, frac));
-            setActorVisible(actor, Math.round(actor.ordered.length * (0.45 + 0.55 * f)));
-        }
+        const actor = st.enemy;
+        if (actor.crumbled || typeof vitals.enemy !== 'number') return;
+        const f = Math.max(0, Math.min(1, vitals.enemy));
+        setActorVisible(actor, Math.round(actor.ordered.length * (0.45 + 0.55 * f)));
     }
 
     // Equip/unequip the weapon shown in the player's hand. The weapon's
     // voxels merge into the player's render list at the rig hand anchor.
+    // Load + attach a weapon model as the player's currently HELD weapon. This
+    // is the actual on-screen weapon, which may be a one-shot spec weapon (e.g.
+    // a dds special) that overrides the base equipped weapon for its swing.
+    // weaponToken guards against a slow load clobbering a newer attach.
+    async function attachWeaponId(canvasId, weaponId) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const want = (weaponId && ITEM_ASSETS.has(weaponId)) ? weaponId : null;
+        st.weaponWanted = want;
+        const token = ++st.weaponToken;
+        if (!want) { st.heldWeaponId = null; attachWeapon(st.player, null); return; }
+        const model = await loadModel(`assets/items/${want}.vox`).catch(() => null);
+        const live = battles.get(canvasId);
+        if (!live || live.weaponToken !== token) return; // stale or destroyed
+        live.heldWeaponId = model ? want : null;
+        const wrig = live.rigs?.weapons?.[want];
+        attachWeapon(live.player, model, wrig?.grip, wrig?.lash);
+    }
+
     async function setBattleWeapon(canvasId, weaponId) {
         const st = battles.get(canvasId);
         if (!st) return;
-        const token = ++st.weaponToken;
-        if (!weaponId || !ITEM_ASSETS.has(weaponId)) {
-            st.weaponId = null;
-            attachWeapon(st.player, null);
-            return;
-        }
-        const model = await loadModel(`assets/items/${weaponId}.vox`).catch(() => null);
-        const live = battles.get(canvasId);
-        if (!live || live.weaponToken !== token) return; // stale or destroyed
-        live.weaponId = model ? weaponId : null;
-        attachWeapon(live.player, model, live.rigs?.weapons?.[weaponId]?.grip);
+        st.weaponId = (weaponId && ITEM_ASSETS.has(weaponId)) ? weaponId : null;
+        // Defer the swap while a swing is in flight so a one-shot spec weapon
+        // keeps its model + animation to the end; the render loop reconciles the
+        // held weapon back to the base weapon the instant the swing finishes.
+        if (st.player.anims?.some(a => a.type === 'attack')) return;
+        await attachWeaponId(canvasId, st.weaponId);
     }
 
     // Sim tile positions (from GameState). A changed tile opens a straight
     // segment from wherever the actor currently is, covered in exactly one
     // tick — a 2-tile running step just moves twice as fast, and a late
     // update re-anchors mid-stride, so motion never stalls between tiles.
+    // Snappier melee: the sim already lands the hit the instant the
+    // approach step reaches adjacency (see GameTickService.ProcessTick —
+    // movement and the attack check share one tick), but the CLIENT swing
+    // used to start fresh only once that tick's server event arrived —
+    // i.e. after the glide into the final tile had already finished
+    // playing, so the whole anticipation phase read as dead time tacked
+    // on after arrival. Instead, the moment the player is ORDERED onto a
+    // tile that closes them from out-of-range to in-range, start the swing
+    // immediately and stretch it so its strike beat (lerp3's 40–55%
+    // window) lands right as the glide completes — the windup plays out
+    // WHILE closing the gap, and the hit reads as connecting on arrival,
+    // free to kite back next tick. battleEvent's attack() below detects
+    // this predicted anim already in flight and lets it ride instead of
+    // restarting it from t=0 when the authoritative event shows up.
+    const MELEE_RANGE = 1; // Weapon.Range default — every player weapon is melee today
+    function maybeStartPreemptiveSwing(st, nx, nz) {
+        const p = st.player, e = st.enemy;
+        if (!p || !e || p.crumbled || e.crumbled) return;
+        if (p.anims.some(a => a.type === 'attack')) return; // already swinging
+        // nx,nz are the ordered SIM tile; the actors' targets are world units
+        // (tile*TILE) — compare in tile space so MELEE_RANGE stays in tiles.
+        const cheby = (ax, az, bx, bz) => Math.max(Math.abs(ax - bx), Math.abs(az - bz));
+        const ex = e.target.wx / TILE, ez = e.target.wz / TILE;
+        const was = cheby(p.target.wx / TILE, p.target.wz / TILE, ex, ez);
+        const will = cheby(nx, nz, ex, ez);
+        if (was <= MELEE_RANGE || will > MELEE_RANGE) return; // not a closing-to-range step
+
+        // Same fallback chain the real event uses: per-weapon override, else
+        // the weapon's true AttackType, else bare-fist crush.
+        const kind = WEAPON_ANIMS[st.weaponId] ?? WEAPON_BASE_KIND[st.weaponId] ?? 'crush';
+        const dur = TILE_MS / 0.475; // strike center (lerp3) lands at glide-end
+        p.anims.push({ type: 'attack', t0: st.time, dur, kind, predicted: true });
+        if (kind === 'lash') playWhipCrack(dur * 0.55 / 1000);
+    }
+
     function setBattlePositions(canvasId, pos) {
         const st = battles.get(canvasId);
         if (!st) return;
-        const order = (actor, x, z) => {
+        const order = (actor, tx, tz) => {
+            const x = tx * TILE, z = tz * TILE; // sim tile → world (tile center)
             if (actor.target.wx === x && actor.target.wz === z) return;
+            // Constant-speed pursuit reads actor.target every frame; no segment.
             actor.target = { wx: x, wz: z };
-            actor.seg = { x0: actor.pos.wx, z0: actor.pos.wz, x1: x, z1: z, t0: st.time };
         };
-        if (pos.player) order(st.player, pos.player.x, pos.player.z);
+        if (pos.player) {
+            maybeStartPreemptiveSwing(st, pos.player.x, pos.player.z);
+            order(st.player, pos.player.x, pos.player.z);
+        }
         if (pos.enemy) order(st.enemy, pos.enemy.x, pos.enemy.z);
+    }
+
+    // Solid obstacles the sim pathfinds around — rendered as low props sitting on
+    // those tiles so the player can see what they're routing around. Kept short
+    // (worldH ~1.3) so they never occlude the fighters. Duel-scoped: replaces any
+    // previously placed obstacle props. Tiles are sim coords { x, z }.
+    function setBattleObstacles(canvasId, tiles) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        st.props = st.props.filter(p => !p.obstacle);
+        for (const t of tiles || []) {
+            const spec = { id: 'rock', wx: t.x * TILE, wz: t.z * TILE, worldH: 1.3, obstacle: true };
+            loadModel(`assets/props/${spec.id}.vox`).then(model => {
+                if (battles.get(canvasId) === st) st.props.push({ ...spec, model });
+            }).catch(() => { /* prop missing: obstacle stays invisible but still blocks in sim */ });
+        }
+    }
+
+    // Boss tile hazards, mirrored from the sim each render: pending warning
+    // tiles (with ticks-to-eruption) and lingering pools. A tile leaving the
+    // pending set means it just erupted — fire the burst here, diffed rather
+    // than event-plumbed, so the visual can never desync from the sim state.
+    function setBattleHazards(canvasId, h) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const pending = h?.pending ?? [], pools = h?.pools ?? [];
+        const W = st.canvas.width, H = st.canvas.height;
+        const stillPending = new Set(pending.map(t => `${t.x},${t.z}`));
+        for (const t of st.hazards.pending) {
+            if (stillPending.has(`${t.x},${t.z}`)) continue;
+            // erupted (or boss died mid-warning — burst is harmless either way)
+            const p = proj(st, t.x * TILE, t.z * TILE, W, H);
+            const ms = motionScale(W, H);
+            for (let i = 0; i < 12; i++)
+                st.particles.push({
+                    x: p.x + (Math.random() - 0.5) * TILE * p.px * 0.8,
+                    y: p.y,
+                    vx: (Math.random() - 0.5) * 1.6 * ms,
+                    vy: (-1.2 - Math.random() * 2.2) * ms,
+                    size: i % 3 ? 1 : 2,
+                    color: i % 2 ? '#b6d436' : '#7a9426',
+                    t0: st.time, life: 380 + Math.random() * 220,
+                    floor: p.y + 2,
+                });
+            st.shake = { mag: 2, t0: st.time, dur: 140 };
+        }
+        st.hazards.pending = pending;
+        st.hazards.pools = pools;
     }
 
     // Restore both actors for a rematch on the same mounted scene (RETRY).
@@ -1643,6 +3186,7 @@
             actor.facing = actor.base.facing;
             actor.moving = false;
             actor.walkPhase = 0;
+            if (actor.lash) actor.lash.pts = null; // rebuild at the new anchor
             setActorVisible(actor, actor.ordered.length);
         }
         st.moveMarker = null;
@@ -1650,6 +3194,121 @@
         st.pendingFreezes = []; st.cam = null; st.shake = null;
         st.freezeUntil = 0; st.slowUntil = 0;
         st.delayEnemyVis = 0; st.delayPlayerVis = 0;
+    }
+
+    // ── Audio: whip crack ───────────────────────────────────────────────────
+    // Synthesized with the Web Audio API (no asset to ship or license): a
+    // band-passed noise transient for the "snap" layered under a fast
+    // descending triangle chirp for the "thwip" of the lash uncoiling.
+    // Lazily created on first use so no AudioContext exists (and no
+    // autoplay-policy warning fires) until a whip actually swings.
+    let audioCtx = null;
+    function getAudioCtx() {
+        if (!audioCtx) {
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            if (!Ctx) return null;
+            audioCtx = new Ctx();
+        }
+        if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+        return audioCtx;
+    }
+    // Browsers only let an AudioContext start/resume from INSIDE a genuine
+    // user-gesture call stack (click/tap/key). playWhipCrack is only ever
+    // reached later, via async Blazor JS-interop from the tick loop — by
+    // then the gesture is long gone, so the context would start (and stay)
+    // suspended and no sound would ever play. Create/resume it eagerly on
+    // the very first pointer/key/touch anywhere on the page instead, so
+    // it's already running by the time a whip actually swings.
+    let audioUnlockTried = false;
+    function unlockAudioOnce() {
+        if (audioUnlockTried) return;
+        audioUnlockTried = true;
+        getAudioCtx();
+    }
+    for (const evt of ['pointerdown', 'keydown', 'touchstart'])
+        document.addEventListener(evt, unlockAudioOnce, { capture: true, passive: true });
+
+    let crackNoiseBuffer = null;
+    function getCrackNoiseBuffer(ctx) {
+        if (crackNoiseBuffer && crackNoiseBuffer.sampleRate === ctx.sampleRate) return crackNoiseBuffer;
+        const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * 0.15), ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        return crackNoiseBuffer = buf;
+    }
+
+    // delaySec schedules the crack near the tip's peak sling velocity
+    // (called from the attack anim's start, not played immediately).
+    function playWhipCrack(delaySec = 0) {
+        const ctx = getAudioCtx();
+        if (!ctx) return;
+        const t0 = ctx.currentTime + Math.max(0, delaySec);
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = getCrackNoiseBuffer(ctx);
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass'; bp.frequency.value = 2800; bp.Q.value = 0.7;
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(0, t0);
+        noiseGain.gain.linearRampToValueAtTime(0.9, t0 + 0.002);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.09);
+        noise.connect(bp); bp.connect(noiseGain);
+
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(1400, t0);
+        osc.frequency.exponentialRampToValueAtTime(120, t0 + 0.09);
+        const oscGain = ctx.createGain();
+        oscGain.gain.setValueAtTime(0.001, t0);
+        oscGain.gain.linearRampToValueAtTime(0.5, t0 + 0.004);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.11);
+        osc.connect(oscGain);
+
+        const master = ctx.createGain();
+        master.gain.value = 0.7;
+        noiseGain.connect(master); oscGain.connect(master);
+        master.connect(ctx.destination);
+
+        noise.start(t0); noise.stop(t0 + 0.1);
+        osc.start(t0); osc.stop(t0 + 0.12);
+    }
+
+    // Dragon dagger spec stab: a short metallic "shink" — a high band-passed
+    // noise transient (the blade's hiss) under a brief rising metallic ping.
+    // Higher and shorter than the whip crack so a double-tap reads as two
+    // distinct punctures. Called twice per spec, once per infinity lobe.
+    function playDdsStab(delaySec = 0) {
+        const ctx = getAudioCtx();
+        if (!ctx) return;
+        const t0 = ctx.currentTime + Math.max(0, delaySec);
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = getCrackNoiseBuffer(ctx);
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass'; bp.frequency.value = 4600; bp.Q.value = 1.1;
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(0, t0);
+        noiseGain.gain.linearRampToValueAtTime(0.7, t0 + 0.0015);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.055);
+        noise.connect(bp); bp.connect(noiseGain);
+
+        const osc = ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(1900, t0);
+        osc.frequency.exponentialRampToValueAtTime(3100, t0 + 0.05);
+        const oscGain = ctx.createGain();
+        oscGain.gain.setValueAtTime(0.001, t0);
+        oscGain.gain.linearRampToValueAtTime(0.35, t0 + 0.003);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.07);
+        osc.connect(oscGain);
+
+        const master = ctx.createGain();
+        master.gain.value = 0.65;
+        noiseGain.connect(master); oscGain.connect(master);
+        master.connect(ctx.destination);
+
+        noise.start(t0); noise.stop(t0 + 0.06);
+        osc.start(t0); osc.stop(t0 + 0.08);
     }
 
     // evt = { type, tier?, dmg?, style? }; types: playerAttack | enemyAttack |
@@ -1660,13 +3319,46 @@
         const st = battles.get(canvasId);
         if (!st) return;
         const now = st.time;
+        // Any exchange keeps both combatants in their fighting stance a while.
+        if (evt.type !== 'playerEat') st.lastCombatAt = now;
         const dmg = evt.dmg | 0;
         const landed = evt.tier !== 'miss' && evt.tier !== 'poison';
         const big = evt.tier === 'heavy' || evt.tier === 'spec' || evt.tier === 'boss';
         const W = st.canvas.width, H = st.canvas.height;
 
         const attack = (attacker, defender, style, kind) => {
-            attacker.anims.push({ type: 'attack', t0: now, dur: 340, kind });
+            // whips get a longer envelope so the rope's crack can travel;
+            // the dds spec needs a full pass to draw its infinity symbol
+            const dur = kind === 'lash' ? 480 : kind === 'ddspec' ? 620 : 340;
+            // maybeStartPreemptiveSwing (setBattlePositions) may already have
+            // this same swing in flight, timed so its strike beat lands on
+            // this exact tick — let it ride instead of restarting from t=0
+            // (which would snap the pose back to anticipation mid-strike).
+            // A kind mismatch (e.g. a spec fires mid-approach, so the guess
+            // was wrong) still restarts fresh with the correct kind.
+            const existing = attacker.anims.find(a => a.type === 'attack');
+            // Ride an in-flight same-kind swing rather than restarting it: a
+            // predicted approach-swing (any point within its dur), or the extra
+            // hits of a same-tick multi-hit spec (t0 === now) so the two-hit
+            // ddspec plays as one continuous flourish.
+            const ridingPrediction = existing && existing.kind === kind
+                && (existing.predicted ? now - existing.t0 < existing.dur : existing.t0 === now);
+            if (!ridingPrediction) {
+                // a new swing supersedes any still-running one — otherwise
+                // anims.find() keeps playing the old kind (e.g. a whip crack
+                // masking the dds spec fired right after it)
+                attacker.anims = attacker.anims.filter(a => a.type !== 'attack');
+                attacker.anims.push({ type: 'attack', t0: now, dur, kind });
+                // Crack near the tip's peak sling velocity (~55% through the
+                // anim, when the base-seeded wave reaches the tip, see
+                // updateLash), not the swing's start.
+                if (kind === 'lash') playWhipCrack(dur * 0.55 / 1000);
+                // Two punctures at the infinity stroke's thrust beats (one per
+                // lobe — must match ATTACK_POSES.ddspec's dz pulses). The spec's
+                // second hit event rides this same swing, so this schedules
+                // exactly once per spec.
+                if (kind === 'ddspec') { playDdsStab(dur * 0.30 / 1000); playDdsStab(dur * 0.72 / 1000); }
+            }
             if (style === 'ranged' || style === 'magic') {
                 // travel time from real distance — shots from across the
                 // arena visibly take longer to arrive
@@ -1676,22 +3368,51 @@
                 st.projectiles.push({ x0: a.x, y0: a.y, x1: b.x, y1: b.y, t0: now + 60, dur: travel, style });
                 return 60 + travel; // defender visuals wait for the projectile
             }
+            if (kind === 'lash') {
+                // Land the splat/flinch on the CRACK (~55% of the swing, where
+                // the tip peaks — see updateLash / playWhipCrack), not the
+                // wind-up. Derive from the live swing anim so a ridden
+                // preemptive swing (already near its strike beat) gets ~0 while
+                // a fresh standing-swing gets the full offset.
+                const swing = attacker.anims.find(a => a.type === 'attack');
+                return swing ? Math.max(0, swing.t0 + 0.55 * swing.dur - now) : 0;
+            }
             return 0;
         };
-        // Attack choreography: per-weapon override, else the melee kind from
-        // the event (weapon AttackType), else the NPC's signature swing.
+        // Attack choreography: spec flourish on 'spec' hits, else per-weapon
+        // override, else the melee kind from the event (weapon AttackType),
+        // else the NPC's signature swing. The event's weapon id (fresh from
+        // the sim) wins over st.weaponId, which can lag one swap behind.
+        const wid = evt.weapon ?? st.weaponId;
         const playerKind =
-            WEAPON_ANIMS[st.weaponId] ?? (evt.kind in ATTACK_POSES ? evt.kind : 'slash');
+            (evt.tier === 'spec' && SPEC_ANIMS[wid]) ? SPEC_ANIMS[wid] :
+            WEAPON_ANIMS[wid] ?? (evt.kind in ATTACK_POSES ? evt.kind : 'slash');
         const enemyKind =
             st.lastWindupStyle === 'ranged' ? 'bow' :
             st.lastWindupStyle === 'magic' ? 'cast' :
             (NPC_ANIMS[st.enemyId] ?? 'slash');
         const impact = (defender, attacker, delay, color) => {
             const t0 = now + delay;
+            st.splats.push({ on: defender === st.player ? 'player' : 'enemy',
+                             dmg, tier: evt.tier ?? 'normal', t0 });
             if (evt.tier === 'miss') { defender.anims.push({ type: 'dodge', t0, dur: 260 }); return; }
             defender.anims.push({ type: 'hit', t0, dur: 260, amp: Math.min(7, 2 + dmg * 0.35) });
             if (!landed) return; // poison DoT: flash only
             st.effects.push({ on: defender === st.player ? 'player' : 'enemy', t0, dur: 280, color });
+            // white sparks: a few hot, fast, short-lived pixels off the impact
+            {
+                const c = torso(defender, W, H);
+                const ms2 = motionScale(W, H);
+                for (let i = 0; i < 3; i++)
+                    st.particles.push({
+                        x: c.x, y: c.y,
+                        vx: (Math.random() - 0.5) * 4 * ms2,
+                        vy: (-0.5 - Math.random() * 1.5) * ms2,
+                        size: 1, color: '#ffffff',
+                        t0, life: 260 + Math.random() * 140,
+                        floor: anchor(defender, W, H).y + 2,
+                    });
+            }
             spawnDebris(st, defender, attacker, Math.min(4 + dmg, 14), t0, defender.lastRemoved);
             defender.lastRemoved = [];
             st.pendingFreezes.push({ at: t0, dur: big ? 95 : 60 });
@@ -1703,7 +3424,24 @@
         };
 
         switch (evt.type) {
-            case 'playerAttack': st.delayEnemyVis = attack(st.player, st.enemy, evt.style, playerKind); break;
+            case 'playerEat': {
+                st.player.anims.push({ type: 'eat', t0: now, dur: 720, item: evt.item });
+                if (evt.item && ITEM_ASSETS.has(evt.item))
+                    loadModel(`assets/items/${evt.item}.vox`).then(m => {
+                        // still eating on this same battle? then show the food
+                        if (battles.get(canvasId) === st && st.player.anims.some(a => a.type === 'eat'))
+                            attachFood(st.player, m);
+                    }).catch(() => { /* icon-less eat still animates */ });
+                break;
+            }
+            case 'playerAttack':
+                // A one-shot spec weapon (e.g. a dds special) rides its own
+                // model through this swing; the render loop restores the base
+                // equipped weapon once the swing ends.
+                if (evt.weapon && evt.weapon !== st.heldWeaponId && ITEM_ASSETS.has(evt.weapon))
+                    attachWeaponId(canvasId, evt.weapon);
+                st.delayEnemyVis = attack(st.player, st.enemy, evt.style, playerKind);
+                break;
             case 'enemyAttack':  st.delayPlayerVis = attack(st.enemy, st.player, st.lastWindupStyle, enemyKind); break;
             case 'enemyHit': {
                 const d = st.delayEnemyVis; st.delayEnemyVis = 0;
@@ -1730,9 +3468,116 @@
         }
     }
 
-    window.voxel = {
+    // Exposed as voxelClassic; renderer-switch.js installs the window.voxel
+    // dispatcher that routes battle calls here or to the toon renderer.
+    window.voxelClassic = {
         initPreview, destroyPreview, renderIcon, itemIcon,
         initBattle, destroyBattle, setBattleEnemy, setBattleFlags, battleEvent,
-        setBattleVitals, setBattleWeapon, setBattlePositions, resetBattle,
+        setBattleVitals, setBattleWeapon, setBattlePositions, setBattleObstacles,
+        setBattleHazards, resetBattle,
+        setBattleOverheads, getCameraDebug, setCameraDebug,
+        getMovementDebug, setMovementDebug,
+        getLashDebug, setLashDebug,
+
+        // ── Animation editor (AnimEditor.razor) ────────────────────────────
+        // tracks: { [partIndex]: { pitch?, yaw?, roll?, dz?, dy? },
+        //           R/L: { ex?, ey?, ez?, hx?, hy?, hz? } } — each channel a
+        // [[p,v],...] array with p in 0-1. Numeric keys are plain FK parts;
+        // "R"/"L" author the elbow + hand offsets (see computePoseV2's
+        // customPose branch). Replaces the player's whole pose — nothing else
+        // (walk, stance, attacks) runs while this is set. Playback timing
+        // lives in AnimEditor.razor (a C# timer calling setEditorTime).
+        setEditorTracks(canvasId, tracks) {
+            const st = battles.get(canvasId);
+            if (!st) return;
+            st.player.customPose ??= { p: 0, tracks: {} };
+            st.player.customPose.tracks = tracks;
+        },
+        setEditorTime(canvasId, ms, durationMs, loop) {
+            const st = battles.get(canvasId);
+            if (!st) return;
+            st.player.customPose ??= { p: 0, tracks: {} };
+            st.player.customPose.p = Math.min(1, Math.max(0, ms / durationMs));
+            st.player.customPose.loop = !!loop;
+        },
+        // Preview the SHIPPED whip attack in the editor. The authored keyframes
+        // (customPose) normally replace all choreography, so the built-in lash
+        // swing + its crack physics never run here. Clear customPose, play a
+        // real lash attack (updateLash then drives the crack, aimed forward via
+        // its editorMode fallback), and fire the crack SFX at the tip peak.
+        // AnimEditor.razor restores the authored preview when the swing ends.
+        // Returns the attack duration (ms) so the caller can time the restore.
+        previewWhipAttack(canvasId) {
+            const st = battles.get(canvasId);
+            if (!st?.player?.lash) return 0;
+            const pl = st.player, dur = 480;
+            pl.customPose = null;
+            pl.anims = (pl.anims ?? []).filter(a => a.type !== 'attack');
+            pl.anims.push({ type: 'attack', kind: 'lash', t0: st.time, dur });
+            playWhipCrack(dur * 0.55 / 1000);
+            return dur;
+        },
+        // Tip node of the player's lash in world units — lets automated tests
+        // sample tip speed across frames to confirm the crack (peak tip speed
+        // ≫ base speed) instead of a uniform drag.
+        getLashTip(canvasId) {
+            const pts = battles.get(canvasId)?.player?.lash?.pts;
+            if (!pts || !pts.length) return null;
+            const t = pts[pts.length - 1];
+            return { x: t.x, y: t.y, z: t.z };
+        },
+        getLashPts(canvasId) {
+            const pts = battles.get(canvasId)?.player?.lash?.pts;
+            return pts ? pts.map(p => ({ x: p.x, y: p.y, z: p.z })) : null;
+        },
+        // Live world positions of both actors (wu), for automated movement tests.
+        getActorPos(canvasId) {
+            const st = battles.get(canvasId);
+            if (!st) return null;
+            return { player: { ...st.player.pos }, enemy: { ...st.enemy.pos } };
+        },
+        // Tell the renderer the fight is CSS-rotated (0 or 90°) so canvas taps /
+        // orbit map back correctly (BattleScene calls this on orientation change).
+        setViewRotation(canvasId, deg) {
+            const st = battles.get(canvasId);
+            if (st) st.viewRot = deg === 90 ? 90 : 0;
+        },
+        // Keep viewRot in sync with device orientation: the fight is CSS-rotated
+        // 90° in portrait (see .battle-fs), so the canvas is too. Self-cleans
+        // when the battle is gone (the callback just no-ops).
+        watchOrientation(canvasId) {
+            const mq = window.matchMedia('(orientation: portrait)');
+            const apply = () => { const st = battles.get(canvasId); if (st) st.viewRot = mq.matches ? 90 : 0; };
+            apply();
+            (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(apply);
+        },
+        // Selects which arm + joint the on-canvas handles act on:
+        // 'R-elbow' | 'R-hand' | 'L-elbow' | 'L-hand' | null. Drawing shows
+        // that arm's whole chain (shoulder→elbow→hand) with the selected
+        // joint draggable (see drawActor and initBattle's onDown/onMove/onUp).
+        setEditorJoint(canvasId, sel) {
+            const st = battles.get(canvasId);
+            if (st) st.editorSelectedJoint = sel || null;
+        },
+        // Viewport-relative (clientX/Y-compatible) position of the active
+        // joint's drag handle, for automated testing — the handle's own
+        // logical canvas position (editorHandleScreen) is in canvas pixel
+        // space, not page/CSS space.
+        getEditorHandleScreen(canvasId) {
+            const st = battles.get(canvasId);
+            if (!st?.player?.editorHandleScreen) return null;
+            const rect = st.canvas.getBoundingClientRect();
+            const sx = rect.width / st.canvas.width, sy = rect.height / st.canvas.height;
+            return { x: rect.left + st.player.editorHandleScreen.x * sx, y: rect.top + st.player.editorHandleScreen.y * sy };
+        },
+        // Keyframe timeline drag (AnimEditor.razor): capture the pointer on the
+        // track so moves keep firing off-marker/off-edge, and return its
+        // client rect so Blazor can map clientX → time (PointerEventArgs has no
+        // element width).
+        timelineGrab(el, pointerId) {
+            try { el.setPointerCapture(pointerId); } catch { /* capture optional */ }
+            const r = el.getBoundingClientRect();
+            return { left: r.left, width: r.width };
+        },
     };
 })();

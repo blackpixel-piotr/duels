@@ -185,12 +185,14 @@ DARK = (24, 20, 18)
 # with leather bracers, belted red trousers tucked into boots. Limbs split
 # at elbow / knee / ankle so voxel.js can chain FK rotations and run leg IK.
 def m_player():
+    # OSRS-default look: short brown hair, plain t-shirt, green trousers,
+    # brown boots, bare arms. No armor, no markings.
     r = Rig(parts=PARTS_V2, band=BAND_V2)
     SK = (222, 178, 138); SK_D = (184, 138, 98)
-    HAIR = (226, 222, 214); HAIR_D = (162, 158, 152)
-    STEEL = (96, 128, 158); STEEL_D = (66, 92, 118); STEEL_L = (138, 172, 202)
+    HAIR = (106, 72, 40); HAIR_D = (76, 50, 28)
+    SHIRT = (198, 189, 167); SHIRT_D = (162, 152, 130)
     GOLD = (206, 172, 86); LEATH = (94, 70, 46); LEATH_D = (62, 46, 32)
-    RED = (152, 40, 40); RED_D = (110, 28, 30)
+    PANTS = (74, 108, 56); PANTS_D = (54, 82, 42)
     BOOT = (52, 44, 38); WHITE = (236, 236, 232)
 
     RA, LA = ('rArmU', 'lArmU'), ('rArmL', 'lArmL')
@@ -203,36 +205,33 @@ def m_player():
     # shins y3-11: boot shaft, then trouser tucked in
     r.mirror_box(1, 4, 3, 5, -1, 2, BOOT, RS)
     r.mirror_box(1, 4, 5, 5, 2, 2, LEATH_D, RS)           # shaft rim
-    r.mirror_box(1, 3, 6, 11, -1, 1, RED, RS)
-    r.mirror_box(2, 3, 7, 9, -2, -2, RED_D, RS)           # calf shadow
-    # thighs y12-21: red trousers with fold shading + knee pads
-    r.mirror_box(1, 4, 12, 21, -2, 2, RED, RT)
-    r.mirror_box(1, 4, 12, 13, 2, 2, LEATH, RT)           # knee pad
-    r.mirror_box(4, 4, 16, 18, -1, 2, RED_D, RT)          # outer fold
-    r.mirror_box(1, 4, 20, 21, 2, 2, RED_D, RT)           # hip crease
-    # pelvis y22-25 (torso root): hip cloth + belt with gold buckle
-    r.box(-4, 4, 22, 23, -2, 2, RED_D)
+    r.mirror_box(1, 3, 6, 11, -1, 1, PANTS, RS)
+    r.mirror_box(2, 3, 7, 9, -2, -2, PANTS_D, RS)         # calf shadow
+    # thighs y12-21: green trousers with fold shading
+    r.mirror_box(1, 4, 12, 21, -2, 2, PANTS, RT)
+    r.mirror_box(4, 4, 16, 18, -1, 2, PANTS_D, RT)        # outer fold
+    r.mirror_box(1, 4, 20, 21, 2, 2, PANTS_D, RT)         # hip crease
+    # pelvis y22-25 (torso root): trouser waist + simple belt
+    r.box(-4, 4, 22, 23, -2, 2, PANTS_D)
     r.box(-4, 4, 24, 25, -2, 2, LEATH)
     r.box(-1, 1, 24, 25, 2, 2, GOLD)                      # buckle
-    r.box(-4, -3, 22, 23, 2, 2, LEATH_D)                  # side pouch
-    # torso y26-38: steel cuirass — waist, chest, shading, gold collar line
-    r.box(-4, 4, 26, 29, -2, 2, STEEL_D)
-    r.box(-2, 2, 26, 29, 2, 2, STEEL)                     # abdomen panel
-    r.box(-5, 5, 30, 36, -3, 3, STEEL)
-    r.box(-5, 5, 30, 36, -3, -3, STEEL_D)                 # back plate shade
-    r.box(-4, 4, 33, 35, 3, 3, STEEL_L)                   # chest highlight
-    r.box(0, 0, 30, 36, 3, 3, STEEL_D)                    # center seam
-    r.box(-5, 5, 36, 36, -3, 3, GOLD)                     # collar trim
-    r.box(-2, 2, 37, 38, -2, 2, STEEL_D)                  # neck guard
-    # shoulders + bare upper arms y28-37
-    r.mirror_box(5, 8, 34, 37, -3, 3, STEEL_D, RA)        # pauldron
-    r.mirror_box(5, 8, 37, 37, -2, 2, GOLD, RA)           # pauldron rim
+    # torso y26-38: plain t-shirt with soft shading
+    r.box(-4, 4, 26, 29, -2, 2, SHIRT)
+    r.box(-4, 4, 26, 29, -2, -2, SHIRT_D)                 # lower-back shade
+    r.box(-5, 5, 30, 36, -3, 3, SHIRT)
+    r.box(-5, 5, 30, 36, -3, -3, SHIRT_D)                 # back shade
+    r.box(-5, -5, 30, 36, -3, 3, SHIRT_D)                 # side shade
+    r.box(0, 0, 26, 35, 3, 3, SHIRT_D)                    # front seam
+    r.box(-2, 2, 36, 36, -2, 3, SHIRT_D)                  # collar
+    r.box(-1, 1, 37, 38, -1, 2, SK)                       # neck opening
+    # t-shirt sleeves + bare upper arms y28-37
+    r.mirror_box(5, 8, 34, 37, -2, 2, SHIRT, RA)          # short sleeve
+    r.mirror_box(5, 8, 34, 34, -2, 2, SHIRT_D, RA)        # sleeve hem
     r.mirror_box(6, 7, 28, 33, -1, 1, SK, RA)             # bare arm
     r.mirror_box(6, 7, 28, 31, -1, -1, SK_D, RA)          # tricep shade
-    # forearms + hands y20-27: leather bracers, gold band, bare fists
-    r.mirror_box(6, 7, 22, 27, -1, 1, LEATH, LA)
-    r.mirror_box(6, 7, 26, 26, -1, 1, GOLD, LA)           # bracer band
-    r.mirror_box(6, 7, 22, 22, -1, 1, LEATH_D, LA)
+    # forearms + hands y20-27: bare arms, bare fists
+    r.mirror_box(6, 7, 22, 27, -1, 1, SK, LA)
+    r.mirror_box(6, 7, 22, 25, -1, -1, SK_D, LA)          # forearm shade
     r.mirror_box(6, 7, 20, 21, -1, 1, SK, LA)             # hand
     r.mirror_box(6, 7, 21, 21, 1, 1, SK_D, LA)            # knuckle shade
     # neck y39
@@ -244,27 +243,20 @@ def m_player():
     r.box(-1, 0, 42, 42, 3, 3, DARK, 'head')              # mouth
     r.box(0, 0, 43, 44, 3, 3, SK_D, 'head')               # nose shadow
     r.dot(0, 44, 4, SK, 'head')                           # nose tip
-    for sx in (1, -1):                                    # 2×2 anime eyes
+    for sx in (1, -1):                                    # 2×2 eyes
         r.box(sx * 1, sx * 2, 45, 46, 3, 3, WHITE, 'head')
         r.box(sx * 1, sx * 1, 45, 46, 3, 3, DARK, 'head') # iris (inner)
         r.box(sx * 1, sx * 2, 47, 47, 3, 3, DARK, 'head') # brow
     r.mirror_box(4, 4, 44, 45, 0, 1, SK, ('head', 'head'))       # ears
     r.mirror_box(4, 4, 44, 44, 0, 0, SK_D, ('head', 'head'))
-    # hair: back/side shell, cap with jagged fringe, chunky top spikes
-    r.box(-4, 4, 44, 47, -4, -1, HAIR_D, 'head')          # sides/back
-    r.box(-3, 3, 41, 43, -4, -4, HAIR_D, 'head')          # back spill
-    r.box(-4, 4, 48, 51, -4, 3, HAIR, 'head')             # cap
-    r.box(-4, 4, 48, 48, -4, 3, HAIR_D, 'head')           # cap underside
-    for fx, fy in [(-3, 47), (-2, 48), (-1, 47), (0, 48), (1, 47), (2, 48), (3, 47)]:
-        r.box(fx, fx, fy, 49, 4, 4, HAIR if fy == 48 else HAIR_D, 'head')  # fringe
-    r.mirror_box(5, 5, 49, 51, -1, 1, HAIR, ('head', 'head'))    # side flicks
-    r.mirror_box(5, 5, 51, 52, 0, 0, HAIR_D, ('head', 'head'))
-    for sx0, sx1, sz0, sz1, top in [(-4, -3, -2, -1, 54), (-1, 0, -1, 0, 56),
-                                    (2, 3, -3, -2, 54), (-2, -1, 1, 2, 53),
-                                    (1, 2, 1, 2, 53), (3, 4, 0, 1, 52)]:
-        r.box(sx0, sx1, 52, min(top, 53), sz0, sz1, HAIR, 'head')
-        if top > 53:
-            r.box(sx0, sx0, 54, top, sz0, sz0, HAIR, 'head')     # spike tip
+    # short hair: snug back/side shell + rounded cap + straight fringe line
+    r.box(-4, 4, 44, 47, -4, -1, HAIR, 'head')            # sides/back
+    r.box(-4, 4, 44, 45, -4, -4, HAIR_D, 'head')          # nape shade
+    r.box(-4, 4, 48, 50, -4, 3, HAIR, 'head')             # cap
+    r.box(-4, 4, 48, 48, -4, -1, HAIR_D, 'head')          # cap underside
+    r.box(-3, 3, 51, 51, -3, 2, HAIR, 'head')             # crown
+    r.box(-3, 3, 48, 48, 4, 4, HAIR_D, 'head')            # fringe line
+    r.box(-4, 4, 49, 50, 4, 4, HAIR, 'head')              # brow-line fringe
     r.dot(-2, 43, 3, SK_D, 'head'); r.dot(2, 43, 3, SK_D, 'head')  # cheeks
 
     # joints (pre-centering coords; rig_json centers them)
@@ -445,6 +437,28 @@ def m_champion():
     return r, 'champion'
 
 
+def m_maggot_king():
+    r = Rig()
+    pale = (216, 206, 176); pale_d = (186, 174, 142)     # maggot flesh
+    rot = (134, 150, 58)                                 # weeping sickly green
+    chitin = (104, 84, 52); bone = (228, 222, 198)
+    humanoid(r, pale, pale_d, chitin, pale, pale, broad=2)
+    # distended, segmented belly: alternating bulge rings proud of the torso
+    for y0 in (16, 20, 24):
+        r.box(-7, 7, y0, y0 + 1, -3, 3, pale_d)
+    r.box(-2, 2, 16, 23, 3, 3, rot)                      # rot streak down the gut
+    r.mirror_box(6, 8, 23, 26, -3, 3, pale_d, ARMS)      # engorged shoulders
+    # pallid dome of a head with sunken green eyes and chitin mandibles
+    r.box(-4, 4, 27, 34, -4, 3, pale, 'head')
+    eyes(r, 31, dx=2, color=(46, 92, 30), z=4)
+    r.mirror_box(1, 2, 27, 28, 3, 4, chitin, ('head', 'head'))
+    # the crown: a chitin band ringed with jagged bone spikes
+    r.box(-3, 3, 34, 34, -2, 1, chitin, 'head')
+    for x in (-3, -1, 1, 3):
+        r.box(x, x, 35, 37 if x in (-1, 1) else 36, -1, 0, bone, 'head')
+    return r, 'maggot_king'
+
+
 def m_rare_tourist():
     r = Rig()
     shirt = (240, 110, 140); shorts = (90, 140, 190)
@@ -489,12 +503,13 @@ class Wpn(Rig):
     def __init__(self):
         super().__init__()
         self.grip = (0, 2, 0)
+        self.extra = {}   # extra rig fields (e.g. whip 'lash' physics config)
 
     def handle(self, y0=0, y1=4, rgb=HILT):
         self.box(0, 0, y0, y1, 0, 1, rgb)
 
     def rig_json(self):
-        return {'grip': self.center_of(self.grip)}
+        return {'grip': self.center_of(self.grip), **self.extra}
 
 
 def blade_sword(steel, accent=None, l=13):
@@ -517,12 +532,17 @@ def w_scimitar(steel):
 
 
 def w_dagger(steel, jagged=False):
+    # Reverse (karambit) grip: the fist wraps the handle and the blade
+    # rakes DOWNWARD out of the pinky side, hooking slightly back — held
+    # blade-down at rest, it rips down-forward in the stab.
     w = Wpn(); w.handle(0, 3)
-    w.box(-1, 1, 4, 4, 0, 1, HILT)
-    w.box(0, 0, 5, 11, 0, 1, steel)
+    w.box(-1, 1, 4, 4, 0, 1, HILT)                                 # pommel cap
+    w.box(-1, 1, -1, -1, 0, 1, HILT)                               # guard under the fist
+    w.box(0, 0, -5, -2, 0, 1, steel)                               # blade
+    w.box(0, 0, -7, -6, 0, 0, steel)                               # taper
+    w.dot(0, -8, -1, steel)                                        # hooked tip
     if jagged:
-        w.dot(1, 7, 0, steel); w.dot(-1, 9, 0, steel)              # barbs
-    w.dot(0, 12, 0, steel)
+        w.dot(1, -3, 0, steel); w.dot(-1, -5, 0, steel)            # barbs
     return w
 
 
@@ -535,12 +555,27 @@ def w_rapier(steel):
 
 
 def w_whip(color, dark):
-    w = Wpn(); w.handle(0, 5, dark)
-    # trailing lash: droops out and down from the handle top
-    lash = [(1, 6), (2, 6), (3, 5), (4, 4), (5, 3), (5, 2), (6, 1), (7, 1), (8, 0)]
-    for x, y in lash:
-        w.box(x, x, y, y, 0, 1, color)
-    w.dot(9, 0, 0, color)                                          # tip
+    # Handle plus a coiled lash. The coil is icon dressing only: at attach
+    # time the runtime keeps just the handle column and replaces the lash
+    # with a physics rope (verlet chain) driven by the 'lash' config below.
+    w = Wpn(); w.handle(0, 3, dark)                 # fist-sized handle
+    w.dot(0, 1, 0, color); w.dot(0, 3, 0, color)    # grip wraps
+    for a in range(22):                             # coil hanging off the grip
+        ang = a / 22 * 6.2832
+        x = round(4.6 + math.cos(ang) * 2.6)
+        y = round(3.0 + math.sin(ang) * 2.6)
+        for z in (0, 1):
+            w.dot(x, y, z, color if a % 4 else dark)
+    w.dot(2, 4, 0, color)                           # lash leaving the handle
+    w.extra = {'lash': {
+        # rope exits just BELOW the fist (top: -2 relative to the grip) so
+        # the hanging lash reads as connected to the hand, not the hip.
+        # len/g/damp/power/taper: tuned live in the anim editor for a snappy,
+        # weighty forward crack (see get/setLashDebug + updateLash in voxel.js).
+        'len': 0.97, 'segs': 12, 'top': -2,
+        'g': 37, 'damp': 0.904, 'power': 2.1, 'taper': 3.3,
+        'color': '#%02x%02x%02x' % color, 'dark': '#%02x%02x%02x' % dark,
+    }}
     return w
 
 
@@ -597,14 +632,52 @@ def w_godsword(steel, accent):
     return w
 
 
+# ── Food (held during the eat animation; doubles as bag/shop icon) ─────────
+
+def f_shark():
+    r = Rig()
+    body = (108, 128, 148); belly = (218, 222, 228); fin = (78, 96, 114)
+    r.box(1, 8, 1, 4, 0, 1, body)                   # body
+    r.box(2, 7, 1, 1, 0, 1, belly)                  # belly line
+    r.box(0, 0, 1, 5, 0, 0, fin); r.dot(0, 0, 0, fin)   # tail fork
+    r.box(4, 5, 5, 6, 0, 0, fin)                    # dorsal fin
+    r.dot(8, 3, 1, (20, 22, 26))                    # eye
+    return r, 'shark'
+
+
+def f_karambwan():
+    r = Rig()
+    body = (168, 96, 44); dark = (120, 62, 28)
+    for x0, x1, y in [(2, 6, 1), (1, 7, 2), (1, 7, 3), (2, 6, 4)]:
+        r.box(x0, x1, y, y, 0, 1, body)             # rounded blob
+    r.box(2, 6, 4, 4, 0, 1, dark)                   # top shade
+    for x in (1, 3, 5, 7):                          # trailing tentacle nubs
+        r.dot(x, 0, 0, dark)
+    r.dot(2, 3, 1, (20, 22, 26)); r.dot(5, 3, 1, (20, 22, 26))  # eyes
+    return r, 'karambwan'
+
+
+def f_anglerfish():
+    r = Rig()
+    body = (150, 158, 108); belly = (196, 200, 160); fin = (104, 112, 72)
+    r.box(1, 7, 1, 4, 0, 1, body)
+    r.box(2, 6, 1, 1, 0, 1, belly)
+    r.box(0, 0, 1, 4, 0, 0, fin)                    # tail
+    r.dot(7, 5, 0, fin); r.dot(8, 6, 0, (255, 220, 120))  # lure stalk + glow
+    r.dot(7, 3, 1, (20, 22, 26))                    # eye
+    return r, 'anglerfish'
+
+
+FOODS = [f_shark, f_karambwan, f_anglerfish]
+
 WEAPONS = {
     'rune_scimitar':      lambda: w_scimitar((96, 140, 170)),
     'dragon_scimitar':    lambda: w_scimitar((170, 48, 48)),
     'dragon_dagger':      lambda: w_dagger((170, 48, 48)),
     'venomous_fang':      lambda: w_dagger((214, 208, 190), jagged=True),
     'ghrazi_rapier':      lambda: w_rapier((215, 220, 228)),
-    'abyssal_whip':       lambda: w_whip((150, 70, 190), (60, 30, 80)),
-    'corrupted_whip':     lambda: w_whip((80, 200, 120), (24, 60, 40)),
+    'abyssal_whip':       lambda: w_whip((140, 90, 50), (75, 45, 22)),   # aged leather
+    'corrupted_whip':     lambda: w_whip((120, 100, 55), (60, 48, 24)), # olive-tinted leather
     'armadyl_sword':      lambda: blade_sword((215, 220, 228), (238, 210, 120), l=14),
     'bandos_godsword':    lambda: w_godsword((205, 210, 218), (150, 130, 60)),
     'zamorak_godsword':   lambda: w_godsword((205, 210, 218), (180, 44, 40)),
@@ -665,10 +738,21 @@ PROPS = [p_tree, p_rock, p_bush]
 
 MODELS = [m_player, m_goblin, m_swashbuckler, m_barbarian, m_desert_bandit,
           m_gladiator, m_corsair, m_berserker, m_warlord, m_champion,
-          m_rare_tourist, m_rare_gladiator]
+          m_maggot_king, m_rare_tourist, m_rare_gladiator]
 
 if __name__ == '__main__':
-    rigs = {'characters': {}, 'weapons': {}}
+    # MERGE into the existing rigs.json rather than rewriting it: entries this
+    # script doesn't own (player_sakuna, written by import_sakuna.py) must
+    # survive a model regen. Overwriting once silently wiped the sakuna rig
+    # and dropped the player onto the wrong skeleton.
+    rigs_path = os.path.join(ASSETS, 'rigs.json')
+    try:
+        with open(rigs_path) as f:
+            rigs = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        rigs = {}
+    rigs.setdefault('characters', {})
+    rigs['weapons'] = {}  # fully owned by this script — rebuild from scratch
 
     for fn in MODELS:
         r, name = fn()
@@ -685,11 +769,16 @@ if __name__ == '__main__':
         rigs['weapons'][wid] = w.rig_json()
         print(f'  item {wid:20s} {len(w.v):4d} voxels')
 
+    for fn in FOODS:
+        r, name = fn()
+        write_vox(os.path.join(ASSETS, 'items', name + '.vox'), r.v, r.pal, banded=False)
+        print(f'  food {name:20s} {len(r.v):4d} voxels')
+
     for fn in PROPS:
         r, name = fn()
         write_vox(os.path.join(ASSETS, 'props', name + '.vox'), r.v, r.pal, banded=False)
         print(f'  prop {name:20s} {len(r.v):4d} voxels')
 
-    with open(os.path.join(ASSETS, 'rigs.json'), 'w') as f:
+    with open(rigs_path, 'w') as f:
         json.dump(rigs, f, indent=1)
-    print('rigs.json written')
+    print('rigs.json merged & written')

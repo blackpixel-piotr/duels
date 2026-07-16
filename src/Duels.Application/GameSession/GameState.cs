@@ -11,7 +11,8 @@ public sealed class GameState
     public bool InDuel => ActiveNpc is { IsAlive: true };
     public string? LastOpponentId { get; private set; }
     public List<CombatLogEntry> CombatLog { get; } = new();
-    public List<string> UnlockedOpponents { get; } = ["swashbuckler", "goblin"];
+    // maggot_king is a standalone boss (not on the ladder) — open from the start.
+    public List<string> UnlockedOpponents { get; } = ["swashbuckler", "goblin", "maggot_king"];
 
     // Staking / winstreak
     public int CurrentWager { get; private set; }
@@ -31,6 +32,60 @@ public sealed class GameState
     public const int ArenaRadius = 5;
     public (int X, int Z) PlayerTile { get; private set; }
     public (int X, int Z) NpcTile { get; private set; }
+
+    // Solid obstacles (duel-scoped): walkable tiles that block movement, so the
+    // pathfinder routes around them. They do NOT affect ranged line-of-sight —
+    // movement only. Placed off both spawn tiles and sparse enough never to
+    // disconnect the arena (a BFS reachability test guards this).
+    private static readonly (int X, int Z)[] ObstacleLayout = { (-2, 0), (2, 1), (-1, -2) };
+    private readonly HashSet<(int X, int Z)> _obstacles = new();
+    public IReadOnlyCollection<(int X, int Z)> Obstacles => _obstacles;
+    public bool IsObstacle((int X, int Z) tile) => _obstacles.Contains(tile);
+
+    /// <summary>A tile a mover may not enter: a solid obstacle or the given
+    /// occupant (the opponent's tile, so combatants never stack).</summary>
+    public bool IsBlocked((int X, int Z) tile, (int X, int Z) occupant) =>
+        tile == occupant || _obstacles.Contains(tile);
+
+    // Tile hazards (duel-scoped, boss mechanic — see HazardProfile). Pending
+    // tiles are telegraphed warnings counting down to an eruption; erupted
+    // tiles become pools that damage whoever stands on them at tick end.
+    // Hazards never block pathing — walking THROUGH danger is allowed (and
+    // sometimes correct), only ENDING the tick there costs you.
+    private readonly List<HazardTile> _hazards = new();
+    public IReadOnlyList<HazardTile> Hazards => _hazards;
+    public bool IsPool((int X, int Z) tile) =>
+        _hazards.Any(h => h.Pool && (h.X, h.Z) == tile);
+
+    public void AddHazardWave(IEnumerable<(int X, int Z)> tiles, int warningTicks)
+    {
+        foreach (var t in tiles)
+            if (!_hazards.Any(h => (h.X, h.Z) == t))
+                _hazards.Add(new HazardTile(t.X, t.Z, Pool: false, TicksLeft: warningTicks));
+    }
+
+    /// <summary>Advance all hazards one tick: expired pools vanish, pending
+    /// warnings that hit zero erupt into pools. Returns the tiles that
+    /// erupted THIS tick so the caller can damage whoever stands there.</summary>
+    public List<(int X, int Z)> TickHazards(int poolTicks)
+    {
+        var erupted = new List<(int X, int Z)>();
+        for (int i = _hazards.Count - 1; i >= 0; i--)
+        {
+            var h = _hazards[i] with { TicksLeft = _hazards[i].TicksLeft - 1 };
+            if (h.TicksLeft > 0) { _hazards[i] = h; continue; }
+            if (h.Pool) { _hazards.RemoveAt(i); continue; }
+            erupted.Add((h.X, h.Z));
+            _hazards[i] = h with { Pool = true, TicksLeft = poolTicks };
+        }
+        return erupted;
+    }
+
+    private void ClearHazards() => _hazards.Clear();
+
+    /// <summary>True when a tile is inside the walkable arena square.</summary>
+    public static bool InArena((int X, int Z) t) =>
+        Math.Abs(t.X) <= ArenaRadius && Math.Abs(t.Z) <= ArenaRadius;
 
     /// <summary>Chebyshev distance between the combatants (diagonals count 1).</summary>
     public int DistanceToNpc =>
@@ -52,24 +107,42 @@ public sealed class GameState
 
     public void OrderMove(int x, int z)
     {
-        // Clamp to the arena circle so orders can't walk out of the scene.
+        // Clamp to the arena square so orders can't walk out of the scene.
         x = Math.Clamp(x, -ArenaRadius, ArenaRadius);
         z = Math.Clamp(z, -ArenaRadius, ArenaRadius);
-        while (x * x + z * z > ArenaRadius * ArenaRadius)
-        {
-            if (Math.Abs(x) >= Math.Abs(z)) x -= Math.Sign(x); else z -= Math.Sign(z);
-        }
+        // Can't stand on a solid obstacle: snap the order to the nearest free tile.
+        (x, z) = NearestFreeTile((x, z));
         PlayerMoveTarget = (x, z);
         HoldPosition = true;
     }
 
     public void ClearMoveOrder() => PlayerMoveTarget = null;
 
+    /// <summary>Nearest in-arena tile that isn't a solid obstacle (spiral search
+    /// outward by Chebyshev radius). Returns the input if it's already free.</summary>
+    private (int X, int Z) NearestFreeTile((int X, int Z) t)
+    {
+        if (!_obstacles.Contains(t)) return t;
+        for (int r = 1; r <= ArenaRadius * 2; r++)
+            for (int dx = -r; dx <= r; dx++)
+                for (int dz = -r; dz <= r; dz++)
+                {
+                    if (Math.Max(Math.Abs(dx), Math.Abs(dz)) != r) continue; // ring only
+                    var c = (X: t.X + dx, Z: t.Z + dz);
+                    if (InArena(c) && !_obstacles.Contains(c)) return c;
+                }
+        return t;
+    }
+
     public void Engage()
     {
         PlayerMoveTarget = null;
         HoldPosition = false;
     }
+
+    // Test-fight convenience: spawn holding position (no auto-chase/attack)
+    // so an admin can inspect animations before manually engaging.
+    public void HoldPositionAtSpawn() => HoldPosition = true;
 
     // Test-fight duels render the open-field scene instead of the arena ring.
     public bool TestScene { get; private set; }
@@ -130,10 +203,16 @@ public sealed class GameState
         // Opposite ends of the arena; melee walks in from here.
         PlayerTile = (0, 3);
         NpcTile = (1, -3);
+        // Solid obstacles for this duel — never on a spawn tile.
+        _obstacles.Clear();
+        foreach (var o in ObstacleLayout)
+            if (o != PlayerTile && o != NpcTile)
+                _obstacles.Add(o);
         PlayerMoveTarget = null;
         HoldPosition = false;
         TestScene = false;
         EnemyFrozen = false;
+        ClearHazards();
     }
 
     public void RecordDamageTaken(int amount) { if (amount > 0) DamageTakenThisDuel += amount; }
@@ -190,6 +269,7 @@ public sealed class GameState
     {
         ActiveNpc = null;
         ClearDots();
+        ClearHazards();
     }
 
     public void UnlockOpponent(string id)
@@ -238,6 +318,7 @@ public sealed class GameState
         UnlockedOpponents.Clear();
         UnlockedOpponents.Add("swashbuckler");
         UnlockedOpponents.Add("goblin");
+        UnlockedOpponents.Add("maggot_king");
         WinStreak = 0;
         CurrentWager = 0;
         CanPrestige = false;
@@ -278,6 +359,10 @@ public sealed class GameState
 }
 
 public sealed record CombatLogEntry(string Message, LogEntryKind Kind, DateTimeOffset Timestamp);
+
+/// <summary>One hazard tile: a pending eruption warning (Pool=false, TicksLeft
+/// until it blows) or an active pool (Pool=true, TicksLeft until it dries).</summary>
+public readonly record struct HazardTile(int X, int Z, bool Pool, int TicksLeft);
 
 /// <summary>Snapshot of a finished duel for the end-of-fight result overlay.</summary>
 public sealed record DuelSummary(

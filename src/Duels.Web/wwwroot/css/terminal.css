@@ -141,47 +141,6 @@ html, body {
     margin-bottom: 5px;
 }
 
-/* ─── Hitsplat zones (anchored to status panel HP bars) ─── */
-.hitsplat-zone {
-    position: relative;
-    height: 0;
-    overflow: visible;
-    pointer-events: none;
-}
-
-/* ─── Text-bracket hitsplats ─── */
-.hitsplat {
-    position: absolute;
-    bottom: 2px;
-    left: 0;
-    font-family: var(--font);
-    font-weight: bold;
-    font-size: 13px;
-    pointer-events: none;
-    white-space: nowrap;
-    animation: hitsplat-rise 1.6s ease-out forwards;
-    z-index: 20;
-}
-.hitsplat-zone-right .hitsplat { left: auto; right: 0; }
-.hitsplat-normal { color: #ff5555; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(255,50,50,0.5); }
-.hitsplat-miss   { color: #4488cc; text-shadow: 1px 1px 0 #000; opacity: 0.8; font-size: 11px; }
-.hitsplat-heavy  { color: #ffd700; font-size: 16px; text-shadow: 1px 1px 0 #000, 0 0 8px rgba(255,215,0,0.8); animation: hitsplat-rise-heavy 1.6s ease-out forwards; }
-.hitsplat-spec   { color: #ff8c00; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(255,140,0,0.6); }
-.hitsplat-boss   { color: #cc44ff; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(180,60,255,0.5); }
-.hitsplat-poison { color: #5ada5a; text-shadow: 1px 1px 0 #000, 0 0 6px rgba(90,218,90,0.6); font-size: 11px; }
-
-@keyframes hitsplat-rise {
-    0%   { transform: translateY(0);      opacity: 1; }
-    65%  { opacity: 1; }
-    100% { transform: translateY(-36px);  opacity: 0; }
-}
-@keyframes hitsplat-rise-heavy {
-    0%   { transform: translateY(0) scale(1);     opacity: 1; }
-    12%  { transform: translateY(-4px) scale(1.1); }
-    65%  { opacity: 1; }
-    100% { transform: translateY(-42px) scale(1); opacity: 0; }
-}
-
 @keyframes pulse-grow {
     0%, 100% { transform: scale(1); }
     50%       { transform: scale(1.06); }
@@ -311,14 +270,28 @@ html, body {
     50%       { border-color: #686868; box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 0 0 8px rgba(120,120,120,0.35); }
 }
 
-/* Queued spec weapon: flashing dashed amber border (MMO queue indicator) */
+/* Queued action: flashing dashed border + glow (MMO queue indicator) on the
+   button whose press is armed for the next tick. Amber = queued attack;
+   .qs-queued-spec overrides to spec orange for a queued special. The class
+   drops the moment ProcessTick consumes QueuedAction, so it doubles as an
+   exact "your input registered → your input fired" readout. */
 .qs-queued {
-    border: 2px dashed #e65100;
-    color: #ff9800;
-    background: linear-gradient(160deg, #2a1505, #1a0d02);
+    border: 2px dashed var(--amber);
+    color: var(--amber);
+    background: linear-gradient(160deg, #2a2105, #1a1402);
     animation: qs-queue-flash 0.45s ease-in-out infinite alternate;
 }
 @keyframes qs-queue-flash {
+    from { border-color: #c99a2e; box-shadow: inset 1px 1px 0 #5a4a00, inset -1px -1px 0 var(--bevel-lo), 0 0 6px rgba(255,209,102,0.4); }
+    to   { border-color: #ffd166; box-shadow: inset 1px 1px 0 #5a4a00, inset -1px -1px 0 var(--bevel-lo), 0 0 14px rgba(255,209,102,0.7); }
+}
+.qs-queued-spec {
+    border-color: #e65100;
+    color: #ff9800;
+    background: linear-gradient(160deg, #2a1505, #1a0d02);
+    animation: qs-queue-flash-spec 0.45s ease-in-out infinite alternate;
+}
+@keyframes qs-queue-flash-spec {
     from { border-color: #e65100; box-shadow: inset 1px 1px 0 #5a2800, inset -1px -1px 0 var(--bevel-lo), 0 0 6px rgba(230,81,0,0.4); }
     to   { border-color: #ff9800; box-shadow: inset 1px 1px 0 #5a2800, inset -1px -1px 0 var(--bevel-lo), 0 0 14px rgba(255,152,0,0.65); }
 }
@@ -410,15 +383,6 @@ html, body {
 .battle-box-bars .mini-bar-wrap { flex: 1; }
 .battle-box-val { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
 
-/* Hitsplat zones anchored over the actors (left/top set by voxel.initBattle
-   from the same LAYOUT the renderer uses) */
-.battle-zone {
-    position: absolute;
-    width: 0;
-    z-index: 10;
-}
-.battle-zone .hitsplat { transform: translateX(-50%); }
-
 /* Test-fight freeze button */
 .freeze-btn {
     position: absolute;
@@ -443,6 +407,72 @@ html, body {
     color: #44ee88;
 }
 .freeze-btn-on:hover { border-color: #55ff88; }
+
+/* Admin camera debug panel (test fights only) — tweak perspective/tilt/
+   zoom live to dial in the battle scene's look. */
+.cam-toggle-btn {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    padding: 3px 8px;
+    font-size: 9px;
+    font-family: inherit;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    background: rgba(50, 30, 70, 0.85);
+    border: 1px solid #9955cc;
+    color: #cc99ff;
+    cursor: pointer;
+    z-index: 12;
+    opacity: 0.85;
+}
+.cam-toggle-btn:hover { opacity: 1; border-color: #bb77ee; }
+/* MOVE panel (movement-feel tuning) sits left of CAM, same styling. */
+.move-toggle-btn { right: 66px; }
+.move-debug-panel { right: 66px; }
+.move-debug-panel .cam-debug-row label { text-transform: none; }
+.cam-debug-panel {
+    position: absolute;
+    bottom: 28px;
+    right: 6px;
+    width: 150px;
+    padding: 8px 10px;
+    background: rgba(20, 10, 30, 0.92);
+    border: 1px solid #9955cc;
+    border-radius: 3px;
+    z-index: 12;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.cam-debug-row { display: flex; flex-direction: column; gap: 2px; }
+.cam-debug-row label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8px;
+    color: #cc99ff;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+.cam-debug-row label span { color: #eeddff; font-weight: bold; }
+.cam-debug-row input[type="range"] {
+    width: 100%;
+    accent-color: #bb77ee;
+    height: 12px;
+}
+.cam-debug-reset {
+    margin-top: 2px;
+    padding: 3px 6px;
+    font-size: 9px;
+    font-family: inherit;
+    font-weight: bold;
+    background: rgba(80, 40, 100, 0.7);
+    border: 1px solid #9955cc;
+    color: #eeddff;
+    cursor: pointer;
+    border-radius: 2px;
+}
+.cam-debug-reset:hover { background: rgba(110, 60, 140, 0.85); }
 
 /* Telegraphed special — speech bubble above the enemy */
 .telegraph-bubble {
@@ -473,28 +503,6 @@ html, body {
 @keyframes bubble-pop {
     0%   { transform: scale(0.6); opacity: 0; }
     100% { transform: scale(1);   opacity: 1; }
-}
-
-/* Overhead prayer icons (OSRS-style) */
-.overhead {
-    position: absolute;
-    transform: translateX(-50%);
-    font-size: 17px;
-    font-weight: bold;
-    pointer-events: none;
-    z-index: 9;
-    text-shadow: 1px 1px 0 #000;
-    animation: overhead-float 2.2s ease-in-out infinite;
-}
-.overhead-player { left: 30%; top: 28%; }
-.overhead-npc    { left: 52%; top: 18%; }  /* beside the enemy's head, clear of bubble + hitsplats */
-.overhead-melee  { color: #ff5555; filter: drop-shadow(0 0 5px rgba(255, 85, 85, 0.7)); }
-.overhead-ranged { color: #5ada5a; filter: drop-shadow(0 0 5px rgba(90, 218, 90, 0.7)); }
-.overhead-magic  { color: #6ec6ff; filter: drop-shadow(0 0 5px rgba(110, 198, 255, 0.7)); }
-.overhead-piety  { color: var(--yellow); filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.7)); }
-@keyframes overhead-float {
-    0%, 100% { margin-top: 0; }
-    50%       { margin-top: -3px; }
 }
 
 /* ─── Duel result overlay (over the battle scene) ─── */
@@ -597,6 +605,9 @@ html, body {
 .hub-card-beg .hub-card-title { color: var(--text-dim); }
 .hub-card-test { border-color: #1a3a4a; border-style: dashed; }
 .hub-card-test .hub-card-title { color: #4fc3f7; }
+.hub-card-anim-editor { border-color: #3a2a4a; border-style: dashed; text-decoration: none; }
+.hub-card-anim-editor, .hub-card-anim-editor:visited { color: var(--text); }
+.hub-card-anim-editor .hub-card-title { color: var(--purple); }
 
 /* ─── Stats panel ─── */
 .stats-panel, .inventory-panel, .equipment-panel {
@@ -664,6 +675,16 @@ html, body {
     gap: 4px;
     z-index: 200;
     pointer-events: none;
+}
+/* Inside the full-bleed fight the stack is positioned within .battle-fs so it
+   rotates with the auto-rotated landscape view instead of pinning to the
+   physical (portrait) viewport. */
+.battle-fs .toast-stack {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(480px, 90%);
 }
 .toast {
     display: flex;
@@ -1271,3 +1292,107 @@ html, body {
     display: none;
 }
 #blazor-error-ui .reload { color: var(--amber); margin-left: 8px; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Full-bleed landscape fight with a floating RS3-style HUD
+   ═══════════════════════════════════════════════════════════════════════ */
+.battle-fs {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: #000;
+    overflow: hidden;
+    touch-action: none;
+}
+/* Auto-rotate to landscape when the phone is held portrait: the fight is
+   rotated 90° to fill the screen sideways. Real DOM buttons rotate with it and
+   stay tappable; voxel.js is told viewRot=90 so canvas taps map back. */
+@media (orientation: portrait) {
+    .battle-fs {
+        inset: auto;
+        top: 0;
+        left: 100vw;
+        width: 100vh;
+        height: 100vw;
+        transform-origin: top left;
+        transform: rotate(90deg);
+    }
+}
+/* BattleScene fills the layer edge-to-edge, no bordered box. */
+.battle-fs .battle-scene {
+    position: absolute;
+    inset: 0;
+    border: none;
+    box-shadow: none;
+    background: #000;
+}
+/* Floating status: enemy top-left, player top-right, translucent (no panels). */
+.battle-fs .battle-box {
+    background: rgba(8, 10, 14, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 7px;
+    padding: 3px 8px;
+    min-width: 128px;
+    max-width: 42vw;
+}
+.battle-fs .battle-box-enemy  { top: 8px; left: 8px; }
+.battle-fs .battle-box-player { top: 8px; right: 8px; bottom: auto; left: auto; }
+
+/* ── Floating action clusters ── */
+.action-hud-float {
+    position: absolute;
+    inset: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+    pointer-events: none;   /* taps fall through to the canvas … */
+    z-index: 5;
+}
+.action-hud-float .hud-row { pointer-events: auto; }   /* … except the buttons */
+.action-hud-float .tick-metronome {
+    position: absolute;
+    top: 0; left: 25%; right: 25%;
+    margin: 0;
+}
+/* consumables cluster, bottom-left (wraps upward, 3 wide) */
+.action-hud-float .hud-belt {
+    position: absolute;
+    left: max(10px, env(safe-area-inset-left));
+    bottom: max(10px, var(--safe-bottom));
+    display: flex;
+    flex-wrap: wrap-reverse;
+    gap: 8px;
+    width: 154px;
+    grid-template-columns: none;
+}
+/* weapons (upper) + prayers (lower) cluster, bottom-right — single rows that
+   grow leftward from the right edge, so they never overlap each other. */
+.action-hud-float .hud-weapons,
+.action-hud-float .hud-prayers {
+    position: absolute;
+    right: max(10px, env(safe-area-inset-right));
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 8px;
+    width: auto;
+    grid-template-columns: none;
+}
+.action-hud-float .hud-weapons { bottom: calc(max(10px, var(--safe-bottom)) + 54px); }
+.action-hud-float .hud-prayers { bottom: max(10px, var(--safe-bottom)); }
+
+/* Round RS3-style buttons */
+.action-hud-float .belt-slot,
+.action-hud-float .quickslot {
+    width: 46px;
+    height: 46px;
+    min-height: 0;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.55), inset 1px 1px 0 var(--bevel-hi);
+}
+.action-hud-float .belt-slot   { background: radial-gradient(circle at 34% 28%, #37301d, #17110a); }
+.action-hud-float .quickslot   { background: radial-gradient(circle at 34% 28%, #2b2436, #14101a); }
+.action-hud-float .qs-spec-badge { top: -2px; right: -2px; }
