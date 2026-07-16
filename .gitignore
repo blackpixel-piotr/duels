@@ -28,4 +28,4 @@ __pycache__/
 graphify-out/
 
 ## Node (tools/extract_anims.mjs deps)
-node_modules/
+node_modules
