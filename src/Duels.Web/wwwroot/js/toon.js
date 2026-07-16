@@ -16,6 +16,7 @@
 import * as THREE from '../lib/three.module.min.js';
 import { OutlineEffect } from '../lib/OutlineEffect.js';
 import { GLTFLoader } from '../lib/GLTFLoader.js';
+import * as SkeletonUtils from '../lib/SkeletonUtils.js';
 
 const TILE = 1.75;            // must match voxel.js — sim tiles are shared
 const WALK_R = 5;
@@ -55,68 +56,148 @@ function toonMat(color) {
     return m;
 }
 
-// ── Load glTF character model ───────────────────────────────────────────
-// Loads the Superhero model from assets, applies toon materials, and returns
-// a compatible structure with animation mixer and clips.
-const gltfLoader = new GLTFLoader();
-let loadedGltf = null;
-async function loadToonCharacterGltf() {
-    if (loadedGltf) return loadedGltf;
-    return new Promise((resolve, reject) => {
-        gltfLoader.load('/assets/models/superhero.gltf', gltf => {
-            loadedGltf = gltf;
-            resolve(gltf);
-        }, undefined, reject);
-    });
+// ── glTF character (Superhero model, assets/models/) ─────────────────────
+// The model ships in T-pose with a UE-style skeleton (pelvis, spine_01..03,
+// thigh/calf/foot_l/r, clavicle/upperarm/lowerarm/hand_l/r) and NO baked
+// animations, so we author clips in code against its real bones. Its texture
+// PNGs are not shipped — a URL modifier feeds the loader a 1px placeholder
+// (we replace every material with toonMat anyway).
+const noTex = () => {
+    const c = document.createElement('canvas'); c.width = c.height = 1;
+    c.getContext('2d').fillRect(0, 0, 1, 1);
+    return c.toDataURL('image/png');
+};
+const gltfManager = new THREE.LoadingManager();
+gltfManager.setURLModifier(url => /\.(png|jpe?g)(\?.*)?$/i.test(url) ? noTex() : url);
+const gltfLoader = new GLTFLoader(gltfManager);
+let gltfPromise = null;
+function loadToonCharacterGltf() {
+    gltfPromise ??= new Promise((resolve, reject) =>
+        gltfLoader.load('assets/models/superhero.gltf', resolve, undefined, reject));
+    return gltfPromise;
 }
 
-function buildToonCharacterFromGltf(gltf, { scale = 1 } = {}) {
-    // Clone the scene to avoid sharing meshes across battles
-    const group = gltf.scene.clone();
-    group.scale.multiplyScalar(scale * 2.2); // scale up the model
+// Rotate `bone` about a character-space axis while keeping everything else in
+// its rest pose: newLocal = (P⁻¹ · R · P) · restLocal, where P is the parent
+// chain's rest orientation in character space. Used both for one-off pose
+// fixes (T-pose → arms down) and for every authored keyframe below.
+function charSpaceQuat(parentWorldQ, axis, deg, restLocal) {
+    const r = new THREE.Quaternion().setFromAxisAngle(axis, deg * Math.PI / 180);
+    return new THREE.Quaternion()
+        .copy(parentWorldQ).invert().multiply(r).multiply(parentWorldQ).multiply(restLocal);
+}
+
+function buildToonCharacterFromGltf(gltf, { suit = '#4a6a8a', scale = 1 } = {}) {
+    // SkeletonUtils.clone, NOT Object3D.clone: a plain clone leaves the new
+    // SkinnedMeshes bound to the ORIGINAL skeleton, whose bones never get
+    // world-matrix updates — the mesh collapses to a speck at the origin.
+    const model = SkeletonUtils.clone(gltf.scene);
 
     const bones = {};
-    let height = 1.8 * scale;
-
-    // Apply toon materials to all meshes and collect bones
-    group.traverse(node => {
-        if (node.isMesh) {
-            // Apply toon material
-            if (Array.isArray(node.material)) {
-                node.material = node.material.map(m => toonMat(m.color || '#d0a878'));
-            } else {
-                node.material = toonMat(node.material.color || '#d0a878');
-            }
-            node.frustumCulled = false;
-            if (node.skeleton) {
-                // Collect bones from the skeleton
-                node.skeleton.bones.forEach(bone => {
-                    bones[bone.name] = bone;
-                });
-            }
+    model.traverse(n => {
+        if (n.isBone) bones[n.name] = n;
+        if (n.isMesh || n.isSkinnedMesh) {
+            const color = /eye(s|brow)/i.test(n.name)
+                ? (/brow/i.test(n.name) ? '#241a12' : '#e8e4da')
+                : suit;
+            n.material = toonMat(color);
+            n.frustumCulled = false; // skinned bounds don't track the pose
         }
     });
 
-    // Use glTF animations if they exist, otherwise use placeholder clips
-    const clips = gltf.animations?.length > 0
-        ? gltf.animations.reduce((acc, clip) => {
-            acc[clip.name.toLowerCase()] = clip;
-            return acc;
-          }, {})
-        : createAnimationClips(scale);
+    // T-pose → relaxed A-pose. Side detected from bind world-x, not the name
+    // suffix, so the fix survives mirrored exports.
+    model.updateWorldMatrix(true, true);
+    const Zc = new THREE.Vector3(0, 0, 1), Xc = new THREE.Vector3(1, 0, 0);
+    const pw = new THREE.Vector3(), pq = new THREE.Quaternion();
+    for (const nm of ['upperarm_l', 'upperarm_r']) {
+        const b = bones[nm]; if (!b) continue;
+        b.getWorldPosition(pw);
+        b.parent.getWorldQuaternion(pq);
+        b.quaternion.copy(charSpaceQuat(pq, Zc, pw.x > 0 ? -62 : 62, b.quaternion));
+    }
+    for (const nm of ['lowerarm_l', 'lowerarm_r']) {         // slight elbow bend
+        const b = bones[nm]; if (!b) continue;
+        b.getWorldPosition(pw);
+        b.parent.getWorldQuaternion(pq);
+        b.quaternion.copy(charSpaceQuat(pq, Zc, pw.x > 0 ? -12 : 12, b.quaternion));
+    }
 
-    return { group, bones, clips, height };
-}
+    // Capture the corrected rest pose — every keyframe composes on top of it.
+    model.updateWorldMatrix(true, true);
+    const rest = {};
+    for (const [nm, b] of Object.entries(bones)) {
+        const pWorldQ = new THREE.Quaternion();
+        b.parent.getWorldQuaternion(pWorldQ);
+        rest[nm] = { local: b.quaternion.clone(), parentQ: pWorldQ };
+    }
 
-function createAnimationClips(scale = 1) {
-    // Placeholder animation clips for the glTF model
-    // These are simple clips that work with a standard humanoid skeleton
-    const S = scale;
-    const idle = new THREE.AnimationClip('idle', 2, []);
-    const walk = new THREE.AnimationClip('walk', 0.7, []);
-    const attack = new THREE.AnimationClip('attack', 0.34, []);
-    const death = new THREE.AnimationClip('death', 0.7, []);
-    return { idle, walk, attack, death };
+    // Normalize size: feet on the ground, height matching the procedural
+    // character (1.9 wu at scale 1) so camera/splat/tile proportions carry over.
+    const bb = new THREE.Box3().setFromObject(model);
+    const rawH = Math.max(0.01, bb.max.y - bb.min.y);
+    const height = 1.9 * scale;
+    const s = height / rawH;
+    model.scale.setScalar(s);
+    model.position.y = -bb.min.y * s;
+
+    // fallPivot carries the death fall (and could carry knockback later) so
+    // clips never fight the group's facing/position, which the loop owns.
+    const pivot = new THREE.Group(); pivot.name = 'fallPivot';
+    pivot.add(model);
+    const group = new THREE.Group();
+    group.add(pivot);
+
+    // ── authored clips on the real rig ──
+    // charTrack: keyframes as [axis, deg] deltas in character space.
+    const charTrack = (nm, times, keys) => {
+        const r = rest[nm];
+        return new THREE.QuaternionKeyframeTrack(`${bones[nm].name}.quaternion`, times,
+            keys.flatMap(([axis, deg]) => charSpaceQuat(r.parentQ, axis, deg, r.local).toArray()));
+    };
+    const has = nm => !!bones[nm];
+    const tracks = arr => arr.filter(Boolean);
+
+    // walk: legs swing about character X, arms counter-swing, body bobs.
+    const walk = new THREE.AnimationClip('walk', 0.7, tracks([
+        has('thigh_l') && charTrack('thigh_l', [0, 0.35, 0.7], [[Xc, 26], [Xc, -26], [Xc, 26]]),
+        has('thigh_r') && charTrack('thigh_r', [0, 0.35, 0.7], [[Xc, -26], [Xc, 26], [Xc, -26]]),
+        // knee bends as the leg recovers (opposite phase to the thigh's peak)
+        has('calf_l') && charTrack('calf_l', [0, 0.175, 0.35, 0.525, 0.7],
+            [[Xc, -8], [Xc, -34], [Xc, -8], [Xc, -4], [Xc, -8]]),
+        has('calf_r') && charTrack('calf_r', [0, 0.175, 0.35, 0.525, 0.7],
+            [[Xc, -8], [Xc, -4], [Xc, -8], [Xc, -34], [Xc, -8]]),
+        has('upperarm_l') && charTrack('upperarm_l', [0, 0.35, 0.7], [[Xc, -14], [Xc, 14], [Xc, -14]]),
+        has('upperarm_r') && charTrack('upperarm_r', [0, 0.35, 0.7], [[Xc, 14], [Xc, -14], [Xc, 14]]),
+        new THREE.VectorKeyframeTrack('fallPivot.position', [0, 0.175, 0.35, 0.525, 0.7],
+            [0, 0, 0, 0, 0.04, 0, 0, 0, 0, 0, 0.04, 0, 0, 0, 0]),
+    ]));
+    // idle: breathing sway
+    const idle = new THREE.AnimationClip('idle', 2.4, tracks([
+        has('spine_02') && charTrack('spine_02', [0, 1.2, 2.4], [[Xc, 1], [Xc, 4], [Xc, 1]]),
+        has('Head') && charTrack('Head', [0, 1.2, 2.4], [[Xc, 0], [Xc, -3], [Xc, 0]]),
+    ]));
+    // attack: right arm cocks then snaps forward, spine twists in
+    const Yc = new THREE.Vector3(0, 1, 0);
+    const attack = new THREE.AnimationClip('attack', 0.34, tracks([
+        has('upperarm_r') && charTrack('upperarm_r', [0, 0.13, 0.19, 0.34],
+            [[Xc, 0], [Xc, 38], [Xc, -78], [Xc, 0]]),
+        has('lowerarm_r') && charTrack('lowerarm_r', [0, 0.13, 0.19, 0.34],
+            [[Xc, 0], [Xc, 30], [Xc, -12], [Xc, 0]]),
+        has('spine_02') && charTrack('spine_02', [0, 0.13, 0.19, 0.34],
+            [[Yc, 0], [Yc, 10], [Yc, -9], [Yc, 0]]),
+    ]));
+    // death: whole body tips over backwards via the pivot (no rig math needed)
+    const qx = deg => new THREE.Quaternion()
+        .setFromAxisAngle(Xc, deg * Math.PI / 180).toArray();
+    const death = new THREE.AnimationClip('death', 0.7, [
+        new THREE.QuaternionKeyframeTrack('fallPivot.quaternion', [0, 0.55, 0.7],
+            [...qx(0), ...qx(-84), ...qx(-88)]),
+        new THREE.VectorKeyframeTrack('fallPivot.position', [0, 0.55, 0.7],
+            [0, 0, 0, 0, 0.12, 0, 0, 0.10, 0]),
+    ]);
+
+    return { group, pivot, bones, clips: { idle, walk, attack, death }, height };
 }
 
 // ── Procedural toon character (fallback) ──────────────────────────────────
@@ -245,10 +326,13 @@ function splatSprite(dmg, tier) {
 }
 
 async function makeActor(st, key, colors) {
-    // Use procedural character for now; glTF path available via:
-    // const gltf = await loadToonCharacterGltf();
-    // ch = buildToonCharacterFromGltf(gltf, colors);
-    const ch = buildToonCharacter(colors);
+    let ch;
+    try {
+        ch = buildToonCharacterFromGltf(await loadToonCharacterGltf(), colors);
+    } catch (e) {
+        console.warn('toon: glTF character failed, using procedural fallback', e);
+        ch = buildToonCharacter(colors);
+    }
     st.scene.add(ch.group);
     const mixer = new THREE.AnimationMixer(ch.group);
     const actions = {};
@@ -320,10 +404,10 @@ async function initBattle(canvasId, opts) {
     scene.add(new THREE.LineSegments(gridGeo,
         new THREE.LineBasicMaterial({ color: '#1c2a12', transparent: true, opacity: 0.9 })));
 
-    // actors — load glTF models in parallel
+    // actors — glTF characters (suit tint tells them apart), procedural fallback
     [st.player, st.enemy] = await Promise.all([
-        makeActor(st, 'player', { scale: 1.0 }),
-        makeActor(st, 'enemy',  { scale: 1.08 }),
+        makeActor(st, 'player', { suit: '#3e6a8e', skin: '#e0b088', shirt: '#c8b090', pants: '#3d5a35', boots: '#4a3020', scale: 1.0 }),
+        makeActor(st, 'enemy',  { suit: '#8e4a32', skin: '#d09a70', shirt: '#8a4030', pants: '#463830', boots: '#332218', scale: 1.08 }),
     ]);
     st.player.pos = { wx: 0, wz: 3 * TILE }; st.player.facing = Math.PI;
     st.enemy.pos = { wx: TILE, wz: -3 * TILE };
@@ -417,8 +501,8 @@ async function initBattle(canvasId, opts) {
         const { fx, fy } = localFrac(e.clientX, e.clientY);
         ndc.set(fx * 2 - 1, -(fy * 2 - 1));
         ray.setFromCamera(ndc, st.camera);
-        // enemy first: hit test its meshes
-        const hitEnemy = ray.intersectObjects(st.enemy.ch.group.children, false).length > 0;
+        // enemy first: hit test its meshes (recursive — glTF meshes are nested)
+        const hitEnemy = ray.intersectObjects(st.enemy.ch.group.children, true).length > 0;
         if (hitEnemy && !st.enemy.crumbled) { st.dotnet?.invokeMethodAsync('OnEnemyClick'); return; }
         const p = new THREE.Vector3();
         if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), p)) {
@@ -443,30 +527,32 @@ async function initBattle(canvasId, opts) {
         const now = performance.now();
         // movement: constant-speed pursuit of the sim tile (same law as voxel.js)
         for (const actor of [st.player, st.enemy]) {
-            if (actor.crumbled) continue;
-            const other = actor === st.player ? st.enemy : st.player;
-            const rx = actor.target.wx - actor.pos.wx, rz = actor.target.wz - actor.pos.wz;
-            let rem = Math.hypot(rx, rz);
-            if (rem > SNAP_DIST) { actor.pos.wx = actor.target.wx; actor.pos.wz = actor.target.wz; rem = 0; }
-            let destFacing;
-            if (rem > 0.03) {
-                const sp = MOVE_SPEED[actor.key] * 1000; // wu/s
-                const step = Math.min(rem, sp * dt);
-                actor.pos.wx += rx / rem * step; actor.pos.wz += rz / rem * step;
-                destFacing = Math.atan2(rx, rz);
-                if (actor.current === 'idle') playAction(actor, 'walk');
-                // cadence: scale the walk clip to ground speed (~1.15wu per cycle)
-                actor.actions.walk.timeScale = Math.min(2.6, (step / dt) / 1.15 / 1.43);
-            } else {
-                if (actor.current === 'walk') playAction(actor, 'idle');
-                destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+            if (!actor.crumbled) {
+                const other = actor === st.player ? st.enemy : st.player;
+                const rx = actor.target.wx - actor.pos.wx, rz = actor.target.wz - actor.pos.wz;
+                let rem = Math.hypot(rx, rz);
+                if (rem > SNAP_DIST) { actor.pos.wx = actor.target.wx; actor.pos.wz = actor.target.wz; rem = 0; }
+                let destFacing;
+                if (rem > 0.03) {
+                    const sp = MOVE_SPEED[actor.key] * 1000; // wu/s
+                    const step = Math.min(rem, sp * dt);
+                    actor.pos.wx += rx / rem * step; actor.pos.wz += rz / rem * step;
+                    destFacing = Math.atan2(rx, rz);
+                    if (actor.current === 'idle') playAction(actor, 'walk');
+                    // cadence: scale the walk clip to ground speed (~1.15wu per cycle)
+                    actor.actions.walk.timeScale = Math.min(2.6, (step / dt) / 1.15 / 1.43);
+                } else {
+                    if (actor.current === 'walk') playAction(actor, 'idle');
+                    destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+                }
+                let da = destFacing - actor.facing;
+                while (da > Math.PI) da -= Math.PI * 2;
+                while (da < -Math.PI) da += Math.PI * 2;
+                actor.facing += da * Math.min(1, dt * 14);
+                actor.ch.group.position.set(actor.pos.wx, 0, actor.pos.wz);
+                actor.ch.group.rotation.y = actor.facing;
             }
-            let da = destFacing - actor.facing;
-            while (da > Math.PI) da -= Math.PI * 2;
-            while (da < -Math.PI) da += Math.PI * 2;
-            actor.facing += da * Math.min(1, dt * 14);
-            actor.ch.group.position.set(actor.pos.wx, 0, actor.pos.wz);
-            actor.ch.group.rotation.y = actor.facing;
+            // mixer ALWAYS ticks — a dead actor still needs its fall to play out
             actor.mixer.update(dt);
             if (actor.current === 'attack' && !actor.actions.attack.isRunning())
                 { actor.current = 'idle'; actor.actions.idle.reset().play(); }
@@ -538,6 +624,7 @@ function destroyBattle(canvasId) {
 }
 
 const api = {
+    _battles: battles, // debug handle for Playwright probes
     initBattle, destroyBattle,
     resetBattle(canvasId) {
         const st = battles.get(canvasId);
@@ -545,6 +632,7 @@ const api = {
         for (const a of [st.player, st.enemy]) {
             a.crumbled = false; a.ch.group.visible = true;
             a.actions.death.stop(); a.actions.idle.reset().play(); a.current = 'idle';
+            if (a.ch.pivot) { a.ch.pivot.quaternion.identity(); a.ch.pivot.position.set(0, 0, 0); }
         }
     },
     setBattleEnemy(canvasId, enemyId) {

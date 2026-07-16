@@ -27,7 +27,9 @@ dotnet run --project src/Duels.Web --urls http://localhost:5190   # background; 
 
 ## Renderers
 - Two battle renderers behind the `window.voxel` dispatcher (`js/renderer-switch.js`): classic voxel (`js/voxel.js` → `window.voxelClassic`) and the toon/Borderlands PoC (`js/toon.js` → `window.voxelToon`, three.js vendored in `wwwroot/lib/`). Chosen at battle init from `localStorage['duels_renderer']` ('voxel' default | 'toon') — flip via the hub STYLE card or `page.addInitScript(() => localStorage.setItem('duels_renderer','toon'))`.
-- Toon PoC parity gaps (expected, not bugs): no whip rope, no HP erosion, no eat anims, no overhead prayer icons, simplified projectiles.
+- Toon characters load `wwwroot/assets/models/superhero.gltf` (+.bin; texture PNGs intentionally absent — a URL modifier feeds 1px placeholders and every material is replaced with `toonMat`). Cloning MUST go through `SkeletonUtils.clone` (plain `.clone()` leaves SkinnedMeshes bound to the original skeleton → mesh collapses to a speck). The rig has no baked animations; clips are authored in code against its UE-style bones (`thigh_l/r`, `upperarm_l/r`, `spine_02`, …) composed onto the captured rest pose; death tips a `fallPivot` wrapper group. On any load error it falls back to the procedural box character.
+- Toon debug: `window.voxelToon._battles.get('battle-canvas')` exposes per-battle state (actors, actions, bones) for Playwright probes. Headless chromium runs ~12fps (ReadPixels GPU stalls), so short anims (attack = 0.34s) are hard to catch by `waitForTimeout` — instead set `action.time = t; action.paused = true` to freeze a pose for screenshots.
+- Toon PoC parity gaps (expected, not bugs): no whip rope, no HP erosion, no eat anims, no overhead prayer icons, no weapon models, simplified projectiles.
 
 ## Known noise
 - `GET /Duels.Web.styles.css` 404s in dev — pre-existing, ignore.
