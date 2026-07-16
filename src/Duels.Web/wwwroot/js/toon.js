@@ -73,14 +73,20 @@ async function loadToonCharacterGltf() {
 function buildToonCharacterFromGltf(gltf, { scale = 1 } = {}) {
     // Clone the scene to avoid sharing meshes across battles
     const group = gltf.scene.clone();
-    const skeleton = null; // will find it from the skinned meshes
+    group.scale.multiplyScalar(scale * 2.2); // scale up the model
+
     const bones = {};
     let height = 1.8 * scale;
 
     // Apply toon materials to all meshes and collect bones
     group.traverse(node => {
         if (node.isMesh) {
-            node.material = toonMat(node.material.color || '#d0a878');
+            // Apply toon material
+            if (Array.isArray(node.material)) {
+                node.material = node.material.map(m => toonMat(m.color || '#d0a878'));
+            } else {
+                node.material = toonMat(node.material.color || '#d0a878');
+            }
             node.frustumCulled = false;
             if (node.skeleton) {
                 // Collect bones from the skeleton
@@ -91,7 +97,7 @@ function buildToonCharacterFromGltf(gltf, { scale = 1 } = {}) {
         }
     });
 
-    // Create basic animation clips if none exist
+    // Use glTF animations if they exist, otherwise use placeholder clips
     const clips = gltf.animations?.length > 0
         ? gltf.animations.reduce((acc, clip) => {
             acc[clip.name.toLowerCase()] = clip;
@@ -239,14 +245,10 @@ function splatSprite(dmg, tier) {
 }
 
 async function makeActor(st, key, colors) {
-    let ch;
-    try {
-        const gltf = await loadToonCharacterGltf();
-        ch = buildToonCharacterFromGltf(gltf, colors);
-    } catch (e) {
-        console.warn('glTF load failed, falling back to procedural:', e);
-        ch = buildToonCharacter(colors);
-    }
+    // Use procedural character for now; glTF path available via:
+    // const gltf = await loadToonCharacterGltf();
+    // ch = buildToonCharacterFromGltf(gltf, colors);
+    const ch = buildToonCharacter(colors);
     st.scene.add(ch.group);
     const mixer = new THREE.AnimationMixer(ch.group);
     const actions = {};
@@ -257,7 +259,7 @@ async function makeActor(st, key, colors) {
             actions[name].clampWhenFinished = name === 'death';
         }
     }
-    if (actions.idle) actions.idle.play();
+    actions.idle.play();
     return {
         key, ch, mixer, actions, current: 'idle',
         pos: { wx: 0, wz: 0 }, target: { wx: 0, wz: 0 },
