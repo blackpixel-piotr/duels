@@ -60,6 +60,24 @@
             </button>
         </div>
 
+        @* ── Attack the targeted enemy: a move order suspends attacking
+             (but never changes who's targeted — 1v1, there's only ever the
+             one enemy) until re-engaged. This button re-engages and attacks
+             in one press, same as clicking the enemy or a weapon slot. ── *@
+        @if (State.ActiveNpc is { } target)
+        {
+            <div class="hud-row hud-target-row">
+                <button class="attack-target-btn @(State.PlayerCooldown == 0 && !State.HoldPosition ? "qs-ready" : "") @QueuedClass(State.QueuedAction != null)"
+                        title="Attack @target.Template.Name" disabled="@_busy" @onclick="Attack">
+                    <span class="atk-target-icon">⚔</span>
+                    <span class="atk-target-text">
+                        <span class="atk-target-label">ATTACK</span>
+                        <span class="atk-target-name">@target.Template.Name</span>
+                    </span>
+                </button>
+            </div>
+        }
+
         @* ── Row 2: weapons ── *@
         <div class="hud-row hud-weapons">
             @{ var weaponSlots = WeaponSlots().ToList(); }

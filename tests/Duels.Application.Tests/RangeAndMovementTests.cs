@@ -149,7 +149,7 @@ public sealed class RangeAndMovementTests
     }
 
     [Fact]
-    public async Task MoveOrder_WalksThere_WithoutAttacking_ThenHoldsPosition()
+    public async Task MoveOrder_WalksThere_ThenHoldsPosition_NoAutoRetaliate_UntilReengaged()
     {
         var (svc, state) = Build(Tank(AttackType.Crush));
 
@@ -162,10 +162,7 @@ public sealed class RangeAndMovementTests
         while (state.PlayerMoveTarget is not null)
         {
             await Tick(svc);
-            // Mid-walk ticks never attack; the arrival tick may retaliate
-            // (the chasing NPC stays adjacent the whole retreat).
-            if (state.PlayerMoveTarget is not null)
-                Assert.Equal(hitsBefore, Hitsplats(state, LogEntryKind.HitsplatPlayer));
+            Assert.Equal(hitsBefore, Hitsplats(state, LogEntryKind.HitsplatPlayer)); // never attacks mid-walk
         }
         // Arrived — or stopped adjacent when the chasing NPC sits on the tile.
         Assert.True(Math.Max(Math.Abs(state.PlayerTile.X - -4), Math.Abs(state.PlayerTile.Z - 4)) <= 1);
@@ -174,12 +171,20 @@ public sealed class RangeAndMovementTests
         await Tick(svc);
         Assert.Equal(held, state.PlayerTile); // no auto-chase while holding
 
-        // NPC keeps chasing; once it arrives, the held player retaliates.
+        // The enemy remains the target and keeps chasing — but even once it
+        // catches up and stands adjacent, a held player does NOT retaliate.
+        // The enemy is still the target throughout; only engagement changed.
         for (int i = 0; i < 8 && state.DistanceToNpc > 1; i++) await Tick(svc);
         Assert.Equal(1, state.DistanceToNpc);
         await Tick(svc);
+        Assert.Equal(hitsBefore, Hitsplats(state, LogEntryKind.HitsplatPlayer)); // still no attack
+        Assert.Equal(held, state.PlayerTile); // never moved — held throughout
+
+        // Re-engage (click the enemy / a weapon / ATTACK) — attacking resumes
+        // immediately since the enemy, still the target, is already adjacent.
+        state.Engage();
+        await Tick(svc);
         Assert.True(Hitsplats(state, LogEntryKind.HitsplatPlayer) > hitsBefore);
-        Assert.Equal(held, state.PlayerTile); // retaliation never moves the holder
     }
 
     [Fact]
@@ -422,5 +427,37 @@ public sealed class RangeAndMovementTests
 
         state.StartDuel(new NpcInstance(Tank(AttackType.Stab)));
         Assert.False(state.NpcInRange); // melee must close first
+    }
+
+    [Fact]
+    public async Task MoveOrder_HoldsAfterArrival_NoAutoAttack_UntilReengaged()
+    {
+        // The enemy stays the target the whole time (1v1 — nothing else to
+        // target) but a move order suspends attacking, and — unlike the old
+        // "auto-retaliate once in range" behaviour — it STAYS suspended
+        // after arrival even though the enemy is adjacent, until re-engaged.
+        var (svc, state) = Build(Tank(AttackType.Crush));
+        state.FreezeEnemy(true); // isolate: NPC never moves or swings back
+        state.SetNpcTile(0, 0);
+        state.SetPlayerTile(0, 1); // already cardinal-adjacent
+        state.OrderMove(0, 1);     // click-to-move "onto" the same tile: arrives instantly
+
+        await Tick(svc);
+
+        Assert.True(state.HoldPosition);
+        Assert.Null(state.PlayerMoveTarget);
+        Assert.Equal(1, state.DistanceToNpc); // adjacent...
+        Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer)); // ...but not attacking
+
+        // Still holding a tick later — no attack just because time passed.
+        await Tick(svc);
+        Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
+
+        // Re-engage (what clicking the enemy / a weapon / ATTACK all do).
+        state.Engage();
+        await Tick(svc);
+
+        Assert.False(state.HoldPosition);
+        Assert.True(Hitsplats(state, LogEntryKind.HitsplatPlayer) > 0);
     }
 }

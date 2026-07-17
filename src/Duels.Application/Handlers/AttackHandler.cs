@@ -19,6 +19,9 @@ public sealed class AttackHandler : ICommandHandler<AttackCommand>
         if (state is null) return CommandResult.Fail("No active game.");
         if (!state.InDuel) return CommandResult.Fail("You are not in a duel. Type !duel <npc> to start one.");
 
+        // Re-engage: attacking always resumes the chase/attack even if a
+        // prior move order left the player holding position off-target.
+        state.Engage();
         state.SetQueuedAction(command.UseSpecial ? "spec" : "attack");
         await _stateRepo.SaveAsync(state, ct);
         return CommandResult.Ok();

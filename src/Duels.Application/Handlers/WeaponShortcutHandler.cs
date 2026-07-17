@@ -52,6 +52,9 @@ public sealed class WeaponShortcutHandler : ICommandHandler<WeaponShortcutComman
 
         if (state.InDuel)
         {
+            // Re-engage: a weapon click always resumes the chase/attack even
+            // if a prior move order left the player holding position.
+            state.Engage();
             var weapon = _itemRepo.GetWeapon(command.WeaponId);
             bool useSpec = switching && weapon?.Special is not null;
             state.SetQueuedAction(useSpec ? "spec" : "attack");

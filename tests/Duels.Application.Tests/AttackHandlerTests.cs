@@ -46,6 +46,24 @@ public sealed class AttackHandlerTests
     }
 
     [Fact]
+    public async Task Attack_WhileHoldingPosition_ReEngages()
+    {
+        // Simulates: player clicked a ground tile (holding, off-target), then
+        // pressed ATTACK — it must resume the chase/attack, not queue an
+        // attack that never fires because HoldPosition is still set.
+        var (handler, state) = Build(inDuel: true);
+        state.OrderMove(0, 0);
+        Assert.True(state.HoldPosition);
+
+        var result = await handler.HandleAsync(new AttackCommand("p1", AttackStyle.Accurate));
+
+        Assert.True(result.Success);
+        Assert.False(state.HoldPosition);
+        Assert.Null(state.PlayerMoveTarget);
+        Assert.Equal("attack", state.QueuedAction);
+    }
+
+    [Fact]
     public async Task Attack_WithNoActiveDuel_ReturnsFail()
     {
         var (handler, state) = Build(inDuel: false);

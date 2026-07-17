@@ -106,9 +106,13 @@ public sealed class GameState
     public void SetPlayerTile(int x, int z) => PlayerTile = (x, z);
     public void SetNpcTile(int x, int z) => NpcTile = (x, z);
 
-    // Click-to-move: a ground click sets a move order (walking cancels
-    // attacking); on arrival the player holds position — auto-retaliate
-    // in range, but no chasing — until the enemy is clicked (Engage).
+    // Targeting: ActiveNpc IS the target for the whole duel (1v1, so there's
+    // nothing else to point at) — clicking the enemy never changes WHO the
+    // target is, only whether the player is engaging it. HoldPosition is
+    // that engagement switch: click-to-move sets it (walking cancels both
+    // chasing and attacking), and it stays set after arrival — no auto-chase,
+    // no auto-retaliate — until re-engaged via the enemy, a weapon, or the
+    // ATTACK button (all three call Engage()).
     public (int X, int Z)? PlayerMoveTarget { get; private set; }
     public bool HoldPosition { get; private set; }
 
@@ -141,6 +145,10 @@ public sealed class GameState
         return t;
     }
 
+    /// <summary>Resume chasing and attacking the (already-)targeted enemy.
+    /// Called by clicking the enemy, and by any attack/weapon shortcut so
+    /// they work as re-engage even after a move order left the player
+    /// holding position.</summary>
     public void Engage()
     {
         PlayerMoveTarget = null;

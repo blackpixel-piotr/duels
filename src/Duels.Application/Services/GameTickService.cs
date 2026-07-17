@@ -140,9 +140,12 @@ public sealed class GameTickService : IDisposable
         }
 
         // Player's attack — held (cooldown stays ready, queued spec kept) while
-        // out of range so it fires the moment the walk-in completes. Walking
-        // under a move order suspends attacking entirely (OSRS disengage).
-        if (state.PlayerCooldown == 0 && state.PlayerMoveTarget is null
+        // out of range so it fires the moment the walk-in completes. A move
+        // order suspends attacking (OSRS disengage) and, unlike the chase,
+        // stays suspended after arrival: the enemy remains the target, but
+        // landing hits again requires re-engaging (click the enemy, a
+        // weapon, or the ATTACK button) — HoldPosition gates both.
+        if (state.PlayerCooldown == 0 && state.PlayerMoveTarget is null && !state.HoldPosition
             && state.InAttackRange(playerRange))
         {
             var action = state.QueuedAction ?? "attack";
