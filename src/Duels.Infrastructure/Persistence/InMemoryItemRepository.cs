@@ -95,6 +95,13 @@ public sealed class InMemoryItemRepository : IItemRepository
         ["scythe_of_vitur"]    = 150_000,
 
         // ─── Armor ───
+        ["ranger_hood"]         = 60,
+        ["ranger_boots"]        = 60,
+        ["ranger_bracers"]      = 60,
+        ["ranger_pauldrons"]    = 80,
+        ["steel_sword"]         = 100,
+        ["ranger_trousers"]     = 100,
+        ["ranger_tunic"]        = 150,
         ["rune_full_helm"]      = 500,
         ["rune_kiteshield"]     = 800,
         ["rune_platelegs"]      = 1_200,
@@ -114,6 +121,11 @@ public sealed class InMemoryItemRepository : IItemRepository
 
     private static IEnumerable<Weapon> BuildWeapons() =>
     [
+        // Entry-tier PoC weapon — the first item with a real 3D mesh in the
+        // battle scene (assets/models/equip/sword.glb).
+        new("steel_sword", "Steel Sword", AttackType.Slash,
+            new ItemModifiers(StabAttack: 16, SlashAttack: 21, StrengthBonus: 20),
+            attackSpeed: 4, examineText: "A trusty steel arming sword.", attackLevelRequired: 1),
         new("rune_scimitar", "Rune Scimitar", AttackType.Slash,
             new ItemModifiers(StabAttack: 45, SlashAttack: 67, StrengthBonus: 66),
             attackSpeed: 4, examineText: "A powerful rune scimitar.", attackLevelRequired: 60),
@@ -222,6 +234,21 @@ public sealed class InMemoryItemRepository : IItemRepository
 
     private static IEnumerable<GearPiece> BuildArmor() =>
     [
+        // ─── Ranger tier (Def 1) — PoC set with real 3D meshes (modular
+        //     outfit pieces skinned onto the battle-scene character) ───
+        new("ranger_hood", "Ranger Hood", EquipmentSlot.Helmet,
+            MeleeDef(4, 6, 3), "A weathered leather hood.", defenceLevelRequired: 1),
+        new("ranger_tunic", "Ranger Tunic", EquipmentSlot.Body,
+            MeleeDef(12, 15, 8), "Hardened leather over a wool tunic.", defenceLevelRequired: 1),
+        new("ranger_trousers", "Ranger Trousers", EquipmentSlot.Legs,
+            MeleeDef(8, 10, 5), "Reinforced woodland trousers.", defenceLevelRequired: 1),
+        new("ranger_boots", "Ranger Boots", EquipmentSlot.Boots,
+            MeleeDef(3, 4, 2), "Soft-soled tracking boots.", defenceLevelRequired: 1),
+        new("ranger_bracers", "Ranger Bracers", EquipmentSlot.Gloves,
+            MeleeDef(3, 4, 2), "Leather arm guards.", defenceLevelRequired: 1),
+        new("ranger_pauldrons", "Ranger Pauldrons", EquipmentSlot.Cape,
+            MeleeDef(5, 5, 3), "Layered shoulder plates.", defenceLevelRequired: 1),
+
         // ─── Rune tier (Def 60) ───
         new("rune_full_helm", "Rune Full Helm", EquipmentSlot.Helmet,
             MeleeDef(30, 30, -5), "Sturdy rune headgear.", defenceLevelRequired: 60),

@@ -131,6 +131,8 @@ Blazor WASM. Depends on Application (interfaces) + Infrastructure (DI wiring onl
 | `Components/Hud/CharacterSheet.razor`, `Components/Bag/BagSheet.razor` | Modal sheets wrapping `StatsPanel` and `EquipmentPanel`+`InventoryGrid` respectively. |
 | `Components/Stats/StatsPanel.razor` | Full stat detail (levels, xp bars, gold, prayer/streak/veng state) — shown inside `CharacterSheet`. |
 | `Components/Inventory/InventoryGrid.razor` | 28-slot OSRS-style grid + equipped items. Tap routes by item type: food → `EatItemCommand`, potions → `DrinkPotionCommand`, else → `EquipItemCommand`. |
+| `wwwroot/js/toon.js` | The battle renderer (three.js, owns `window.voxel`). Characters are the Universal Base glTF driven by Universal Animation Library clips. Equipment: `setBattleWeapon` sockets modeled weapons (`WEAPON_ASSETS`) into a hand_r socket + swaps in the sword-idle stance; `setBattleEquipment` skins modular armor pieces (`ARMOR_ASSETS`, Quaternius outfit parts sharing the same rig) onto the live skeleton and masks the base body's skin under each covered region (`ARMOR_REGION`/`maskBodySkin` — the pieces are body-segment replacements, not overlays). Assets live in `wwwroot/assets/models/equip/`. |
+| `Components/Combat/BattleScene.razor` | Mounts the battle canvas, forwards sim state to the renderer (positions, vitals, hazards, flags, weapon id, and the sorted non-weapon equipped item ids via `setBattleEquipment`). |
 | `wwwroot/index.html` | Minimal HTML. `scrollToBottom`, `saveGame`/`loadGame`/`clearGame`, `triggerShake`, `startMetronome`/`stopMetronome` (tick-cycle sweep + flash, a prayer-flick timing aid), `spawnHitsplats` JS helpers. |
 | `wwwroot/css/terminal.css` | All styles — CSS variables, dark terminal theme, CRT scanline overlay + glow utilities. No external CSS frameworks. |
 
@@ -143,6 +145,7 @@ Blazor WASM. Depends on Application (interfaces) + Infrastructure (DI wiring onl
 | Add a new NPC | `src/Duels.Infrastructure/Persistence/InMemoryNpcRepository.cs` — add entry to `BuildNpcs()` |
 | Add a new weapon | `src/Duels.Infrastructure/Persistence/InMemoryItemRepository.cs` — add to `BuildWeapons()` |
 | Add new gear | Same file — add to `BuildGear()` |
+| Give an item a 3D model in the battle scene | `src/Duels.Web/wwwroot/js/toon.js` — add to `WEAPON_ASSETS` (weapon GLB, grip at origin, blade +Y) or `ARMOR_ASSETS` + `ARMOR_REGION` (modular outfit glTF on the universal rig); asset files go in `wwwroot/assets/models/equip/`. PoC: `steel_sword` + the 6-piece ranger set (equipped by the TEST FIGHT loadout). |
 | Add a HUD button | `src/Duels.Web/Components/Hud/ActionHud.razor` — dispatches a typed command directly, no parser involved |
 | Change combat formula | `src/Duels.Domain/Services/CombatCalculator.cs` |
 | Change XP curve | `src/Duels.Domain/Services/ExperienceTable.cs` |
