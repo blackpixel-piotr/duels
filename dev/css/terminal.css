@@ -19,6 +19,12 @@
     --purple:      #b57fd4;   /* vengeance purple */
     --blue:        #5ba8e0;
     --font:        'Fira Code', 'Courier New', Courier, monospace;
+    /* Weathered wanted-poster accents — battle scene only (see .battle-fs). */
+    --west-font:       'Anton', var(--font);
+    --west-orange:     #d9762e;   /* burnt-orange badge ring */
+    --west-orange-dark:#8a4a1e;
+    --west-gold:       #e8b23d;   /* banner gold */
+    --west-cream:      #ecdcb8;   /* aged paper highlight */
     --panel-gap:   8px;
     --radius:      0;
     --bevel-hi:    #706253;
@@ -365,6 +371,21 @@ html, body {
     box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
     overflow: hidden;
 }
+/* Weathered-poster atmosphere over the fight only: a soft vignette + film
+   grain laid over the canvas. Low opacity so it never fights combat clarity;
+   pointer-events:none keeps ground/enemy taps passing through to the canvas. */
+.battle-scene::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    background-image:
+        radial-gradient(ellipse at 50% 45%, rgba(20, 12, 6, 0) 45%, rgba(15, 9, 4, 0.55) 100%),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+    mix-blend-mode: multiply;
+    opacity: 0.6;
+}
 /* Stretched to fill the box: %-anchored overlays stay aligned with the
    fractional LAYOUT anchors used by the canvas renderer. */
 #battle-canvas {
@@ -381,20 +402,26 @@ html, body {
 .mini-bar-wrap {
     height: 6px;
     background: var(--bg);
-    border: 1px solid var(--border);
+    border: 1px solid var(--west-orange-dark);
     overflow: hidden;
 }
 .mini-bar-wrap .hp-bar, .mini-bar-wrap .spec-bar, .mini-bar-wrap .prayer-bar { height: 100%; }
 
-/* Pokemon-convention HP boxes: enemy box opposite the enemy sprite */
+/* Pokemon-convention HP boxes: enemy box opposite the enemy sprite.
+   Styled as cut-corner wanted-poster plaques — ink panel, burnt-orange
+   rules top and bottom, Anton nameplate. */
 .battle-box {
     position: absolute;
     min-width: 44%;
     max-width: 60%;
-    background: rgba(21, 15, 9, 0.88);
-    border: 2px solid var(--border);
-    box-shadow: inset 1px 1px 0 var(--bevel-hi), 2px 2px 0 rgba(0, 0, 0, 0.45);
-    padding: 5px 8px;
+    background: linear-gradient(160deg, #221a12, #120d08);
+    border-top: 3px solid var(--west-orange);
+    border-bottom: 3px solid var(--west-orange);
+    border-left: 1px solid var(--west-orange-dark);
+    border-right: 1px solid var(--west-orange-dark);
+    clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.55);
+    padding: 5px 9px;
     display: flex;
     flex-direction: column;
     gap: 3px;
@@ -403,18 +430,21 @@ html, body {
 .battle-box-enemy  { top: 6px; left: 6px; }
 .battle-box-player { bottom: 6px; right: 6px; }
 .battle-box-name {
-    font-size: 12px;
-    font-weight: bold;
+    font-family: var(--west-font);
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.battle-box-enemy .battle-box-name  { color: var(--red); }
-.battle-box-player .battle-box-name { color: var(--yellow); }
+.battle-box-enemy .battle-box-name  { color: var(--red); text-shadow: 0 1px 0 #000, 0 0 8px rgba(224, 32, 16, 0.35); }
+.battle-box-player .battle-box-name { color: var(--west-gold); text-shadow: 0 1px 0 #000, 0 0 8px rgba(232, 178, 61, 0.35); }
 .battle-box-bars { display: flex; align-items: center; gap: 5px; }
 .battle-box-bars .hp-bar-wrap { flex: 1; }
 .battle-box-bars .mini-bar-wrap { flex: 1; }
 .battle-box-val { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
+.battle-box .hp-bar-wrap { border-color: var(--west-orange-dark); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6); }
 
 /* Test-fight freeze button */
 .freeze-btn {
@@ -423,21 +453,20 @@ html, body {
     left: 6px;
     padding: 3px 8px;
     font-size: 9px;
-    font-family: inherit;
-    font-weight: bold;
+    font-family: var(--west-font);
     letter-spacing: 0.5px;
-    background: rgba(0, 40, 80, 0.85);
-    border: 1px solid #2288cc;
-    color: #4fc3f7;
+    background: linear-gradient(160deg, #2a1c10, #150d06);
+    border: 1px solid var(--west-orange-dark);
+    color: var(--west-orange);
     cursor: pointer;
     z-index: 12;
     opacity: 0.85;
 }
-.freeze-btn:hover { opacity: 1; border-color: #55aaff; }
+.freeze-btn:hover { opacity: 1; border-color: var(--west-orange); }
 .freeze-btn-on {
-    background: rgba(0, 60, 30, 0.85);
-    border-color: #22cc66;
-    color: #44ee88;
+    background: linear-gradient(160deg, #1a2e10, #0e1a08);
+    border-color: var(--green);
+    color: var(--green);
 }
 .freeze-btn-on:hover { border-color: #55ff88; }
 
@@ -449,17 +478,16 @@ html, body {
     right: 6px;
     padding: 3px 8px;
     font-size: 9px;
-    font-family: inherit;
-    font-weight: bold;
+    font-family: var(--west-font);
     letter-spacing: 0.5px;
-    background: rgba(50, 30, 70, 0.85);
-    border: 1px solid #9955cc;
-    color: #cc99ff;
+    background: linear-gradient(160deg, #2a1c10, #150d06);
+    border: 1px solid var(--west-orange-dark);
+    color: var(--west-gold);
     cursor: pointer;
     z-index: 12;
     opacity: 0.85;
 }
-.cam-toggle-btn:hover { opacity: 1; border-color: #bb77ee; }
+.cam-toggle-btn:hover { opacity: 1; border-color: var(--west-orange); }
 /* MOVE panel (movement-feel tuning) sits left of CAM, same styling. */
 .move-toggle-btn { right: 66px; }
 .move-debug-panel { right: 66px; }
@@ -470,8 +498,8 @@ html, body {
     right: 6px;
     width: 150px;
     padding: 8px 10px;
-    background: rgba(20, 10, 30, 0.92);
-    border: 1px solid #9955cc;
+    background: rgba(20, 13, 8, 0.94);
+    border: 1px solid var(--west-orange-dark);
     border-radius: 3px;
     z-index: 12;
     display: flex;
@@ -483,45 +511,47 @@ html, body {
     display: flex;
     justify-content: space-between;
     font-size: 8px;
-    color: #cc99ff;
+    color: var(--west-gold);
     letter-spacing: 0.3px;
     text-transform: uppercase;
 }
-.cam-debug-row label span { color: #eeddff; font-weight: bold; }
+.cam-debug-row label span { color: var(--west-cream); font-weight: bold; }
 .cam-debug-row input[type="range"] {
     width: 100%;
-    accent-color: #bb77ee;
+    accent-color: var(--west-orange);
     height: 12px;
 }
 .cam-debug-reset {
     margin-top: 2px;
     padding: 3px 6px;
     font-size: 9px;
-    font-family: inherit;
-    font-weight: bold;
-    background: rgba(80, 40, 100, 0.7);
-    border: 1px solid #9955cc;
-    color: #eeddff;
+    font-family: var(--west-font);
+    background: rgba(90, 50, 20, 0.7);
+    border: 1px solid var(--west-orange-dark);
+    color: var(--west-cream);
     cursor: pointer;
     border-radius: 2px;
 }
-.cam-debug-reset:hover { background: rgba(110, 60, 140, 0.85); }
+.cam-debug-reset:hover { background: rgba(130, 74, 30, 0.85); }
 
-/* Telegraphed special — speech bubble above the enemy */
+/* Telegraphed special — wanted-poster warning banner above the enemy */
 .telegraph-bubble {
     position: absolute;
     top: 4%;
     right: 4%;
     max-width: 58%;
-    background: var(--bg-input);
-    border: 2px solid #cc44ff;
-    color: #ff8b3d;
-    font-size: 10px;
-    font-weight: bold;
+    background: linear-gradient(160deg, #241a10, #130d07);
+    border-top: 2px solid var(--red);
+    border-bottom: 2px solid var(--red);
+    clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+    color: var(--west-gold);
+    font-family: var(--west-font);
+    font-size: 11px;
+    letter-spacing: 0.3px;
     line-height: 1.35;
-    padding: 5px 8px;
+    padding: 5px 9px;
     z-index: 8;
-    box-shadow: 0 0 10px rgba(204, 68, 255, 0.35);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5), 0 0 10px rgba(224, 32, 16, 0.3);
     animation: bubble-pop 0.18s ease-out, crt-flicker 0.12s steps(2) 3;
 }
 .telegraph-bubble::after {
@@ -530,7 +560,7 @@ html, body {
     bottom: -8px;
     right: 24%;
     border: 8px solid transparent;
-    border-top-color: #cc44ff;
+    border-top-color: var(--red);
     border-bottom: none;
 }
 @keyframes bubble-pop {
@@ -538,11 +568,11 @@ html, body {
     100% { transform: scale(1);   opacity: 1; }
 }
 
-/* ─── Duel result overlay (over the battle scene) ─── */
+/* ─── Duel result overlay (over the battle scene) — wanted-poster plaque ─── */
 .duel-result-overlay {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.72);
+    background: rgba(8, 5, 3, 0.78);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -555,23 +585,33 @@ html, body {
     100% { opacity: 1; transform: translateY(0); }
 }
 .duel-result-panel {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
-    background: var(--bg-panel);
-    border: var(--border-w) double var(--border);
-    box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo);
-    padding: 14px 22px;
+    gap: 7px;
+    background: linear-gradient(165deg, #241b12, #130d08);
+    border-top: 4px solid var(--west-orange);
+    border-bottom: 4px solid var(--west-orange);
+    border-left: 1px solid var(--west-orange-dark);
+    border-right: 1px solid var(--west-orange-dark);
+    clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    padding: 18px 26px;
     max-width: 86%;
     max-height: 92%;
     overflow-y: auto;
 }
-.duel-result-header { font-size: 24px; font-weight: bold; letter-spacing: 3px; }
-.result-win  { color: var(--yellow); }
+.duel-result-header {
+    font-family: var(--west-font);
+    font-size: 30px;
+    letter-spacing: 4px;
+    text-shadow: 0 2px 0 #000, 0 0 16px currentColor;
+}
+.result-win  { color: var(--west-gold); }
 .result-lose { color: var(--red); }
-.duel-result-npc { color: var(--text-dim); font-size: 11px; }
-.duel-result-flawless { color: var(--yellow); font-size: 12px; font-weight: bold; animation: pulse-grow 0.25s ease-in-out 2; }
+.duel-result-npc { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+.duel-result-flawless { color: var(--west-gold); font-size: 12px; font-weight: bold; animation: pulse-grow 0.25s ease-in-out 2; }
 .duel-result-row { font-size: 13px; }
 .result-gold   { color: var(--yellow); font-weight: bold; }
 .result-xp     { color: var(--green); }
@@ -580,7 +620,7 @@ html, body {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--west-orange-dark);
     padding-top: 6px;
     margin-top: 2px;
     align-items: flex-start;
@@ -588,6 +628,14 @@ html, body {
 .duel-result-loot-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--yellow); }
 .duel-result-actions { display: flex; gap: 8px; margin-top: 8px; }
 .result-btn { min-width: 96px; min-height: 40px; }
+.duel-result-actions .quickslot {
+    background: linear-gradient(160deg, #2a1c10, #150d06);
+    border-color: var(--west-orange-dark);
+    color: var(--west-cream);
+    font-family: var(--west-font);
+    letter-spacing: 1px;
+}
+.duel-result-actions .quickslot:hover { border-color: var(--west-orange); color: var(--west-gold); }
 
 /* ─── Hub menu (out-of-duel home screen) ─── */
 /* With the event log gone the hub fills the column above the HUD. */
@@ -798,16 +846,24 @@ html, body {
 .spec-bar    { height: 100%; background: linear-gradient(90deg, #8a5a00, var(--amber)); transition: width 0.2s; }
 .prayer-bar  { height: 100%; background: linear-gradient(90deg, #1565c0, #6ec6ff); transition: width 0.2s; }
 
-/* ─── NPC attack-style badge (combat status bar) ─── */
+/* ─── NPC attack-style badge (combat status bar) — round medallion ─── */
 .style-badge {
-    display: inline-block;
-    font-size: 12px;
-    margin-right: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    margin-right: 5px;
+    vertical-align: middle;
+    font-size: 9px;
+    background: radial-gradient(circle at 35% 30%, #2c2015, #0e0904);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 2px rgba(0, 0, 0, 0.5);
     animation: style-badge-pulse 1s ease-out;
 }
-.style-badge-melee  { color: #ff5555; }
-.style-badge-ranged { color: #7ddc7d; }
-.style-badge-magic  { color: #6ec6ff; }
+.style-badge-melee  { color: #ff6b5c; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 0 0 2px #8a2a20, 0 1px 2px rgba(0, 0, 0, 0.5); }
+.style-badge-ranged { color: #86e28a; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 0 0 2px #2e6a2a, 0 1px 2px rgba(0, 0, 0, 0.5); }
+.style-badge-magic  { color: #7ecbff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 0 0 2px #1e4a70, 0 1px 2px rgba(0, 0, 0, 0.5); }
 @keyframes style-badge-pulse {
     0%   { transform: scale(1.8); text-shadow: 0 0 10px currentColor; }
     100% { transform: scale(1);   text-shadow: none; }
@@ -1359,12 +1415,11 @@ html, body {
     box-shadow: none;
     background: #000;
 }
-/* Floating status: enemy top-left, player top-right, translucent (no panels). */
+/* Floating status: enemy top-left, player top-right — translucent ink
+   plaques (border/cut-corner shape inherited from the base .battle-box). */
 .battle-fs .battle-box {
-    background: rgba(8, 10, 14, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 7px;
-    padding: 3px 8px;
+    background: linear-gradient(160deg, rgba(28, 20, 13, 0.85), rgba(10, 7, 4, 0.85));
+    padding: 4px 10px;
     min-width: 128px;
     max-width: 42vw;
 }
@@ -1423,9 +1478,19 @@ html, body {
     right: max(10px, env(safe-area-inset-right));
     bottom: calc(max(10px, var(--safe-bottom)) + 108px);
 }
-.action-hud-float .attack-target-btn { box-shadow: 0 2px 7px rgba(0, 0, 0, 0.55), inset 1px 1px 0 var(--bevel-hi); }
+.action-hud-float .attack-target-btn {
+    background: linear-gradient(160deg, #2e1a10, #160c07);
+    border-color: var(--west-orange-dark);
+    clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.55), inset 1px 1px 0 var(--bevel-hi);
+}
+.action-hud-float .attack-target-btn:hover:not(:disabled) { border-color: var(--west-orange); }
+.action-hud-float .atk-target-label { font-family: var(--west-font); letter-spacing: 1px; }
 
-/* Round RS3-style buttons */
+/* Round western medallion buttons — brass bezel ring around each slot.
+   The ring lives on ::before so it never fights the state classes
+   (qs-ready/qs-active/qs-queued/…) that color the real .border for
+   gameplay feedback (attack ready, prayer active, queued action). */
 .action-hud-float .belt-slot,
 .action-hud-float .quickslot {
     width: 46px;
@@ -1435,6 +1500,18 @@ html, body {
     border-radius: 50%;
     box-shadow: 0 2px 7px rgba(0, 0, 0, 0.55), inset 1px 1px 0 var(--bevel-hi);
 }
-.action-hud-float .belt-slot   { background: radial-gradient(circle at 34% 28%, #37301d, #17110a); }
-.action-hud-float .quickslot   { background: radial-gradient(circle at 34% 28%, #2b2436, #14101a); }
+.action-hud-float .belt-slot::before,
+.action-hud-float .quickslot::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--west-orange-dark);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 2px 4px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+}
+.action-hud-float .belt-slot   { background: radial-gradient(circle at 34% 28%, #3a2c18, #170f08); }
+.action-hud-float .quickslot   { background: radial-gradient(circle at 34% 28%, #2f2416, #150e08); }
 .action-hud-float .qs-spec-badge { top: -2px; right: -2px; }
+.action-hud-float .qs-label,
+.action-hud-float .belt-label { font-family: var(--west-font); letter-spacing: 0.5px; }
