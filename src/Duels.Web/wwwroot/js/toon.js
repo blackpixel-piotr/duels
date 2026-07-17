@@ -697,8 +697,18 @@ async function initBattle(canvasId, opts) {
                     actor.pos.wx += rx / rem * step; actor.pos.wz += rz / rem * step;
                     destFacing = Math.atan2(rx, rz);
                     instSpeed = step / dt;
-                } else {
+                } else if (actor === st.enemy || !st.flags.holdPosition) {
+                    // Face the target while actively engaging it. The player
+                    // only reaches this stationary branch already attacking
+                    // or about to (holdPosition false means Engage() has run —
+                    // see GameState's targeting model), so this doubles as
+                    // "queued or attacking" without a separate flag.
                     destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+                } else {
+                    // Holding position (walked away, not re-engaged): keep
+                    // whatever facing the walk left the player with instead
+                    // of snapping back to stare at the still-targeted enemy.
+                    destFacing = actor.facing;
                 }
                 let da = destFacing - actor.facing;
                 while (da > Math.PI) da -= Math.PI * 2;
