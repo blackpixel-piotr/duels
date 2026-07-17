@@ -180,11 +180,12 @@ function buildToonCharacterFromGltf(gltf, { suit = '#4a6a8a', tint = '#ffffff', 
         rest[nm] = { local: b.quaternion.clone(), parentQ: pWorldQ };
     }
 
-    // Normalize size: feet on the ground, height matching the procedural
-    // character (1.9 wu at scale 1) so camera/splat/tile proportions carry over.
+    // Normalize size: feet on the ground, height 2.8 wu ≈ 1.6× TILE — the
+    // OSRS/RS3 character-to-tile ratio. (1.9 wu read as a figurine on a
+    // chessboard: barely taller than a tile is wide.)
     const bb = new THREE.Box3().setFromObject(model);
     const rawH = Math.max(0.01, bb.max.y - bb.min.y);
-    const height = 1.9 * scale;
+    const height = 2.8 * scale;
     const s = height / rawH;
     model.scale.setScalar(s);
     model.position.y = -bb.min.y * s;
@@ -403,8 +404,10 @@ async function makeActor(st, key, colors) {
             throw: ch.clips.attack, cast: ch.clips.attack, death: ch.clips.death };
 
     // blend-space nodes: [anchor speed wu/s, role]; anchors double as the
-    // clip's natural speed so timeScale = speed/anchor ≈ 1 at the anchor
-    const nodes = [[0, 'idle'], [1.5, 'walk'], [3.2, 'jog'], [5.8, 'sprint']]
+    // clip's natural speed so timeScale = speed/anchor ≈ 1 at the anchor.
+    // Scaled ×1.47 with the 2.8 wu character (longer legs cover more ground
+    // per cycle) — player run sits jog-leaning, enemies mostly walk.
+    const nodes = [[0, 'idle'], [2.2, 'walk'], [4.7, 'jog'], [8.5, 'sprint']]
         .filter(([, r]) => clips[r]);
     const loco = nodes.map(([anchor, role]) => {
         const a = mixer.clipAction(clips[role]);
