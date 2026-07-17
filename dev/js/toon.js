@@ -39,9 +39,10 @@ function getGradientMap() {
 }
 
 // Toon material with screen-space diagonal hatching injected into the
-// darkest band — the comic "shadow ink" without hand-painted textures.
-function toonMat(color) {
-    const m = new THREE.MeshToonMaterial({ color, gradientMap: getGradientMap() });
+// darkest band — the comic "shadow ink". An optional base-color map (the
+// character pack's textures) multiplies under the same banded ramp.
+function toonMat(color, map = null) {
+    const m = new THREE.MeshToonMaterial({ color, map, gradientMap: getGradientMap() });
     m.onBeforeCompile = shader => {
         shader.fragmentShader = shader.fragmentShader.replace(
             '#include <dithering_fragment>',
@@ -60,16 +61,18 @@ function toonMat(color) {
 // ── glTF character (Superhero model, assets/models/) ─────────────────────
 // The model ships in T-pose with a UE-style skeleton (pelvis, spine_01..03,
 // thigh/calf/foot_l/r, clavicle/upperarm/lowerarm/hand_l/r) and NO baked
-// animations, so we author clips in code against its real bones. Its texture
-// PNGs are not shipped — a URL modifier feeds the loader a 1px placeholder
-// (we replace every material with toonMat anyway).
+// animations, so we author clips in code against its real bones. Base-color
+// textures ship in assets/models/; normal/roughness maps do not — the toon
+// ramp ignores them, so a URL modifier feeds the loader a 1px placeholder
+// instead of ~12MB of PBR maps.
 const noTex = () => {
     const c = document.createElement('canvas'); c.width = c.height = 1;
     c.getContext('2d').fillRect(0, 0, 1, 1);
     return c.toDataURL('image/png');
 };
 const gltfManager = new THREE.LoadingManager();
-gltfManager.setURLModifier(url => /\.(png|jpe?g)(\?.*)?$/i.test(url) ? noTex() : url);
+gltfManager.setURLModifier(url =>
+    /(normal|roughness)[^/]*\.(png|jpe?g)(\?.*)?$/i.test(url) ? noTex() : url);
 const gltfLoader = new GLTFLoader(gltfManager);
 let gltfPromise = null;
 function loadToonCharacterGltf() {
@@ -124,7 +127,7 @@ function charSpaceQuat(parentWorldQ, axis, deg, restLocal) {
         .copy(parentWorldQ).invert().multiply(r).multiply(parentWorldQ).multiply(restLocal);
 }
 
-function buildToonCharacterFromGltf(gltf, { suit = '#4a6a8a', scale = 1 } = {}) {
+function buildToonCharacterFromGltf(gltf, { suit = '#4a6a8a', tint = '#ffffff', scale = 1 } = {}) {
     // SkeletonUtils.clone, NOT Object3D.clone: a plain clone leaves the new
     // SkinnedMeshes bound to the ORIGINAL skeleton, whose bones never get
     // world-matrix updates — the mesh collapses to a speck at the origin.
@@ -134,10 +137,18 @@ function buildToonCharacterFromGltf(gltf, { suit = '#4a6a8a', scale = 1 } = {}) 
     model.traverse(n => {
         if (n.isBone) bones[n.name] = n;
         if (n.isMesh || n.isSkinnedMesh) {
-            const color = /eye(s|brow)/i.test(n.name)
-                ? (/brow/i.test(n.name) ? '#241a12' : '#e8e4da')
-                : suit;
-            n.material = toonMat(color);
+            const src = Array.isArray(n.material) ? n.material[0] : n.material;
+            const isFace = /eye(s|brow)/i.test(n.name);
+            if (src?.map) {
+                // real base-color texture; tint multiplies the body only so
+                // player/enemy stay tellable apart while faces keep true color
+                n.material = toonMat(isFace ? '#ffffff' : tint, src.map);
+                n.material.side = src.side; // hair/brow cards are double-sided
+            } else {
+                n.material = toonMat(isFace
+                    ? (/brow/i.test(n.name) ? '#241a12' : '#e8e4da')
+                    : suit);
+            }
             n.frustumCulled = false; // skinned bounds don't track the pose
         }
     });
@@ -545,10 +556,12 @@ async function initBattle(canvasId, opts) {
     scene.add(new THREE.LineSegments(gridGeo,
         new THREE.LineBasicMaterial({ color: '#1c2a12', transparent: true, opacity: 0.9 })));
 
-    // actors — glTF characters (suit tint tells them apart), procedural fallback
+    // actors — textured glTF characters; the enemy gets a rust tint over the
+    // texture so the two stay instantly tellable apart. suit/skin colors are
+    // the untextured fallbacks.
     [st.player, st.enemy] = await Promise.all([
-        makeActor(st, 'player', { suit: '#3e6a8e', skin: '#e0b088', shirt: '#c8b090', pants: '#3d5a35', boots: '#4a3020', scale: 1.0 }),
-        makeActor(st, 'enemy',  { suit: '#8e4a32', skin: '#d09a70', shirt: '#8a4030', pants: '#463830', boots: '#332218', scale: 1.08 }),
+        makeActor(st, 'player', { tint: '#ffffff', suit: '#3e6a8e', skin: '#e0b088', shirt: '#c8b090', pants: '#3d5a35', boots: '#4a3020', scale: 1.0 }),
+        makeActor(st, 'enemy',  { tint: '#e8a284', suit: '#8e4a32', skin: '#d09a70', shirt: '#8a4030', pants: '#463830', boots: '#332218', scale: 1.08 }),
     ]);
     st.player.pos = { wx: 0, wz: 3 * TILE }; st.player.facing = Math.PI;
     st.enemy.pos = { wx: TILE, wz: -3 * TILE };
