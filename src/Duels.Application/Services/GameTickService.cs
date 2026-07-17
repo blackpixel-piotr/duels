@@ -126,14 +126,14 @@ public sealed class GameTickService : IDisposable
         }
         else if (!state.HoldPosition)
         {
-            for (int i = 0; i < 2 && state.DistanceToNpc > playerRange; i++)
+            for (int i = 0; i < 2 && !state.InAttackRange(playerRange); i++)
             {
                 var step = NextStepToward(state, state.PlayerTile, ApproachSlot(state.PlayerTile, state.NpcTile), state.NpcTile);
                 if (step == state.PlayerTile) break;
                 state.SetPlayerTile(step.X, step.Z);
             }
         }
-        if (!state.EnemyFrozen && state.DistanceToNpc > AttackRange.ForStyle(npc.CurrentAttackType))
+        if (!state.EnemyFrozen && !state.InAttackRange(AttackRange.ForStyle(npc.CurrentAttackType)))
         {
             var step = NextStepToward(state, state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
             state.SetNpcTile(step.X, step.Z);
@@ -143,7 +143,7 @@ public sealed class GameTickService : IDisposable
         // out of range so it fires the moment the walk-in completes. Walking
         // under a move order suspends attacking entirely (OSRS disengage).
         if (state.PlayerCooldown == 0 && state.PlayerMoveTarget is null
-            && state.DistanceToNpc <= playerRange)
+            && state.InAttackRange(playerRange))
         {
             var action = state.QueuedAction ?? "attack";
             await ExecutePlayerAction(state, player, npc, action);
@@ -851,13 +851,16 @@ public sealed class GameTickService : IDisposable
         return _items.GetWeapon(weaponId)?.Range ?? AttackRange.Melee;
     }
 
-    // The adjacent tile beside the target on the approacher's side. Sign is 0
-    // when the mover is already aligned with the target on that axis, which
-    // keeps a straight-line approach straight (cardinal adjacency) instead of
-    // forcing a diagonal cut at the last step; a mover off-axis on both X and
-    // Z still resolves to a diagonal corner slot, same as before.
-    private static (int X, int Z) ApproachSlot((int X, int Z) from, (int X, int Z) to) =>
-        (to.X + Math.Sign(from.X - to.X), to.Z + Math.Sign(from.Z - to.Z));
+    // The CARDINAL tile beside the target nearest the approacher — melee lands
+    // only from N/S/E/W (OSRS rule), so the approach goal is never a diagonal
+    // corner slot: close along the dominant axis and stand square-on.
+    private static (int X, int Z) ApproachSlot((int X, int Z) from, (int X, int Z) to)
+    {
+        int dx = from.X - to.X, dz = from.Z - to.Z;
+        return Math.Abs(dx) >= Math.Abs(dz) && dx != 0
+            ? (to.X + Math.Sign(dx), to.Z)
+            : (to.X, to.Z + Math.Sign(dz));
+    }
 
     // One tile toward the goal along a TAUT path: a straight line when the way is
     // clear (the common case), otherwise routing around solid obstacles (and never

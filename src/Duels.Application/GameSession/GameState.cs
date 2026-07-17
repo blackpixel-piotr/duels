@@ -91,10 +91,17 @@ public sealed class GameState
     public int DistanceToNpc =>
         Math.Max(Math.Abs(PlayerTile.X - NpcTile.X), Math.Abs(PlayerTile.Z - NpcTile.Z));
 
+    /// <summary>OSRS melee rule: attacks land only from a CARDINAL neighbour
+    /// tile (N/S/E/W) — never across a diagonal. Longer ranges stay Chebyshev.</summary>
+    public bool InAttackRange(int range) =>
+        range <= AttackRange.Melee
+            ? Math.Abs(PlayerTile.X - NpcTile.X) + Math.Abs(PlayerTile.Z - NpcTile.Z) == 1
+            : DistanceToNpc <= range;
+
     /// <summary>True when the NPC can reach the player with its current style —
     /// the wind-up cue keys off this so it doesn't fire mid-approach.</summary>
     public bool NpcInRange =>
-        ActiveNpc is { } npc && DistanceToNpc <= AttackRange.ForStyle(npc.CurrentAttackType);
+        ActiveNpc is { } npc && InAttackRange(AttackRange.ForStyle(npc.CurrentAttackType));
 
     public void SetPlayerTile(int x, int z) => PlayerTile = (x, z);
     public void SetNpcTile(int x, int z) => NpcTile = (x, z);

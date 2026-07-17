@@ -377,6 +377,41 @@ public sealed class RangeAndMovementTests
     }
 
     [Fact]
+    public async Task Melee_FromDiagonal_SquaresUpToCardinal_NeverAttacksAcrossCorner()
+    {
+        // OSRS melee rule: diagonal (corner) tiles are OUT of melee range.
+        // Starting Chebyshev-adjacent on the corner, the player must step to
+        // a cardinal neighbour rather than swing across the diagonal.
+        var (svc, state) = Build(Tank(AttackType.Crush));
+        state.FreezeEnemy(true);
+        state.SetNpcTile(0, 0);
+        state.SetPlayerTile(1, 1);
+
+        Assert.False(state.InAttackRange(AttackRange.Melee)); // corner ≠ in range
+
+        await Tick(svc);
+
+        var manhattan = Math.Abs(state.PlayerTile.X) + Math.Abs(state.PlayerTile.Z);
+        Assert.Equal(1, manhattan);                            // squared up N/S/E/W
+        Assert.True(state.InAttackRange(AttackRange.Melee));
+    }
+
+    [Fact]
+    public void MeleeRange_CardinalOnly_RangedKeepsChebyshev()
+    {
+        var (_, state) = Build(Tank(AttackType.Crush));
+        state.SetNpcTile(0, 0);
+
+        state.SetPlayerTile(0, 1);
+        Assert.True(state.InAttackRange(AttackRange.Melee));
+        state.SetPlayerTile(1, 1);
+        Assert.False(state.InAttackRange(AttackRange.Melee));  // diagonal excluded
+        Assert.True(state.InAttackRange(AttackRange.Distant)); // ranged unaffected
+        state.SetPlayerTile(0, 0 + AttackRange.Distant);
+        Assert.True(state.InAttackRange(AttackRange.Distant));
+    }
+
+    [Fact]
     public void NpcInRange_TracksStyle()
     {
         var state = new GameState("p1", new Player("p1", "Hero"));
