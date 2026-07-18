@@ -20,10 +20,10 @@
 // share the Universal Base skeleton, so their SkinnedMeshes rebind onto the
 // live character's bones by name. Items without assets keep the old
 // behavior (no mesh, animation-only).
-import * as THREE from '../lib/three.module.min.js';
-import { OutlineEffect } from '../lib/OutlineEffect.js';
-import { GLTFLoader } from '../lib/GLTFLoader.js';
-import * as SkeletonUtils from '../lib/SkeletonUtils.js';
+import * as THREE from '/lib/three.module.min.js';
+import { OutlineEffect } from '/lib/OutlineEffect.js';
+import { GLTFLoader } from '/lib/GLTFLoader.js';
+import * as SkeletonUtils from '/lib/SkeletonUtils.js';
 
 const TILE = 1.75;            // must match voxel.js — sim tiles are shared
 const WALK_R = 5;
