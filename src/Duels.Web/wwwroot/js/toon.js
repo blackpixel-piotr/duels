@@ -703,7 +703,7 @@ async function initBattle(canvasId, opts) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     const effect = new OutlineEffect(renderer, { defaultThickness: 0.0065, defaultColor: [0.05, 0.04, 0.03] });
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#1a2314');
@@ -732,6 +732,9 @@ async function initBattle(canvasId, opts) {
     const ground = new THREE.Mesh(
         new THREE.PlaneGeometry(60, 60), toonMat('#4a7038'));
     ground.rotation.x = -Math.PI / 2;
+    // Flat scenery never reads better with an ink silhouette — skip the
+    // outline pass's backface-hull draw for it (halves its draw calls).
+    ground.material.userData.outlineParameters = { visible: false };
     scene.add(ground);
     const gridLines = [];
     const ext = (WALK_R + 0.5) * TILE;
@@ -767,19 +770,10 @@ async function initBattle(canvasId, opts) {
     st.targetTile = mkTileOutline('#ff4444');
     st.marker = mkTileOutline('#ffd166'); st.marker.visible = false;
 
-    // paper grain: full-screen overlay canvas texture, additive-ish
-    const grain = document.createElement('canvas'); grain.width = grain.height = 256;
-    const gg = grain.getContext('2d');
-    for (let i = 0; i < 6000; i++) {
-        gg.fillStyle = `rgba(${Math.random() > 0.5 ? 255 : 0},${Math.random() > 0.5 ? 255 : 0},200,0.02)`;
-        gg.fillRect(Math.random() * 256, Math.random() * 256, 1, 1);
-    }
-    const grainTex = new THREE.CanvasTexture(grain);
-    grainTex.wrapS = grainTex.wrapT = THREE.RepeatWrapping; grainTex.repeat.set(3, 3);
-    const grainMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2),
-        new THREE.MeshBasicMaterial({ map: grainTex, transparent: true, opacity: 0.55, depthTest: false }));
-    const grainScene = new THREE.Scene(); grainScene.add(grainMesh);
-    const grainCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    // Paper-grain atmosphere is applied via the CSS `.battle-scene::after`
+    // overlay (SVG feTurbulence, browser-composited for free) — a second
+    // WebGL full-screen render pass here would just duplicate that cost
+    // every frame for no visual gain, so the scene doesn't render one.
 
     battles.set(canvasId, st);
 
@@ -955,9 +949,6 @@ async function initBattle(canvasId, opts) {
         }
 
         effect.render(scene, camera);
-        st.renderer.autoClear = false;
-        st.renderer.render(grainScene, grainCam);
-        st.renderer.autoClear = true;
         st.raf = requestAnimationFrame(loop);
     };
     st.raf = requestAnimationFrame(loop);
