@@ -72,6 +72,7 @@
     private bool _lastTelegraph;
     private string? _lastWindup;
     private string? _lastWeapon;
+    private string? _lastEquipment;
     private bool _deathFired;
     private string? _enemyId;
     private string _enemyName = "";
@@ -139,6 +140,14 @@
             });
             _lastWeapon = WeaponId;
             await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId);
+            _lastEquipment = EquipmentKey();
+            await JS.InvokeVoidAsync("voxel.setBattleEquipment", "battle-canvas", EquippedGearIds());
+            // Solid obstacles the movers pathfind around — placed as low props the
+            // scene renders on those tiles. Fixed per duel, so send once on mount.
+            await JS.InvokeVoidAsync("voxel.setBattleObstacles", "battle-canvas",
+                State?.Obstacles.Select(o => new { x = o.X, z = o.Z }).ToArray() ?? []);
+            // Landscape fight auto-rotates in portrait; keep canvas taps mapped.
+            await JS.InvokeVoidAsync("voxel.watchOrientation", "battle-canvas");
             _inited = true;
             return;
         }
@@ -163,6 +172,13 @@
         {
             _lastWeapon = WeaponId;
             await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId);
+        }
+
+        // Armor changes show up on the player's body (modeled pieces only).
+        if (EquipmentKey() is var equipKey && equipKey != _lastEquipment)
+        {
+            _lastEquipment = equipKey;
+            await JS.InvokeVoidAsync("voxel.setBattleEquipment", "battle-canvas", EquippedGearIds());
         }
 
         // HP fractions drive voxel erosion (damage chips the model, food regrows it).
@@ -256,6 +272,17 @@
         if (GameSvc.PlayerId is { } pid)
             await GameSvc.DispatchAsync(new EngageCommand(pid));
     }
+
+    // Non-weapon equipped item ids, sorted for a stable diff key — the scene
+    // renders the ones with modeled assets as outfit pieces on the character.
+    private string[] EquippedGearIds() =>
+        State?.Player?.Equipped
+            .Where(kv => kv.Key != EquipmentSlot.Weapon)
+            .Select(kv => kv.Value)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray() ?? [];
+
+    private string EquipmentKey() => string.Join(",", EquippedGearIds());
 
     // The player's projectile/effect style comes from the equipped weapon.
     private string PlayerStyle() =>
