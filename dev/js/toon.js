@@ -12,8 +12,14 @@
 // fallbacks if the assets fail to load.
 //
 // PoC parity gaps vs the voxel renderer (documented, not bugs):
-//  - whip rope physics, HP-driven erosion, overhead prayer icons, weapon
-//    meshes; projectiles are a moving glow sphere without trails.
+//  - whip rope physics, HP-driven erosion, overhead prayer icons;
+//    projectiles are a moving glow sphere without trails.
+// Equipment: weapons with a modeled asset (WEAPON_ASSETS) render in the
+// right hand and switch the idle to a sword stance; armor items with a
+// modeled asset (ARMOR_ASSETS) are Quaternius modular-outfit pieces that
+// share the Universal Base skeleton, so their SkinnedMeshes rebind onto the
+// live character's bones by name. Items without assets keep the old
+// behavior (no mesh, animation-only).
 import * as THREE from '../lib/three.module.min.js';
 import { OutlineEffect } from '../lib/OutlineEffect.js';
 import { GLTFLoader } from '../lib/GLTFLoader.js';
@@ -72,7 +78,7 @@ const noTex = () => {
 };
 const gltfManager = new THREE.LoadingManager();
 gltfManager.setURLModifier(url =>
-    /(normal|roughness)[^/]*\.(png|jpe?g)(\?.*)?$/i.test(url) ? noTex() : url);
+    /(normal|roughness|orm)[^/]*\.(png|jpe?g)(\?.*)?$/i.test(url) ? noTex() : url);
 const gltfLoader = new GLTFLoader(gltfManager);
 let gltfPromise = null;
 function loadToonCharacterGltf() {
@@ -91,7 +97,7 @@ const LIB_ROLES = {
     swordA: 'Sword_Regular_A', swordB: 'Sword_Regular_B',
     spec: 'Sword_Attack', throw: 'OverhandThrow', cast: 'Spell_Simple_Shoot',
     hitA: 'Hit_Chest', hitB: 'Hit_Head', hitBig: 'Hit_Knockback',
-    eat: 'Consume', death: 'Death01',
+    eat: 'Consume', death: 'Death01', swordIdle: 'Sword_Idle',
 };
 let animLibPromise = null;
 function loadAnimLibrary() {
@@ -117,6 +123,76 @@ function fitClip(clip, bones) {
         ? clip : new THREE.AnimationClip(clip.name, clip.duration, tracks);
 }
 
+// ── Equipment assets (weapons + armor with real meshes) ──────────────────
+// Item ids the C# sim speaks, mapped to renderable assets under
+// assets/models/equip/. Ids without an entry render nothing (animation-only),
+// which is the pre-existing behavior for the whole OSRS-style catalog.
+const EQUIP_DIR = 'assets/models/equip/';
+const WEAPON_ASSETS = {
+    // length: world-unit blade+grip span the model is normalized to.
+    steel_sword: { url: EQUIP_DIR + 'sword.glb', length: 1.25 },
+};
+const ARMOR_ASSETS = {
+    ranger_hood:      EQUIP_DIR + 'Male_Ranger_Head_Hood.gltf',
+    ranger_tunic:     EQUIP_DIR + 'Male_Ranger_Body.gltf',
+    ranger_trousers:  EQUIP_DIR + 'Male_Ranger_Legs.gltf',
+    ranger_boots:     EQUIP_DIR + 'Male_Ranger_Feet_Boots.gltf',
+    ranger_bracers:   EQUIP_DIR + 'Male_Ranger_Arms.gltf',
+    ranger_pauldrons: EQUIP_DIR + 'Male_Ranger_Acc_Pauldron.gltf',
+};
+const equipCache = new Map(); // url → Promise<gltf>
+function loadEquipGltf(url) {
+    if (!equipCache.has(url))
+        equipCache.set(url, new Promise((res, rej) => gltfLoader.load(url, res, undefined, rej)));
+    return equipCache.get(url);
+}
+
+// The outfit pieces are body-segment REPLACEMENTS (they carry their own skin
+// where flesh shows), authored for the pack's slimmer Regular build — layered
+// over the muscular base body they get swallowed by it. So each equipped
+// piece hides the base skin underneath: triangles of the body mesh whose
+// dominant bone falls in the piece's region are dropped from the index.
+// Head/neck belong to no region, so the face always survives (hoods only
+// cover the scalp).
+const REGION_BONES = {
+    body:  /^(spine_0[123]|clavicle_[lr])$/,
+    legs:  /^(pelvis|thigh_[lr]|calf_[lr])$/,
+    boots: /^(foot_[lr]|ball(_leaf)?_[lr])$/,
+    arms:  /^(upperarm_[lr]|lowerarm_[lr]|hand_[lr]|(index|middle|pinky|ring|thumb)_\d+(_leaf)?_[lr])$/,
+};
+const ARMOR_REGION = {
+    ranger_tunic: 'body', ranger_trousers: 'legs',
+    ranger_boots: 'boots', ranger_bracers: 'arms',
+};
+function maskBodySkin(ch, regions) {
+    const mesh = ch.bodyMesh;
+    if (!mesh) return;
+    const orig = mesh.userData.origGeometry ??= mesh.geometry;
+    if (!regions.length) { mesh.geometry = orig; return; }
+    const pats = regions.map(r => REGION_BONES[r]).filter(Boolean);
+    const bones = mesh.skeleton.bones;
+    const si = orig.getAttribute('skinIndex'), sw = orig.getAttribute('skinWeight');
+    const hidden = new Uint8Array(si.count);
+    for (let v = 0; v < si.count; v++) {
+        let best = -1, bi = 0;
+        for (let k = 0; k < 4; k++) {
+            const w = sw.getComponent(v, k);
+            if (w > best) { best = w; bi = si.getComponent(v, k); }
+        }
+        const nm = bones[bi]?.name ?? '';
+        if (pats.some(re => re.test(nm))) hidden[v] = 1;
+    }
+    const idx = orig.index.array, keep = [];
+    for (let t = 0; t < idx.length; t += 3)
+        if (!(hidden[idx[t]] || hidden[idx[t + 1]] || hidden[idx[t + 2]]))
+            keep.push(idx[t], idx[t + 1], idx[t + 2]);
+    // New index over the SAME attribute buffers — no vertex data duplicated.
+    const g = new THREE.BufferGeometry();
+    for (const [name, attr] of Object.entries(orig.attributes)) g.setAttribute(name, attr);
+    g.setIndex(keep);
+    mesh.geometry = g;
+}
+
 // Rotate `bone` about a character-space axis while keeping everything else in
 // its rest pose: newLocal = (P⁻¹ · R · P) · restLocal, where P is the parent
 // chain's rest orientation in character space. Used both for one-off pose
@@ -134,8 +210,12 @@ function buildToonCharacterFromGltf(gltf, { suit = '#4a6a8a', tint = '#ffffff', 
     const model = SkeletonUtils.clone(gltf.scene);
 
     const bones = {};
+    let bodyMesh = null; // largest skinned mesh = the base body (skin+face)
     model.traverse(n => {
         if (n.isBone) bones[n.name] = n;
+        if (n.isSkinnedMesh && (!bodyMesh ||
+            n.geometry.attributes.position.count > bodyMesh.geometry.attributes.position.count))
+            bodyMesh = n;
         if (n.isMesh || n.isSkinnedMesh) {
             const src = Array.isArray(n.material) ? n.material[0] : n.material;
             const isFace = /eye(s|brow)/i.test(n.name);
@@ -178,6 +258,29 @@ function buildToonCharacterFromGltf(gltf, { suit = '#4a6a8a', tint = '#ffffff', 
         const pWorldQ = new THREE.Quaternion();
         b.parent.getWorldQuaternion(pWorldQ);
         rest[nm] = { local: b.quaternion.clone(), parentQ: pWorldQ };
+    }
+
+    // Weapon socket: a Group childed to hand_r whose +Y is the grip axis.
+    // A closed fist's grip tunnel runs along the knuckle line, so aim +Y
+    // from the pinky knuckle through the index knuckle (blade exits on the
+    // thumb side) and park the origin between them — all measured in the
+    // rest pose, so the socket rides the hand through every clip with no
+    // per-animation tuning.
+    let weaponSocket = null;
+    if (bones.hand_r && bones.index_01_r && bones.pinky_01_r) {
+        weaponSocket = new THREE.Group();
+        weaponSocket.name = 'weaponSocketR';
+        const hand = bones.hand_r;
+        hand.add(weaponSocket);
+        const iW = bones.index_01_r.getWorldPosition(new THREE.Vector3());
+        const pW = bones.pinky_01_r.getWorldPosition(new THREE.Vector3());
+        const bladeDir = iW.clone().sub(pW).normalize();
+        const qAlign = new THREE.Quaternion()
+            .setFromUnitVectors(new THREE.Vector3(0, 1, 0), bladeDir);
+        const hq = hand.getWorldQuaternion(new THREE.Quaternion());
+        weaponSocket.quaternion.copy(hq.invert().multiply(qAlign));
+        weaponSocket.position.copy(
+            hand.worldToLocal(iW.clone().add(pW).multiplyScalar(0.5)));
     }
 
     // Normalize size: feet on the ground, height 2.8 wu ≈ 1.6× TILE — the
@@ -246,7 +349,8 @@ function buildToonCharacterFromGltf(gltf, { suit = '#4a6a8a', tint = '#ffffff', 
             [0, 0, 0, 0, 0.12, 0, 0, 0.10, 0]),
     ]);
 
-    return { group, pivot, model, bones, clips: { idle, walk, attack, death }, height };
+    return { group, pivot, model, bones, weaponSocket, bodyMesh,
+             clips: { idle, walk, attack, death }, height };
 }
 
 // ── Procedural toon character (fallback) ──────────────────────────────────
@@ -444,6 +548,7 @@ async function makeActor(st, key, colors) {
         key, ch, mixer, clips, loco, overlay: null, speedSm: 0, gaitPhase: 0, swingAlt: 0,
         pos: { wx: 0, wz: 0 }, target: { wx: 0, wz: 0 },
         facing: 0, crumbled: false, hp: 1,
+        weaponMesh: null, weaponToken: 0, armorMeshes: [], armorKey: '',
     };
     mixer.addEventListener('finished', e => {
         if (actor.overlay && e.action === actor.overlay.action && !actor.overlay.hold) {
@@ -467,6 +572,86 @@ function playOverlay(actor, role, { ts = 1, fade = 0.08, hold = false, force = t
     a.clampWhenFinished = hold;
     a.setEffectiveTimeScale(ts).setEffectiveWeight(1).fadeIn(fade).play();
     actor.overlay = { action: a, role, hold };
+}
+
+// Idle stance: a modeled weapon swaps the resting loop for the library's
+// sword-ready pose. Only the blend-space's anchor-0 node changes — walk/jog/
+// sprint and every one-shot stay shared, and the node keeps its current
+// weight so the swap never pops the locomotion blend.
+function setActorStance(actor, armed) {
+    const want = armed && actor.clips.swordIdle ? 'swordIdle' : 'idle';
+    const n0 = actor.loco[0];
+    if (!n0 || n0.anchor !== 0 || n0.role === want) return;
+    const a = actor.mixer.clipAction(actor.clips[want]);
+    n0.action.stop();
+    a.reset().setEffectiveWeight(n0.w).play();
+    n0.action = a; n0.role = want; n0.dur = actor.clips[want].duration;
+}
+
+// Put a modeled weapon in (or clear it from) the actor's right hand.
+async function setActorWeapon(actor, weaponId) {
+    const def = weaponId ? WEAPON_ASSETS[weaponId] : null;
+    setActorStance(actor, !!def);
+    const socket = actor.ch.weaponSocket;
+    if (!socket) return;
+    const token = ++actor.weaponToken; // supersedes any in-flight load
+    if (actor.weaponMesh) { socket.remove(actor.weaponMesh); actor.weaponMesh = null; }
+    if (!def) return;
+    let gltf;
+    try { gltf = await loadEquipGltf(def.url); }
+    catch (e) { console.warn('toon: weapon load failed', weaponId, e); return; }
+    if (token !== actor.weaponToken) return;
+    const obj = gltf.scene.clone(true);
+    obj.traverse(n => {
+        if (n.isMesh) {
+            const src = Array.isArray(n.material) ? n.material[0] : n.material;
+            n.material = toonMat(src?.color ? `#${src.color.getHexString()}` : '#8a8a8a');
+        }
+    });
+    // The export keeps the grip at the origin with the blade up +Y — the
+    // socket's own axes — so only size needs normalizing: span def.length
+    // world units after the skeleton's inherited scale.
+    const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
+    const raw = Math.max(size.x, size.y, size.z) || 1;
+    socket.updateWorldMatrix(true, false);
+    const ws = socket.getWorldScale(new THREE.Vector3()).y || 1;
+    obj.scale.multiplyScalar((def.length ?? 1.2) / (raw * ws));
+    socket.add(obj);
+    actor.weaponMesh = obj;
+}
+
+// Dress the actor in every armor item that has a modeled asset. The pieces
+// share the character's Universal Base rig, so each part SkinnedMesh rebinds
+// onto the LIVE skeleton: same bone names, and the part's own inverse-bind
+// matrices are valid against it because both exports share one bind pose.
+async function setActorArmor(actor, itemIds) {
+    const want = (itemIds ?? []).filter(id => ARMOR_ASSETS[id]).sort();
+    const key = want.join();
+    if (actor.armorKey === key) return;
+    actor.armorKey = key;
+    for (const m of actor.armorMeshes) m.parent?.remove(m);
+    actor.armorMeshes = [];
+    const bones = actor.ch.bones;
+    if (!actor.ch.model || !bones.pelvis) return; // procedural fallback: no universal rig
+    maskBodySkin(actor.ch, want.map(id => ARMOR_REGION[id]).filter(Boolean));
+    let parts;
+    try { parts = await Promise.all(want.map(id => loadEquipGltf(ARMOR_ASSETS[id]))); }
+    catch (e) { console.warn('toon: armor load failed', e); return; }
+    if (actor.armorKey !== key) return; // superseded while loading
+    for (const gltf of parts) {
+        gltf.scene.traverse(src => {
+            if (!src.isSkinnedMesh) return;
+            const mapped = src.skeleton.bones.map(b => bones[b.name] ?? bones.root);
+            const srcMat = Array.isArray(src.material) ? src.material[0] : src.material;
+            const mesh = new THREE.SkinnedMesh(src.geometry,
+                toonMat('#ffffff', srcMat?.map ?? null));
+            mesh.material.side = srcMat?.side ?? THREE.FrontSide;
+            mesh.frustumCulled = false; // skinned bounds don't track the pose
+            actor.ch.model.add(mesh);
+            mesh.bind(new THREE.Skeleton(mapped, src.skeleton.boneInverses), src.bindMatrix);
+            actor.armorMeshes.push(mesh);
+        });
+    }
 }
 
 // Per-frame locomotion blending: ease the displayed speed (the sim moves at
@@ -821,9 +1006,18 @@ const api = {
         if (st) { st.player.hp = v.player; st.enemy.hp = v.enemy; }
     },
     setBattleWeapon(canvasId, weaponId) {
-        // No weapon meshes yet, but the id picks the swing clip family.
+        // The id picks the swing clip family; ids in WEAPON_ASSETS also get
+        // their mesh socketed into the player's right hand + a sword stance.
         const st = battles.get(canvasId);
-        if (st) st.weaponId = weaponId;
+        if (!st) return;
+        st.weaponId = weaponId;
+        setActorWeapon(st.player, weaponId);
+    },
+    setBattleEquipment(canvasId, itemIds) {
+        // Armor item ids (non-weapon slots). Ids in ARMOR_ASSETS render as
+        // modular outfit pieces skinned onto the player's skeleton.
+        const st = battles.get(canvasId);
+        if (st) setActorArmor(st.player, itemIds);
     },
     setBattleOverheads() { /* PoC parity gap: overhead prayer icons */ },
     // Keep viewRot in sync with device orientation — the fight is CSS-rotated
