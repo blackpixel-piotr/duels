@@ -55,6 +55,15 @@
             if (b) b.style.transform = 'scaleX(0)';
         };
     </script>
+    <script>
+        // Precache the toon renderer's model/animation/equip assets (~8MB,
+        // never change between sessions) so repeat visits skip the network
+        // entirely instead of re-downloading and re-decoding every time.
+        // See service-worker.js for the versioned asset list.
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js').catch(() => {});
+        }
+    </script>
     <!-- voxel.js is retired from battle duty: it stays only for item icons,
          the character preview, and the anim editor. toon.js owns window.voxel
          and forwards those non-battle calls to it. -->
