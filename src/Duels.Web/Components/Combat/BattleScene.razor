@@ -142,12 +142,6 @@
             await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId);
             _lastEquipment = EquipmentKey();
             await JS.InvokeVoidAsync("voxel.setBattleEquipment", "battle-canvas", EquippedGearIds());
-            // Solid obstacles the movers pathfind around — placed as low props the
-            // scene renders on those tiles. Fixed per duel, so send once on mount.
-            await JS.InvokeVoidAsync("voxel.setBattleObstacles", "battle-canvas",
-                State?.Obstacles.Select(o => new { x = o.X, z = o.Z }).ToArray() ?? []);
-            // Landscape fight auto-rotates in portrait; keep canvas taps mapped.
-            await JS.InvokeVoidAsync("voxel.watchOrientation", "battle-canvas");
             _inited = true;
             return;
         }
