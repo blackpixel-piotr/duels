@@ -33,7 +33,7 @@ Carried-in resolutions from M0: **Q1** — the game switches to the items-doc co
 Items doc §1 + boss bible grammar become the game's combat model, replacing OSRS math **globally** (single model; see D1 on what this does to the legacy ladder).
 
 - **Player baseline:** `MaxHp = 100` flat. Base hit chance 80%. Attack styles: Accurate +10% hit · Aggressive +20% damage, −10% hit · Defensive +20% defence value, −10% damage.
-- **Weapons:** `Power` = damage per hit (flat, no roll-to-max ramp — damage variance comes from hit/miss and mechanics, not a 0..max roll), `Precision` = flat hit-chance bonus. Per the grammar's player assumptions, **the player attacks once per tick** (weapon `AttackSpeed` becomes vestigial under the new model — see D2).
+- **Weapons:** `Power` = damage per hit (flat, no roll-to-max ramp — damage variance comes from hit/miss and mechanics, not a 0..max roll), `Precision` = flat hit-chance bonus. **Attack tempo (D2 resolved):** weapons and enemies keep unique per-item/per-enemy tick delays (1, 2, 3, 4…) — the existing `AttackSpeed`/cooldown machinery carries over into the new math unchanged; "1 attack per tick" in the grammar is *not* the model. The doc's weapon tables carry no speed column, so per-archetype speeds are proposed as tunables (see B).
 - **Armour:** Def points; each point reduces incoming damage of its matching style by 0.4%, capped at 40% from gear. Line identity bonus (+1% line-style damage per piece), set bonuses (4pc → +5% style damage, 6pc → +10 max special energy).
 - **Special energy:** max 100 (+gear bonuses); regen 2/tick out of danger, 1/tick in combat (replaces +10-per-attack).
 - **Protection prayers:** keep 75% reduction and tick-start flick semantics unchanged (the bible's flicking grammar is the point of this boss).
@@ -47,6 +47,8 @@ Data commits through the M0 pipeline, plus the six T1/T2 special attacks as real
 - **items.json gains a `docStats` block** per the M0 schema plan: `power`, `precision`, `defPoints`, `line`, `tier`, `special {id, cost, params}`. Rows added *verbatim from the items doc*: `wpn_melee_t1/t2`, `wpn_ranged_t1/t2`, `wpn_magic_t1/t2` (Rustcleaver, Poacher's Bow, Cinder Wand, Splitter, Bolt Thrower, Hexknot Staff) and the T1/T2 armour of all three lines (Warbound/Stalker/Occult × body/legs/helmet/boots/gloves/cape, Def per §5's table), plus `flask_health`, `flask_prayer`.
 - **Specials implemented (6):** Lunge (25 — next hit connects from 2 tiles, closes the gap), Snipe (25 — +50% damage single shot), Scorch (25 — hit + 3-tick burn DoT), Rend (40 — heavy hit + bleed stack), Pin Shot (40 — boss's next action delayed 1 tick), Sap (40 — boss damage −10% for 5 ticks). Burn/bleed reuse the existing DoT plumbing; delay pushes the rotation cursor; Sap is a timed damage-debuff on the boss. Effects live in a small `SpecialEffectId` dispatch in the tick service — shared machinery, not per-weapon code.
 - **Ranged/magic weapon ranges:** bows/crossbows/wands/staves need real `range` values — the doc doesn't state tile ranges. Proposed: melee 1 / ranged 7 / magic 7 (current `AttackRange.ForStyle` values), flagged as tunable (T-list).
+- **Weapon attack speeds (per D2):** the doc tables have no speed column, so archetype-based tick delays are proposed as data, tunable: T1 shortsword/shortbow/wand = 3 · T2 battleaxe/crossbow/staff = 4 (heavier archetype, higher Power-per-hit justifies the extra tick). Only T1/T2 ship in M1.
+- **Legacy consumables deleted (D5 resolved):** shark/karambwan/anglerfish/super-combat-potion/antidote item rows are removed from items.json along with `EatItemCommand`/`DrinkPotionCommand`, their handlers, and the old HUD belt buttons; ladder NPC loot-table entries referencing them are stripped (those NPCs just drop their gold/uniques). The flask belt (E) is the only in-duel consumption.
 - **Dev debug menu (Web, dev-only panel):** two one-tap grants — **T1 preset** (3 T1 weapons on the bar, full T1 armour of the matching line for the playtester's pick — default Warbound, Health + Prayer flasks on the belt) and **T2 preset** (same at T2). Implemented as a `GrantDevLoadoutCommand`; no shop, no bank, no drops.
 
 ## 4. Workstream C — Shared boss systems (working agreement #4)
@@ -71,7 +73,7 @@ The King's npcs.json row is rewritten as the first full boss definition consumin
 - **P1 (100–50%), 20-tick loop:** T0/T4 Bile Spit (magic, Medium=18) · T8 style telegraph (2t) · T10/T14 Lash (melee, adjacent) / Grub Volley (ranged) (Medium=18) · T16 style telegraph · T18–19 idle.
 - **Eruption timer (independent):** every 16 ticks, 3 random tiles + player tile, 3-tick fuse, Heavy=35 unprayable; pools 20 ticks (Light=6/tick + poison stack) → expire to scorch.
 - **P2 (<50%):** loop compresses to 14 ticks; eruptions every 12 ticks, 5 tiles, pools 30 ticks. Swarms ×2 at 50% and 25% (corner spawns, 1 tile/tick, contact = bleed stack, 2 HP). **Rot Burst** every ~40 ticks: 4-tick inhale → arena-wide Severe=55 ignoring prayer, safe on scorch → 5-tick slump punish window.
-- **Boss HP:** not specified anywhere in the docs — required tuning input. Proposal: target ~3–4 min kill at T1 gear; with T1 Power 10 @ 80% hit ≈ 8 dmg/tick sustained minus movement/flick/sip downtime (~40%), that's ≈ 4.8/tick → **1,400 HP** starting value, expressly provisional until the playtest (T-list, D4).
+- **Boss HP:** not specified anywhere in the docs — required tuning input. Kill-time target ~3–4 min at T1 gear (approved, D4). The originally proposed 1,400 assumed 1 attack/tick; with D2's resolved tempo (T1 speed-3 weapons: Power 10 @ 80% hit ≈ 2.7 dmg/tick, ~40% downtime → ≈ 1.6/tick sustained) the same target gives **450 HP** as the starting value — expressly provisional until the playtest (T-list).
 - **Choreography tests** in the MaggotKingTests style: rotation timeline (attack styles land on the scripted ticks), eruption cadence, pool→scorch conversion, Rot Burst safe-tile negation + punish window, swarm spawn thresholds and contact bleed, Perfect Dodge energy grant, P2 compression.
 
 ## 6. Workstream E — Flask belt system
@@ -80,7 +82,7 @@ Per the decisions doc (resolved) and UI bible §3.2:
 
 - **`FlaskBelt` on `GameState`** (persisted bindings on the save): 2 slots bound in the Loadout Editor; each slot = flask id + sips remaining. Baseline 3 sips per fight; **hub refills are free and full on every duel start**.
 - **Sip semantics:** `SipFlaskCommand` — consumes the player's action for that tick (sets the same cooldown an attack would; UI dims attack inputs for that tick), restores its resource. Health restores 40 HP, Prayer restores 40 points — unspecified in docs, T-list.
-- **Legacy food/potions:** the flask belt replaces in-duel consumption; `EatItemHandler`/`DrinkPotionHandler` and their belt buttons are removed with the old HUD (D5 confirms the deletion). Boss damage budgets assume ~3 Health sips (decisions doc tuning note).
+- **Legacy food/potions (D5 resolved — delete):** the flask belt fully replaces in-duel consumption; handlers, commands, HUD buttons, and the item rows themselves are removed (details in B). Boss damage budgets assume ~3 Health sips (decisions doc tuning note).
 - Rotward/Coagulant/Fire Ward are M2+ drops — schema supports them (flask rows are items), content excluded.
 
 ## 7. Workstream F — HUD rebuild (UI bible §3, functional pass)
@@ -113,11 +115,20 @@ All via the existing one-batched-snapshot path — no new per-property interop (
 
 ---
 
+## 10b. Workstream J — Ladder retirement sweep (D1)
+
+The decisions doc already retires these; D1 authorizes doing it now. Removed in one sweep alongside A/B:
+- **NPCs:** every npcs.json row except `maggot_king` (goblin → champion, rare_tourist, rare_gladiator) and the `Ladder` progression array + unlock flow in `GameTickService`.
+- **Items:** all OSRS-style weapon/gear rows (whips, godswords, rune/dragon/bandos sets…) — items.json's weapons/gear become the doc tables only. PoC `steel_sword` + ranger set stay temporarily as the only modeled assets (asset-map rows unchanged) until doc items get models.
+- **Ladder-bound systems:** wagers + win streaks, endless mode (`StartEndlessCommand`/waves/`BuildEndlessNpc`), beg, global prestige (per-boss graduation replaces it in M4), `ItemUnlockService`'s once-only ladder drops.
+- **Ladder-era UI:** shop modal, bank modal, NPC ladder modal, collection log modal, and their hub cards — M2 rebuilds bank/shop from the design docs; hub becomes Fight (Maggot King) + dev/debug entries.
+- Save fields for retired systems (win streak, endless best, unlocked opponents…) are dropped from SaveData in the v2 schema bump (G); v1 saves migrate by discarding them.
+
 ## 11. Sequencing (each step merges to `claude/text-duel-game-3t4vkf` when green)
 
 0. Flip CLAUDE.md to "Current milestone: M1" on plan approval.
 1. **B** — doc items + specials + debug grants (playable with old HUD/math via legacy stats).
-2. **A** — combat math v2 switch (game-wide; ladder becomes untuned, D1).
+2. **A + J** — combat math v2 switch + ladder retirement sweep (one step: the sweep is what makes a single-model codebase possible without dual math).
 3. **E** — flask belt core (commands + refill; temporary buttons on old HUD).
 4. **C** — shared boss systems, each with tests.
 5. **D** — Maggot King choreography + choreography test suite + I-parts needed to see it.
@@ -132,16 +143,16 @@ Verification: `dotnet build` 0 warnings + full test suite per step (CI or SDK-ca
 
 ## 12. Design questions (flagged, not resolved) and tunables
 
-**Questions needing a human call before/at the relevant step:**
-- **D1 — Legacy ladder under new math.** Recommended: the whole game switches (one model); the OSRS-item ladder becomes untuned legacy content until M2 re-prices it, acceptable because M1's playtest only concerns Maggot King. Alternative (not recommended): dual math behind a flag. Confirm.
-- **D2 — Attack tempo.** Grammar: "1 attack per tick (base weapon speed)". Read as: every M1 weapon attacks once per tick; `AttackSpeed` is ignored under doc math. Confirm this reading (it substantially raises tempo vs today's 4–6-tick weapons).
+**Question statuses after first review round:**
+- **D1 — RESOLVED: retire the ladder now.** The old ladder NPCs and OSRS-style items are removed entirely in M1 rather than left untuned under the new math (see Workstream J). Until M2, the game's content is the Maggot King + dev presets — accepted trade-off for a clean single-model codebase.
+- **D2 — RESOLVED (corrected).** "1 attack per tick" is wrong: weapons and enemies keep unique tick delays (1, 2, 3, 4…). The existing attack-speed/cooldown machinery carries into the new math; per-archetype speed values for the doc weapons are proposed in B as tunables.
 - **D3 — XP/levels fate.** They become combat-inert in M1 (still displayed/accrued). Remove entirely later, or keep as cosmetic progression? Not an M1 blocker; flagging so it isn't resolved silently.
-- **D4 — Boss HP / kill-time target.** 1,400 HP ≈ 3–4 min at T1 proposed as the starting point — pure tuning, owner sign-off at playtest.
-- **D5 — Legacy consumables deleted.** Flask belt replaces food/potions in duels; shark/karambwan/anglerfish/super-combat/antidote rows stay in items.json (bank/shop content for M2 decisions) but their in-duel handlers and HUD buttons go. Confirm deletion vs hiding.
-- **D6 — Combat log.** Not in §3's HUD. Keep as collapsed drawer (recommended — debugging + text-game heritage) or remove from combat entirely?
-- **D7 — Prayer points pool.** Doc math doesn't respecify prayer; keeping 99 points, 1/tick drain while a protection is on, full restore each duel. Prayer flask restores 40. Confirm.
+- **D4 — RESOLVED.** Kill-time target 3–4 min at T1 approved. Starting HP recomputed to 450 after the D2 tempo correction (§5); playtest adjusts.
+- **D5 — RESOLVED.** Food and potions are deleted outright — item rows, commands, handlers, HUD buttons, and their ladder loot-table entries. Flasks are the only consumable.
+- **D6 — RESOLVED (no objection).** Combat log stays as a collapsed drawer.
+- **D7 — RESOLVED (adjusted).** Prayer drain must be higher than today's 1/tick: **2 points/tick** while a protection is on (99-point pool ≈ 30s of unflicked prayer; flicking is the intended economy), provisional/tunable. Full restore each duel start; Prayer flask restores 40.
 
-**Tunables (data values marked provisional in the definitions, adjusted at playtest):** per-attack damages within bands (Bile 18, Lash/Volley 18, Eruption 35, Pool 6/tick, Rot Burst 55) · boss HP 1400 · swarm HP 2 / bleed stack = existing bleed (4 dmg over 2 ticks) — "stack" semantics deliberately simplified for M1 · flask restore amounts (40/40) · sips 3 · ranged/magic weapon range 7 · Rot Burst cadence ~40 ticks · spec regen danger definition ("in combat" = duel active).
+**Tunables (data values marked provisional in the definitions, adjusted at playtest):** per-attack damages within bands (Bile 18, Lash/Volley 18, Eruption 35, Pool 6/tick, Rot Burst 55) · boss HP 450 · weapon speeds (T1 = 3 ticks, T2 = 4) · prayer drain 2/tick · swarm HP 2 / bleed stack = existing bleed (4 dmg over 2 ticks) — "stack" semantics deliberately simplified for M1 · flask restore amounts (40/40) · sips 3 · ranged/magic weapon range 7 · Rot Burst cadence ~40 ticks · spec regen danger definition ("in combat" = duel active).
 
 ## 13. Explicitly out of scope
 
