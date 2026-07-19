@@ -153,6 +153,10 @@ public sealed class GameTickService : IDisposable
 
         if (!state.EnemyFrozen)
         {
+            // Forecast countdown must land before the boss script can set a
+            // fresh one this same tick — otherwise a just-armed 2-tick
+            // telegraph is immediately decremented to 1 on its own setup tick.
+            npc.TickForecast();
             ProcessBossScript(state, player, npc);
             ProcessEruptionTimer(state, npc);
             ProcessSwarmSpawns(state, npc);
@@ -191,7 +195,7 @@ public sealed class GameTickService : IDisposable
         player.RechargeSpecial(1, MaxSpecialEnergy(player));
 
         ApplyDots(state, player, npc);
-        if (npc.IsAlive) { npc.TickSap(); npc.TickForecast(); }
+        if (npc.IsAlive) npc.TickSap();
 
         if (!npc.IsAlive)
         {
