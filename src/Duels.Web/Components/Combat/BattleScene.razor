@@ -141,7 +141,7 @@
     private bool _inited;
     private DotNetObjectReference<BattleScene>? _selfRef;
     private bool _lastTelegraph;
-    private string? _lastWindup;
+    private bool _lastPunished;
     private bool? _lastHoldPosition;
     private string? _lastWeapon;
     private string? _lastEquipment;
@@ -386,6 +386,11 @@
                     new { type = "playerSip", item });
                 continue;
             }
+            if (e.Kind == LogEntryKind.System && e.Message.StartsWith("✦ PERFECT DODGE"))
+            {
+                await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas", new { type = "perfectDodge" });
+                continue;
+            }
             if (e.Kind is not (LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)) continue;
             var parts = e.Message.Split(':');
             int dmg = int.TryParse(parts[0], out var d) ? d : 0;
@@ -427,12 +432,12 @@
         }
 
         // Punish window (m1-plan Workstream C.6): boss can't act, +25% damage
-        // taken — the slump pose cue.
-        string? windup = State is { ActiveNpc.InPunishWindow: true } && !EnemyDead && !PlayerDead ? "slump" : null;
-        if (windup != _lastWindup)
+        // taken — the pulsing ring cue under it.
+        bool punished = State is { ActiveNpc.InPunishWindow: true } && !EnemyDead && !PlayerDead;
+        if (punished != _lastPunished)
         {
-            _lastWindup = windup;
-            await JS.InvokeVoidAsync("voxel.setBattleFlags", "battle-canvas", new { windup });
+            _lastPunished = punished;
+            await JS.InvokeVoidAsync("voxel.setBattleFlags", "battle-canvas", new { punished });
         }
 
         bool holdPosition = State?.HoldPosition ?? false;

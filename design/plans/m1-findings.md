@@ -179,13 +179,84 @@ rather than eight partial ones.
 - `graphify update .` re-run after the rewrite to keep the knowledge graph
   current.
 
-## Still open / not yet done at time of writing
+## Second pass: HUD polish (F), renderer (I), docs, one more real bug
 
-See the task list in-session; this file will gain more entries as F
-(HUD polish) and I (renderer) land. Test coverage was rewritten/pruned
-alongside the production code (deleted suites for fully-retired systems:
-`CombatCalculatorTests`, `StyleRotationTests`, `BankSellHandlerTests`,
-`CollectionLogTests`, `GameTickServiceLootTests`; rewrote
-`MaggotKingTests` as the choreography suite the plan asked for, plus a new
-`DamageModelTests`), but has **not been run** for the same SDK-availability
-reason as the rest of this milestone.
+- **HUD ergonomics fix.** The pre-M1 float layout put both the weapon arc
+  *and* the prayer arc on the bottom-right, contradicting the UI bible's
+  core two-thumb-claw rule (§2: left thumb = prayers, right thumb =
+  weapons). Moved the prayer arc to the bottom-left (stacked above the
+  flask belt), weapons stayed bottom-right. Added the doctrine-color CSS
+  variables (`--doctrine-melee/ranged/magic/hazard/safe/poison/bleed`) as
+  semantic aliases over the existing interim palette per the UI bible §1
+  — the "reskin is a token swap" requirement.
+- **Renderer (toon.js) extensions**: `setBattleHazards` now renders scorch
+  tiles (permanent, gold, no urgency pulse); new `setBattleAdds` renders
+  swarm placeholder blobs, click-targetable via raycast → a new
+  `OnAddClick` JSInvokable → `SetTargetCommand`; a pulsing gold ring marks
+  the boss's punish window (`setBattleFlags({punished})` — replaces a
+  `windup: "slump"` string flag from the first pass that the JS side never
+  actually consumed for anything visual, see below); `perfectDodge` is a
+  new `battleEvent` case (gold glint at the player's feet, reusing the
+  splat fade/rise lifecycle rather than the projectile-arc lifecycle,
+  which would have hurled it across the screen).
+- **A second latent bug, caught reviewing the JS side**: the add-mesh
+  bookkeeping in `setBattleAdds` initially set `mesh.id = addId` (a
+  string) to tag each THREE.Mesh for the render-loop's bob animation —
+  but `THREE.Object3D.id` is an internal auto-assigned numeric identity
+  three.js itself relies on for scene-graph bookkeeping. Overwriting it
+  with a string would have silently corrupted that. Fixed by tagging via
+  `mesh.userData.id` instead, which is the framework's actual "put your
+  own data here" extension point.
+- **Pre-existing dead flag noticed, not chased further**: `toon.js`'s
+  `enemyAttack` case read `st.flags.windup?.style`, but `windup` was only
+  ever set to a bare string (`"melee"`/`"ranged"`/etc.) both before and
+  during the first pass of this milestone — `"someString".style` is
+  `undefined` in JS, so the expression silently fell through to its `??`
+  fallback every time. This was already a no-op in the pre-M1 build, not
+  something this milestone introduced; left as a drive-by cleanup (removed
+  the dead read) rather than a full behavior fix, since chasing what the
+  *intended* windup-color behavior was is out of scope here.
+- **A real, separate bug in the Web layer**: `InventoryGrid.razor` still
+  called the deleted `EatItemCommand`/`DrinkPotionCommand` — missed by the
+  first grep-driven cleanup sweep because that file wasn't touched by any
+  of the direct signature-change edits, only by the removal of the command
+  *types* it referenced. Fixed: tapping a flask in the bag is now a no-op
+  (flasks bind via the Loadout Editor, not tap-to-consume); everything
+  else still routes to `EquipItemCommand`.
+- **`ARCHITECTURE.md` and `GAMEPLAY.md` rewritten** to match the M1 state
+  (both were still describing the OSRS ladder game pre-sweep) — the
+  project's own cleanup rule requires this before considering a change
+  done, and both were badly stale after this milestone's scope.
+
+## Test coverage changes
+
+Rewritten/pruned alongside the production code: deleted suites for
+fully-retired systems (`CombatCalculatorTests`, `StyleRotationTests`,
+`BankSellHandlerTests`, `CollectionLogTests`, `GameTickServiceLootTests`,
+`ExperienceTableTests`); rewrote `MaggotKingTests` as the choreography
+suite the plan asked for (runs against the real embedded npcs.json/
+items.json, not a synthetic stand-in); added `DamageModelTests` for the
+new combat math; fixed the movement/swap-buffer suites' constructors and
+NPC-template builders for the new signatures. **Not run** for the same
+SDK-availability reason as the rest of this milestone — this is the single
+biggest verification gap and the first thing to do once a build is possible.
+
+## Still open / explicitly out of scope this milestone
+
+Everything the plan's §13 already excludes (bank, shop, drops/loot tables,
+economy pricing, other bosses, invocations, minigame, T3/T4 items, visual
+polish/inked skin, portrait combat layout, HUD edit mode, presets ×5).
+Within what the plan *did* scope for M1, two things are real but
+deliberately shallow rather than missing:
+
+- **2×2 boss visual scale.** `BossScript.Footprint` drives real gameplay
+  (adjacency/melee-range checks already treat all 4 tiles as "the boss"),
+  but the renderer still draws the King at the same single-tile scale as
+  the player — no interop call sends footprint size to `toon.js` yet. The
+  fight is mechanically correct; it just doesn't *look* like a 2×2 mound.
+- **Per-weapon default attack style and the 5 named loadout presets**
+  (UI bible §4.1) — explicitly deferred by the plan itself, noted above.
+
+Everything else in the plan's Workstreams A–J landed this session, subject
+to the verification caveat at the top of this file: **no build has actually
+been run.**

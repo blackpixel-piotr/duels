@@ -22,29 +22,22 @@
 @code {
     [Parameter] public GameState? State { get; set; }
 
-    private static readonly HashSet<string> _food    = ["shark", "karambwan", "anglerfish"];
-    private static readonly HashSet<string> _potions = ["super_combat_potion", "antidote"];
+    // Flasks (m1-plan Workstream E) aren't tap-to-consume from the bag —
+    // they're bound to the belt in the Loadout Editor and sipped in-duel.
+    private static readonly HashSet<string> _flasks = ["flask_health", "flask_prayer"];
 
     private IReadOnlyList<string> Items => State?.Player?.Inventory ?? [];
 
-    // Food eats, potions drink, everything else equips
     private async Task UseItem(string itemId)
     {
-        if (GameSvc.PlayerId is null) return;
-        if (_food.Contains(itemId))
-            await GameSvc.DispatchAsync(new EatItemCommand(GameSvc.PlayerId!, itemId));
-        else if (_potions.Contains(itemId))
-            await GameSvc.DispatchAsync(new DrinkPotionCommand(GameSvc.PlayerId!, itemId));
-        else
-            await GameSvc.DispatchAsync(new EquipItemCommand(GameSvc.PlayerId!, itemId));
+        if (GameSvc.PlayerId is null || _flasks.Contains(itemId)) return;
+        await GameSvc.DispatchAsync(new EquipItemCommand(GameSvc.PlayerId!, itemId));
     }
 
-    private static string SlotClass(string id) =>
-        _food.Contains(id) ? "inv-food" : _potions.Contains(id) ? "inv-potion" : "";
+    private static string SlotClass(string id) => _flasks.Contains(id) ? "inv-flask" : "";
 
     private static string SlotTitle(string id) =>
-        _food.Contains(id) ? $"{ShortName(id)} — tap to eat"
-        : _potions.Contains(id) ? $"{ShortName(id)} — tap to drink"
+        _flasks.Contains(id) ? $"{ShortName(id)} — bind in the Loadout Editor"
         : $"{ShortName(id)} — tap to equip";
 
     private static string ShortName(string id) =>
