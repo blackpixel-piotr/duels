@@ -127,19 +127,29 @@ function fitClip(clip, bones) {
 // Item ids the C# sim speaks, mapped to renderable assets under
 // assets/models/equip/. Ids without an entry render nothing (animation-only),
 // which is the pre-existing behavior for the whole OSRS-style catalog.
+// The mapping itself is data (M0 asset manifest loader) — see
+// data/asset-manifest.json (mirrored for humans in /asset-map.md at the repo
+// root) — never hard-coded here, so adding a modeled item is a data commit.
 const EQUIP_DIR = 'assets/models/equip/';
-const WEAPON_ASSETS = {
-    // length: world-unit blade+grip span the model is normalized to.
-    steel_sword: { url: EQUIP_DIR + 'sword.glb', length: 1.25 },
-};
-const ARMOR_ASSETS = {
-    ranger_hood:      EQUIP_DIR + 'Male_Ranger_Head_Hood.gltf',
-    ranger_tunic:     EQUIP_DIR + 'Male_Ranger_Body.gltf',
-    ranger_trousers:  EQUIP_DIR + 'Male_Ranger_Legs.gltf',
-    ranger_boots:     EQUIP_DIR + 'Male_Ranger_Feet_Boots.gltf',
-    ranger_bracers:   EQUIP_DIR + 'Male_Ranger_Arms.gltf',
-    ranger_pauldrons: EQUIP_DIR + 'Male_Ranger_Acc_Pauldron.gltf',
-};
+
+async function loadAssetManifest() {
+    try {
+        const res = await fetch('data/asset-manifest.json');
+        if (!res.ok) throw new Error(`asset-manifest.json responded ${res.status}`);
+        return await res.json();
+    } catch (e) {
+        console.error('toon.js: failed to load asset-manifest.json — all equipment renders animation-only.', e);
+        return { weapons: [], armor: [] };
+    }
+}
+
+const assetManifest = await loadAssetManifest();
+
+// length: world-unit blade+grip span the model is normalized to.
+const WEAPON_ASSETS = Object.fromEntries(
+    assetManifest.weapons.map(w => [w.itemId, { url: EQUIP_DIR + w.modelRef, length: w.length }]));
+const ARMOR_ASSETS = Object.fromEntries(
+    assetManifest.armor.map(a => [a.itemId, EQUIP_DIR + a.modelRef]));
 const equipCache = new Map(); // url → Promise<gltf>
 function loadEquipGltf(url) {
     if (!equipCache.has(url))
@@ -160,10 +170,8 @@ const REGION_BONES = {
     boots: /^(foot_[lr]|ball(_leaf)?_[lr])$/,
     arms:  /^(upperarm_[lr]|lowerarm_[lr]|hand_[lr]|(index|middle|pinky|ring|thumb)_\d+(_leaf)?_[lr])$/,
 };
-const ARMOR_REGION = {
-    ranger_tunic: 'body', ranger_trousers: 'legs',
-    ranger_boots: 'boots', ranger_bracers: 'arms',
-};
+const ARMOR_REGION = Object.fromEntries(
+    assetManifest.armor.filter(a => a.region).map(a => [a.itemId, a.region]));
 function maskBodySkin(ch, regions) {
     const mesh = ch.bodyMesh;
     if (!mesh) return;

@@ -8,8 +8,9 @@
 // entirely on repeat visits. Bump CACHE_VERSION whenever a file in
 // ASSET_URLS changes on disk — that's what forces a clean re-fetch instead
 // of serving a stale cached copy forever.
-const CACHE_VERSION = 'duels-assets-v1';
+const CACHE_VERSION = 'duels-assets-v2';
 const ASSET_URLS = [
+    'data/asset-manifest.json',
     'assets/models/superhero.gltf',
     'assets/models/Superhero_Male_FullBody.bin',
     'assets/models/T_Eye_Brown.png',
