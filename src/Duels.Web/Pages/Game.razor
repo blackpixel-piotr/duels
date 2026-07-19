@@ -131,6 +131,13 @@ else
 
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
 
+    // Persistence cadence (M0): GameService.DispatchAsync skips high-frequency
+    // in-duel commands, so the duel's outcome (gold/xp/loot/hp) is only ever
+    // guaranteed to disk from here — once when the duel ends, and every
+    // PersistEveryNTicks as a safety net against a hard crash mid-fight.
+    private const int PersistEveryNTicks = 10; // ~6s at the 0.6s tick
+    private int _ticksSinceLastPersist = 0;
+
     private void OnTickNotify()
     {
         _ = InvokeAsync(async () =>
@@ -141,6 +148,13 @@ else
                 TickService.Stop();
                 await JS.InvokeVoidAsync("stopMetronome");
                 _duelResult = _state?.LastDuelSummary;
+                _ticksSinceLastPersist = 0;
+                await GameSvc.PersistNowAsync();
+            }
+            else if (isDueling && ++_ticksSinceLastPersist >= PersistEveryNTicks)
+            {
+                _ticksSinceLastPersist = 0;
+                await GameSvc.PersistNowAsync();
             }
             _wasDueling = isDueling;
             StateHasChanged();

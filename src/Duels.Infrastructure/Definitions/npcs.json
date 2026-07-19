@@ -1,0 +1,200 @@
+[
+  {
+    "Id": "goblin", "Name": "Arena Goblin",
+    "ExamineText": "A pitiful creature. No shame in starting here.",
+    "Stats": { "Attack": 1, "Strength": 1, "Defence": 1, "Hitpoints": 10 },
+    "Modifiers": {},
+    "AttackType": "Crush",
+    "LootTable": [],
+    "GoldReward": 5, "MaxWager": 100,
+    "TelegraphedMove": null, "AttackSpeedTicks": 4,
+    "StyleRotation": null, "AttacksPerStyle": 4,
+    "Hazards": null
+  },
+  {
+    "Id": "swashbuckler", "Name": "Swashbuckler Pete",
+    "ExamineText": "A lightning-fast pirate with a cutlass. Nimble — crush him.",
+    "Stats": { "Attack": 70, "Strength": 65, "Defence": 55, "Hitpoints": 55 },
+    "Modifiers": { "SlashAttack": 30, "StrengthBonus": 30, "StabDefence": 20, "SlashDefence": 45, "CrushDefence": 0 },
+    "AttackType": "Slash",
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 0.5, "MinQty": 50, "MaxQty": 150, "OnceOnly": false },
+      { "ItemId": "shark", "DropChance": 0.33, "MinQty": 1, "MaxQty": 1, "OnceOnly": false },
+      { "ItemId": "lucky_doubloon", "DropChance": 0.05, "MinQty": 1, "MaxQty": 1, "OnceOnly": true }
+    ],
+    "GoldReward": 150, "MaxWager": 1000,
+    "TelegraphedMove": { "WarningText": "Swashbuckler Pete winds up for a brutal overhead slash!", "DamageMultiplier": 1.5, "CooldownTurns": 4 },
+    "AttackSpeedTicks": 3,
+    "StyleRotation": null, "AttacksPerStyle": 4,
+    "Hazards": null
+  },
+  {
+    "Id": "barbarian", "Name": "Iron Barbarian",
+    "ExamineText": "A brutish northerner swinging a warhammer. Slow but devastating — stab through the plate.",
+    "Stats": { "Attack": 80, "Strength": 85, "Defence": 60, "Hitpoints": 70 },
+    "Modifiers": { "CrushAttack": 50, "StrengthBonus": 50, "StabDefence": 10, "SlashDefence": 35, "CrushDefence": 55 },
+    "AttackType": "Crush",
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 0.5, "MinQty": 100, "MaxQty": 300, "OnceOnly": false },
+      { "ItemId": "super_combat_potion", "DropChance": 0.2, "MinQty": 1, "MaxQty": 1, "OnceOnly": false },
+      { "ItemId": "amulet_of_strength", "DropChance": 0.04, "MinQty": 1, "MaxQty": 1, "OnceOnly": true }
+    ],
+    "GoldReward": 300, "MaxWager": 5000,
+    "TelegraphedMove": { "WarningText": "The Iron Barbarian bellows a war cry and raises his hammer!", "DamageMultiplier": 1.7, "CooldownTurns": 5 },
+    "AttackSpeedTicks": 5,
+    "StyleRotation": null, "AttacksPerStyle": 4,
+    "Hazards": null
+  },
+  {
+    "Id": "desert_bandit", "Name": "Desert Bandit",
+    "ExamineText": "A thrown-knife specialist. Pray Range — and crush his light armor.",
+    "Stats": { "Attack": 85, "Strength": 80, "Defence": 55, "Hitpoints": 65 },
+    "Modifiers": { "RangedAttack": 40, "StrengthBonus": 40, "StabDefence": 40, "SlashDefence": 40, "CrushDefence": 5 },
+    "AttackType": "Ranged",
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 0.5, "MinQty": 150, "MaxQty": 400, "OnceOnly": false },
+      { "ItemId": "anglerfish", "DropChance": 0.25, "MinQty": 1, "MaxQty": 1, "OnceOnly": false },
+      { "ItemId": "venomous_fang", "DropChance": 0.04, "MinQty": 1, "MaxQty": 1, "OnceOnly": true }
+    ],
+    "GoldReward": 600, "MaxWager": 20000,
+    "TelegraphedMove": { "WarningText": "The Desert Bandit fans a spread of poisoned knives!", "DamageMultiplier": 1.6, "CooldownTurns": 5 },
+    "AttackSpeedTicks": 4,
+    "StyleRotation": null, "AttacksPerStyle": 4,
+    "Hazards": null
+  },
+  {
+    "Id": "gladiator", "Name": "Arena Gladiator",
+    "ExamineText": "Pit-trained with whip and javelin — switches styles mid-fight. Weak to stab.",
+    "Stats": { "Attack": 90, "Strength": 88, "Defence": 75, "Hitpoints": 85 },
+    "Modifiers": { "SlashAttack": 82, "RangedAttack": 82, "StrengthBonus": 82, "StabDefence": 20, "SlashDefence": 60, "CrushDefence": 35 },
+    "AttackType": "Slash",
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 0.5, "MinQty": 300, "MaxQty": 800, "OnceOnly": false },
+      { "ItemId": "super_combat_potion", "DropChance": 0.25, "MinQty": 1, "MaxQty": 1, "OnceOnly": false },
+      { "ItemId": "arena_defender", "DropChance": 0.04, "MinQty": 1, "MaxQty": 1, "OnceOnly": true }
+    ],
+    "GoldReward": 1200, "MaxWager": 75000,
+    "TelegraphedMove": { "WarningText": "The Arena Gladiator coils their whip for a crushing lash!", "DamageMultiplier": 1.8, "CooldownTurns": 5 },
+    "AttackSpeedTicks": 4,
+    "StyleRotation": ["Slash", "Ranged"], "AttacksPerStyle": 4,
+    "Hazards": null
+  },
+  {
+    "Id": "corsair", "Name": "Pirate Corsair",
+    "ExamineText": "Elite sea raider with a rapid-fire crossbow. Pray Range; crush the buckler.",
+    "Stats": { "Attack": 95, "Strength": 92, "Defence": 70, "Hitpoints": 90 },
+    "Modifiers": { "RangedAttack": 56, "StrengthBonus": 56, "StabDefence": 50, "SlashDefence": 50, "CrushDefence": 25 },
+    "AttackType": "Ranged",
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 0.5, "MinQty": 500, "MaxQty": 1200, "OnceOnly": false },
+      { "ItemId": "karambwan", "DropChance": 0.5, "MinQty": 3, "MaxQty": 5, "OnceOnly": false },
+      { "ItemId": "pirates_hook", "DropChance": 0.04, "MinQty": 1, "MaxQty": 1, "OnceOnly": true }
+    ],
+    "GoldReward": 2500, "MaxWager": 250000,
+    "TelegraphedMove": { "WarningText": "The Pirate Corsair loads a barbed bolt — a piercing shot incoming!", "DamageMultiplier": 1.9, "CooldownTurns": 5 },
+    "AttackSpeedTicks": 3,
+    "StyleRotation": null, "AttacksPerStyle": 4,
+    "Hazards": null
+  },
+  {
+    "Id": "berserker", "Name": "Frenzied Berserker",
+    "ExamineText": "Godsword in hand, no fear in heart. Gains +5% damage per 10 HP lost. Weak to stab.",
+    "Stats": { "Attack": 105, "Strength": 110, "Defence": 80, "Hitpoints": 100 },
+    "Modifiers": { "CrushAttack": 100, "StrengthBonus": 100, "StabDefence": 25, "SlashDefence": 50, "CrushDefence": 70 },
+    "AttackType": "Crush",
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 0.5, "MinQty": 800, "MaxQty": 2000, "OnceOnly": false },
+      { "ItemId": "shark", "DropChance": 0.33, "MinQty": 2, "MaxQty": 4, "OnceOnly": false },
+      { "ItemId": "berserker_ring", "DropChance": 0.033, "MinQty": 1, "MaxQty": 1, "OnceOnly": true }
+    ],
+    "GoldReward": 5000, "MaxWager": 750000,
+    "TelegraphedMove": { "WarningText": "The Frenzied Berserker enters a blood frenzy — SPEC INCOMING!", "DamageMultiplier": 2.0, "CooldownTurns": 6 },
+    "AttackSpeedTicks": 5,
+    "StyleRotation": null, "AttacksPerStyle": 4,
+    "Hazards": null
+  },
+  {
+    "Id": "warlord", "Name": "Battle Warlord",
+    "ExamineText": "A veteran battle-mage. Pray Magic; his plate is weak to crush. Flicks protection prayers every 3 rounds.",
+    "Stats": { "Attack": 110, "Strength": 105, "Defence": 95, "Hitpoints": 105 },
+    "Modifiers": { "MagicAttack": 115, "StrengthBonus": 115, "StabDefence": 80, "SlashDefence": 70, "CrushDefence": 35 },
+    "AttackType": "Magic",
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 0.5, "MinQty": 1500, "MaxQty": 3500, "OnceOnly": false },
+      { "ItemId": "super_combat_potion", "DropChance": 0.33, "MinQty": 2, "MaxQty": 2, "OnceOnly": false },
+      { "ItemId": "warlords_bulwark", "DropChance": 0.033, "MinQty": 1, "MaxQty": 1, "OnceOnly": true }
+    ],
+    "GoldReward": 9000, "MaxWager": 2500000,
+    "TelegraphedMove": { "WarningText": "The Battle Warlord channels dark energy — a massive strike is coming!", "DamageMultiplier": 2.0, "CooldownTurns": 6 },
+    "AttackSpeedTicks": 5,
+    "StyleRotation": null, "AttacksPerStyle": 4,
+    "Hazards": null
+  },
+  {
+    "Id": "champion", "Name": "Duel Champion",
+    "ExamineText": "Undefeated. Rotates melee, ranged, and magic — dance your prayers. Enters Phase 2 at 50% HP. Weak to stab.",
+    "Stats": { "Attack": 120, "Strength": 118, "Defence": 100, "Hitpoints": 120 },
+    "Modifiers": { "SlashAttack": 132, "RangedAttack": 132, "MagicAttack": 132, "StrengthBonus": 132, "StabDefence": 45, "SlashDefence": 70, "CrushDefence": 70 },
+    "AttackType": "Slash",
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 1.0, "MinQty": 5000, "MaxQty": 10000, "OnceOnly": false },
+      { "ItemId": "anglerfish", "DropChance": 0.5, "MinQty": 3, "MaxQty": 5, "OnceOnly": false },
+      { "ItemId": "champions_cape", "DropChance": 0.05, "MinQty": 1, "MaxQty": 1, "OnceOnly": true }
+    ],
+    "GoldReward": 20000, "MaxWager": 10000000,
+    "TelegraphedMove": { "WarningText": "The Champion charges their legendary technique!", "DamageMultiplier": 2.2, "CooldownTurns": 7 },
+    "AttackSpeedTicks": 4,
+    "StyleRotation": ["Slash", "Ranged", "Magic"], "AttacksPerStyle": 3,
+    "Hazards": null
+  },
+  {
+    "Id": "maggot_king", "Name": "The Maggot King",
+    "ExamineText": "A bloated horror crowned in chitin. Pray against his rotation — but MOVE when the ground churns.",
+    "Stats": { "Attack": 105, "Strength": 105, "Defence": 85, "Hitpoints": 150 },
+    "Modifiers": { "CrushAttack": 100, "RangedAttack": 100, "MagicAttack": 100, "StrengthBonus": 95, "StabDefence": 40, "SlashDefence": 60, "CrushDefence": 60 },
+    "AttackType": "Crush",
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 1.0, "MinQty": 2000, "MaxQty": 6000, "OnceOnly": false },
+      { "ItemId": "anglerfish", "DropChance": 0.5, "MinQty": 2, "MaxQty": 4, "OnceOnly": false },
+      { "ItemId": "maggot_crown", "DropChance": 0.10, "MinQty": 1, "MaxQty": 1, "OnceOnly": true }
+    ],
+    "GoldReward": 12000, "MaxWager": 5000000,
+    "TelegraphedMove": { "WarningText": "The Maggot King rears up, brood spilling from his crown!", "DamageMultiplier": 1.8, "CooldownTurns": 6 },
+    "AttackSpeedTicks": 4,
+    "StyleRotation": ["Crush", "Ranged", "Magic"], "AttacksPerStyle": 3,
+    "Hazards": {
+      "WarningText": "The Maggot King's brood burrows beneath you — MOVE!",
+      "CooldownTicks": 8, "WarningTicks": 2, "TilesPerWave": 4,
+      "EruptDamage": 22, "PoolTicks": 8, "PoolDamage": 4
+    }
+  },
+  {
+    "Id": "rare_tourist", "Name": "Wealthy Tourist",
+    "ExamineText": "Lost in the wrong part of the arena. Very wealthy, barely armed.",
+    "Stats": { "Attack": 60, "Strength": 55, "Defence": 40, "Hitpoints": 55 },
+    "Modifiers": { "RangedAttack": 20, "StrengthBonus": 20, "StabDefence": 20, "SlashDefence": 20, "CrushDefence": 20 },
+    "AttackType": "Ranged",
+    "LootTable": [
+      { "ItemId": "anglerfish", "DropChance": 1.0, "MinQty": 2, "MaxQty": 4, "OnceOnly": false }
+    ],
+    "GoldReward": 8000, "MaxWager": 0,
+    "TelegraphedMove": null, "AttackSpeedTicks": 4,
+    "StyleRotation": null, "AttacksPerStyle": 4,
+    "Hazards": null
+  },
+  {
+    "Id": "rare_gladiator", "Name": "Corrupted Gladiator",
+    "ExamineText": "A former champion, twisted by dark magic. Drops a unique weapon. Weak to stab.",
+    "Stats": { "Attack": 100, "Strength": 95, "Defence": 80, "Hitpoints": 80 },
+    "Modifiers": { "SlashAttack": 90, "RangedAttack": 90, "StrengthBonus": 90, "StabDefence": 30, "SlashDefence": 60, "CrushDefence": 40 },
+    "AttackType": "Slash",
+    "LootTable": [
+      { "ItemId": "corrupted_whip", "DropChance": 1.0, "MinQty": 1, "MaxQty": 1, "OnceOnly": true }
+    ],
+    "GoldReward": 0, "MaxWager": 0,
+    "TelegraphedMove": { "WarningText": "The Corrupted Gladiator channels dark energy for a devastating strike!", "DamageMultiplier": 1.9, "CooldownTurns": 5 },
+    "AttackSpeedTicks": 4,
+    "StyleRotation": ["Slash", "Ranged"], "AttacksPerStyle": 4,
+    "Hazards": null
+  }
+]

@@ -51,6 +51,13 @@ public sealed class MaggotKingTests
         public Task SaveAsync(GameState s, CancellationToken ct = default) => Task.CompletedTask;
     }
 
+    private sealed class StubTickSource : ITickSource
+    {
+        public long ElapsedMsIntoCurrentTick => 0;
+        public void Reset() { }
+        public Task WaitForNextTickAsync(CancellationToken ct) => Task.CompletedTask;
+    }
+
     // Feeble melee hazard boss: waves every 2 ticks after a 2-tick warning,
     // spawned far enough away (and hitting for at most 1) that hazard damage
     // dominates every assertion. Big HP so nobody dies mid-test.
@@ -70,7 +77,7 @@ public sealed class MaggotKingTests
         var combat = new CombatCalculator(new AlwaysHitMaxRandom());
         var svc = new GameTickService(
             new InMemoryStateRepo(state), combat, new AlwaysHitMaxRandom(),
-            new StubItemRepo(), new StubNpcRepo(), new StubEventBus());
+            new StubItemRepo(), new StubNpcRepo(), new StubEventBus(), new StubTickSource());
         return (svc, state);
     }
 

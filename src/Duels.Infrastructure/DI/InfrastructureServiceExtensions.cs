@@ -6,6 +6,7 @@ using Duels.Domain.Interfaces;
 using Duels.Domain.Services;
 using Duels.Infrastructure.Messaging;
 using Duels.Infrastructure.Persistence;
+using Duels.Infrastructure.Timing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Duels.Infrastructure.DI;
@@ -21,14 +22,17 @@ public static class InfrastructureServiceExtensions
         // Infrastructure — repositories (singleton so state lives for the browser session)
         services.AddSingleton<IGameStateRepository, InMemoryGameStateRepository>();
         services.AddSingleton<IPlayerRepository, InMemoryPlayerRepository>();
-        services.AddSingleton<INpcRepository, InMemoryNpcRepository>();
-        services.AddSingleton<IItemRepository, InMemoryItemRepository>();
+        services.AddSingleton<IItemRepository, DefinitionItemRepository>();
+        services.AddSingleton<INpcRepository, DefinitionNpcRepository>();
+        services.AddSingleton<IInvocationRepository, DefinitionInvocationRepository>();
+        services.AddSingleton<ISaveStore, IndexedDbSaveStore>();
 
         // Messaging — swap LocalCommandQueue for KafkaCommandQueue here only
         services.AddSingleton<IEventBus, InMemoryEventBus>();
         services.AddSingleton<ICommandDispatcher, LocalCommandQueue>();
 
         // Application services
+        services.AddSingleton<ITickSource, TickScheduler>();
         services.AddSingleton<GameTickService>();
 
         // Command handlers

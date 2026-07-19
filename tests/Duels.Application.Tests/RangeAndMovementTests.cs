@@ -49,6 +49,13 @@ public sealed class RangeAndMovementTests
         public Task SaveAsync(GameState s, CancellationToken ct = default) => Task.CompletedTask;
     }
 
+    private sealed class StubTickSource : ITickSource
+    {
+        public long ElapsedMsIntoCurrentTick => 0;
+        public void Reset() { }
+        public Task WaitForNextTickAsync(CancellationToken ct) => Task.CompletedTask;
+    }
+
     // Beefy dummy so nobody dies while we watch positioning.
     private static NpcTemplate Tank(AttackType style, IReadOnlyList<AttackType>? rotation = null) =>
         new("dummy", "Dummy", "", new CombatStats(1, 1, 99, 500), ItemModifiers.Zero, style,
@@ -63,7 +70,7 @@ public sealed class RangeAndMovementTests
         var combat = new CombatCalculator(new AlwaysHitMaxRandom());
         var svc = new GameTickService(
             new InMemoryStateRepo(state), combat, new AlwaysHitMaxRandom(),
-            new StubItemRepo(), new StubNpcRepo(), new StubEventBus());
+            new StubItemRepo(), new StubNpcRepo(), new StubEventBus(), new StubTickSource());
         return (svc, state);
     }
 

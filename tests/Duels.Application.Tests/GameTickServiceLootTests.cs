@@ -57,6 +57,13 @@ public sealed class GameTickServiceLootTests
         public Task SaveAsync(GameState s, CancellationToken ct = default) => Task.CompletedTask;
     }
 
+    private sealed class StubTickSource : ITickSource
+    {
+        public long ElapsedMsIntoCurrentTick => 0;
+        public void Reset() { }
+        public Task WaitForNextTickAsync(CancellationToken ct) => Task.CompletedTask;
+    }
+
     private static (GameTickService svc, GameState state) Build(NpcTemplate template)
     {
         var player = new Player("p1", "Hero");
@@ -71,7 +78,7 @@ public sealed class GameTickServiceLootTests
         var combat = new CombatCalculator(new AlwaysHitMaxRandom());
         var svc = new GameTickService(
             new InMemoryStateRepo(state), combat, new AlwaysSucceedRandom(),
-            new StubItemRepo(), new StubNpcRepo(), new StubEventBus());
+            new StubItemRepo(), new StubNpcRepo(), new StubEventBus(), new StubTickSource());
 
         return (svc, state);
     }

@@ -22,10 +22,13 @@
         An unhandled error has occurred. <a href="" class="reload">Reload</a>
     </div>
     <script src="_framework/blazor.webassembly.js"></script>
+    <script src="js/persistence.js"></script>
     <script>
-        window.saveGame  = (json) => localStorage.setItem('duels_save', json);
-        window.loadGame  = ()     => localStorage.getItem('duels_save');
-        window.clearGame = ()     => localStorage.removeItem('duels_save');
+        // Legacy localStorage save, read only once to migrate into IndexedDB
+        // (see IndexedDbSaveStore / persistence.js) — new saves never write
+        // to localStorage again.
+        window.legacyLoadGame  = () => localStorage.getItem('duels_save');
+        window.legacyClearGame = () => localStorage.removeItem('duels_save');
         window.triggerShake = (id, ms) => {
             const el = document.getElementById(id);
             if (!el) return;

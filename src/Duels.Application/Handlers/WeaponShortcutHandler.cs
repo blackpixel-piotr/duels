@@ -42,6 +42,17 @@ public sealed class WeaponShortcutHandler : ICommandHandler<WeaponShortcutComman
         var previousWeapon = player.GetEquippedWeaponId();
         bool switching = previousWeapon != command.WeaponId;
 
+        // Input buffer (UI bible §3.2): mid-duel, only the first weapon swap
+        // in a tick resolves now — an overflow tap buffers for the top of the
+        // next tick (GameTickService applies PendingWeaponSwapId there)
+        // instead of racing this tick's resolution.
+        if (switching && state.InDuel && !state.TryClaimWeaponSwapSlot())
+        {
+            state.SetPendingWeaponSwap(command.WeaponId);
+            await _stateRepo.SaveAsync(state, ct);
+            return CommandResult.Ok();
+        }
+
         // Equip immediately if not already equipped
         if (switching)
         {

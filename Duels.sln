@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Duels.Domain.Tests", "tests
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Duels.Application.Tests", "tests\Duels.Application.Tests\Duels.Application.Tests.csproj", "{49393E97-8749-4348-A712-2B5C9AEE3DAA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Duels.Infrastructure.Tests", "tests\Duels.Infrastructure.Tests\Duels.Infrastructure.Tests.csproj", "{C25EEC40-446E-49C4-A664-88405DED7402}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -52,6 +54,10 @@ Global
 		{49393E97-8749-4348-A712-2B5C9AEE3DAA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{49393E97-8749-4348-A712-2B5C9AEE3DAA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{49393E97-8749-4348-A712-2B5C9AEE3DAA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C25EEC40-446E-49C4-A664-88405DED7402}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C25EEC40-446E-49C4-A664-88405DED7402}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C25EEC40-446E-49C4-A664-88405DED7402}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C25EEC40-446E-49C4-A664-88405DED7402}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{D379D4C3-6B74-414E-8281-556953511410} = {8CF7E3B5-4D50-41D2-B0B5-AE68EDCF7DBE}
@@ -60,5 +66,6 @@ Global
 		{37BBDEEE-0566-4F69-BCBD-DF3E62CAFF25} = {8CF7E3B5-4D50-41D2-B0B5-AE68EDCF7DBE}
 		{EBE08B66-CD20-4508-8A2F-A9365D7E5B75} = {67F0C2D1-86CF-4DB5-8655-8D580B05EFEF}
 		{49393E97-8749-4348-A712-2B5C9AEE3DAA} = {67F0C2D1-86CF-4DB5-8655-8D580B05EFEF}
+		{C25EEC40-446E-49C4-A664-88405DED7402} = {67F0C2D1-86CF-4DB5-8655-8D580B05EFEF}
 	EndGlobalSection
 EndGlobal

@@ -1,0 +1,62 @@
+{
+  "weapons": [
+    {
+      "itemId": "steel_sword",
+      "displayName": "Steel Sword",
+      "modelRef": "sword.glb",
+      "length": 1.25,
+      "tint": "tier1_iron",
+      "flag": "🟢"
+    }
+  ],
+  "armor": [
+    {
+      "itemId": "ranger_hood",
+      "displayName": "Ranger Hood",
+      "modelRef": "Male_Ranger_Head_Hood.gltf",
+      "region": null,
+      "tint": "ranger_leather",
+      "flag": "🟢"
+    },
+    {
+      "itemId": "ranger_tunic",
+      "displayName": "Ranger Tunic",
+      "modelRef": "Male_Ranger_Body.gltf",
+      "region": "body",
+      "tint": "ranger_leather",
+      "flag": "🟢"
+    },
+    {
+      "itemId": "ranger_trousers",
+      "displayName": "Ranger Trousers",
+      "modelRef": "Male_Ranger_Legs.gltf",
+      "region": "legs",
+      "tint": "ranger_leather",
+      "flag": "🟢"
+    },
+    {
+      "itemId": "ranger_boots",
+      "displayName": "Ranger Boots",
+      "modelRef": "Male_Ranger_Feet_Boots.gltf",
+      "region": "boots",
+      "tint": "ranger_leather",
+      "flag": "🟢"
+    },
+    {
+      "itemId": "ranger_bracers",
+      "displayName": "Ranger Bracers",
+      "modelRef": "Male_Ranger_Arms.gltf",
+      "region": "arms",
+      "tint": "ranger_leather",
+      "flag": "🟢"
+    },
+    {
+      "itemId": "ranger_pauldrons",
+      "displayName": "Ranger Pauldrons",
+      "modelRef": "Male_Ranger_Acc_Pauldron.gltf",
+      "region": null,
+      "tint": "ranger_leather",
+      "flag": "🟢"
+    }
+  ]
+}

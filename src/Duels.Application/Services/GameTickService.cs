@@ -3,6 +3,7 @@ using Duels.Application.GameSession;
 using Duels.Domain.Entities;
 using Duels.Domain.Events;
 using Duels.Domain.Interfaces;
+using Duels.Domain.Services;
 using Duels.Domain.ValueObjects;
 
 namespace Duels.Application.Services;
@@ -18,6 +19,7 @@ public sealed class GameTickService : IDisposable
     private readonly IItemRepository _items;
     private readonly INpcRepository _npcs;
     private readonly IEventBus _events;
+    private readonly ITickSource _tickSource;
 
     private CancellationTokenSource? _cts;
     private Action? _notify;
@@ -28,7 +30,8 @@ public sealed class GameTickService : IDisposable
         IRandomProvider random,
         IItemRepository items,
         INpcRepository npcs,
-        IEventBus events)
+        IEventBus events,
+        ITickSource tickSource)
     {
         _states = states;
         _combat = combat;
@@ -36,6 +39,7 @@ public sealed class GameTickService : IDisposable
         _items = items;
         _npcs = npcs;
         _events = events;
+        _tickSource = tickSource;
     }
 
     public void RegisterNotify(Action callback) => _notify = callback;
@@ -44,6 +48,7 @@ public sealed class GameTickService : IDisposable
     {
         _cts?.Cancel();
         _cts = new CancellationTokenSource();
+        _tickSource.Reset();
         _ = Loop(playerId, _cts.Token);
     }
 
@@ -59,7 +64,7 @@ public sealed class GameTickService : IDisposable
     {
         while (!ct.IsCancellationRequested)
         {
-            try { await Task.Delay(600, ct).ConfigureAwait(false); }
+            try { await _tickSource.WaitForNextTickAsync(ct).ConfigureAwait(false); }
             catch (OperationCanceledException) { break; }
 
             if (ct.IsCancellationRequested) break;
@@ -76,6 +81,12 @@ public sealed class GameTickService : IDisposable
     // periodic tick keeps driving the rest of the run.
     public async Task KickMoveAsync(string playerId)
     {
+        // Skip when the tick is about to resolve anyway — ProcessTick is
+        // moments away from advancing this same move order itself, so
+        // kicking here too would double-advance it within one tick.
+        if (_tickSource.ElapsedMsIntoCurrentTick >= TickConstants.TickDurationMs - TickConstants.InputBufferWindowMs)
+            return;
+
         var state = await _states.GetAsync(playerId);
         if (state is null || !state.InDuel || state.PlayerMoveTarget is not { } moveTarget) return;
 
@@ -103,6 +114,18 @@ public sealed class GameTickService : IDisposable
         state.TickStartProtection = player.ActiveProtection;
 
         state.DecrementCooldowns();
+
+        // Weapon-swap input buffer: a fresh swap slot opens each tick; an
+        // overflow tap from last tick (see WeaponShortcutHandler) resolves
+        // now, at the top of this one, and claims this tick's slot.
+        state.ResetWeaponSwapGate();
+        if (state.ConsumePendingWeaponSwap() is { } pendingWeaponId && player.HasItem(pendingWeaponId))
+        {
+            state.TryClaimWeaponSwapSlot();
+            player.Equip(pendingWeaponId, EquipmentSlot.Weapon);
+            var pendingWeaponName = _items.GetItemName(pendingWeaponId) ?? pendingWeaponId;
+            state.AppendLog($"You ready your {pendingWeaponName}.", LogEntryKind.Info);
+        }
 
         // Movement: whoever can't reach with their own attack range steps
         // toward a flanking slot beside the other (diagonals allowed). The

@@ -1,6 +1,6 @@
 # M0 — Foundations: Technical Plan
 
-Status: **draft — awaiting review**. Implementation starts only after this plan is approved (working agreement #1).
+Status: **implemented** (all four workstreams). See "Implementation Notes" at the end for what landed, two scope findings surfaced during implementation, and an environment caveat on verification. Q1 and Q2 below were resolved by the human reviewer before implementation started.
 
 Scope (implementation brief, M0): formal tick scheduler (single authoritative 0.6s tick, input buffering per UI bible §2) · definition-file pipeline for items/bosses/invocations · persistence service replacing the cache · asset manifest loader (Quaternius paths per items doc §7). **No visible feature.**
 
@@ -106,8 +106,8 @@ Definition of done: all four workstreams merged, golden-run transcript identical
 - **R2 — Tick authority / interop boundary:** confirm the recommendation as stated. M0 already conforms (C# ticks, batched snapshot to Three.js); no work needed beyond not regressing it.
 
 **Design questions (flagged per working agreement #2 — current behavior is preserved either way in M0, but the schema/plan should record the intent):**
-- **Q1 — Two combat-math models.** Items doc §1 (100 HP, 80% base hit, Power/Precision, Def %) contradicts the live OSRS formulas (`CombatCalculator`). Assumed: the switch to doc math happens in M1 with the Maggot King rebuild, and M0's item schema simply carries both stat blocks. Confirm.
-- **Q2 — Player movement rate.** Boss bible grammar says 1 tile/tick; live code runs the player at 2 tiles/tick. M0 keeps 2 (identical-combat rule). Which is authoritative for M1?
+- **Q1 — RESOLVED.** OSRS formulas are not sacred — the game can diverge to its own unique combat math. The doc's Power/Precision/Def-% model (§1) is the target; the live OSRS `CombatCalculator` is not a constraint M0 needs to preserve forever. The switch itself still lands in M1 with the Maggot King rebuild (M0's golden-run test only needs the *tick core* refactor to be behavior-preserving, not the combat formula to stay OSRS); M0's item schema carries both stat blocks so the doc-math switch is a content/logic change in M1, not a schema migration.
+- **Q2 — RESOLVED.** 2 tiles/tick for the player is correct and stays as the live, authoritative behavior. The boss bible's "1 tile moved per tick" grammar line describes NPCs/bosses, not the player; no code or design-doc change needed for M0.
 - **Q3 — Special energy regen.** Doc: ~2/tick out of danger, 1/tick in combat. Live: +10 per player attack. Same treatment as Q1 (M1 switch)? Confirm.
 - **Q4 — Buffer depth.** "Extra taps buffer" (§3.2, weapon swaps): assumed depth 1, latest-wins, for all buffered input. Confirm.
 - **Q5 — Legacy ladder content.** The linear ladder is retired by the decisions doc but is the only playable content until M1. Assumed: it migrates into definition files as-is and dies later with its milestone, not in M0. Confirm.
@@ -116,3 +116,21 @@ Definition of done: all four workstreams merged, golden-run transcript identical
 ## 8. Explicitly out of scope
 
 New HUD, action bar, flask belt, Maggot King rebuild, telegraph framework/Perfect Dodge/punish windows as shared systems (M1/M3), any doc-item ingestion beyond schema readiness, invocation content, combat-math switch, boss-branch extraction from `GameTickService`, any visible feature.
+
+---
+
+## 9. Implementation Notes (post-implementation)
+
+All four workstreams landed. Notes on what shipped and two places the plan's assumptions met reality:
+
+**Workstream B (definitions).** `items.json`/`npcs.json` are 1:1 transcriptions of the old `InMemoryItemRepository`/`InMemoryNpcRepository` builders (verified field-by-field during transcription, plus fidelity-spot-check tests); the old builders are deleted. `invocations.json` ships as the empty-array stub the plan called for. Q6 resolved as recommended: embedded resources, not `wwwroot` fetches — repositories stay synchronous.
+
+**Workstream A (tick core) — scope finding on input buffering.** The formal drift-corrected `TickScheduler`/`ITickSource` landed as planned, with `GameTickService.Loop`'s body otherwise untouched (same `ProcessTick`, same sequencing). For input buffering, one rule from UI bible §2/§3.2 turned out to need real machinery and one didn't:
+- **Weapon swaps** ("max one swap per tick; extra taps buffer") were a genuine gap — multiple same-tick taps used to all resolve instantly, last-wins. Implemented: `GameState.TryClaimWeaponSwapSlot()`/`PendingWeaponSwapId`, `WeaponShortcutHandler` defers an overflow tap, `GameTickService.ProcessTick` applies it at the top of the next tick. Q4 (buffer depth) resolved as assumed: depth 1, latest tap wins.
+- **The general 150ms end-of-tick action buffer** (attack/spec/sip/move) is, on inspection, moot in this codebase: Blazor WASM runs UI event handlers and the tick loop on the same single logical thread with cooperative `async`/`await` yielding, not real parallelism — a tap either lands before `ProcessTick` runs (used this tick) or after (next tick), and `QueuedAction` already never drops a tap regardless of timing. There is no race here to protect against, so no additional buffering code was added for that class; `KickMoveAsync` (the click-to-move latency fix) got a small guard against double-advancing a move order right at a tick boundary, which is the one place timing-adjacent risk actually existed.
+
+**Workstream C (persistence).** IndexedDB (`persistence.js` + `IndexedDbSaveStore`) replaces localStorage, behind a new `ISaveStore` and a versioned `SaveEnvelope`, with a one-time migration off the old `duels_save` localStorage key. Save-cadence reduction landed differently than first sketched: `GameTickService` (Application layer) can't construct `SaveData` (a Web-layer type) itself, so instead of a duel-end callback threaded through the tick service, `GameService.DispatchAsync` skips persistence for the high-frequency in-duel commands, and `Game.razor`'s existing `OnTickNotify` (which already detects the dueling→not-dueling transition for other reasons) now also persists on duel end plus every 10 ticks as an in-duel safety net. Net effect matches the plan's intent (duel end + periodic safety interval + immediate for state-changing commands) without a new cross-layer event path.
+
+**Workstream D (asset manifest).** `asset-manifest.json` + `asset-map.md` cover the current PoC assets (`steel_sword`, 6-piece ranger set) exactly as they existed in `toon.js`'s old hard-coded dicts; `AssetMapSyncTests` enforces the two files staying in step. Service worker `CACHE_VERSION` bumped since `ASSET_URLS` gained the manifest file.
+
+**Verification caveat.** This session's sandboxed environment has no local .NET SDK, and the egress proxy returns a policy denial (403) for `builds.dotnet.microsoft.com` — installing one wasn't possible here (not an environment we should route around per the proxy's own guidance). Every change was re-read and manually traced for correctness (types, call sites, DI wiring, existing test fixtures updated for the new `GameTickService`/`GameService` constructor parameters), but **`dotnet build Duels.sln` and `dotnet test` have not actually been run.** Per the cleanup rule, that must happen — via CI or a session with a working SDK — before this is considered done.

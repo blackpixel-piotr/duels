@@ -228,6 +228,8 @@ public sealed class GameState
         TestScene = false;
         EnemyFrozen = false;
         ClearHazards();
+        WeaponSwapClaimedThisTick = false;
+        PendingWeaponSwapId = null;
     }
 
     public void RecordDamageTaken(int amount) { if (amount > 0) DamageTakenThisDuel += amount; }
@@ -266,6 +268,32 @@ public sealed class GameState
     public void SetQueuedAction(string? action) => QueuedAction = action;
 
     public void SetRevertWeapon(string? weaponId) => RevertWeaponId = weaponId;
+
+    // Weapon-swap input buffer (UI bible §3.2): "max one swap per tick;
+    // extra taps buffer" to the following tick instead of racing the current
+    // one. WeaponSwapClaimedThisTick resets every ProcessTick; a second
+    // same-tick swap attempt instead overwrites PendingWeaponSwapId (latest
+    // tap wins), consumed at the top of the next tick.
+    public bool WeaponSwapClaimedThisTick { get; private set; }
+    public string? PendingWeaponSwapId { get; private set; }
+
+    public bool TryClaimWeaponSwapSlot()
+    {
+        if (WeaponSwapClaimedThisTick) return false;
+        WeaponSwapClaimedThisTick = true;
+        return true;
+    }
+
+    public void SetPendingWeaponSwap(string weaponId) => PendingWeaponSwapId = weaponId;
+
+    public string? ConsumePendingWeaponSwap()
+    {
+        var id = PendingWeaponSwapId;
+        PendingWeaponSwapId = null;
+        return id;
+    }
+
+    public void ResetWeaponSwapGate() => WeaponSwapClaimedThisTick = false;
 
     public void ResetPlayerCooldown(int ticks) => PlayerCooldown = ticks;
 
