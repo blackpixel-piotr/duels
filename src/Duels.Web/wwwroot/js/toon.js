@@ -33,6 +33,19 @@ const SNAP_DIST = 4.5 * TILE;
 
 const battles = new Map();    // canvasId → battle state
 
+// UI bible §1 doctrine palette — melee red-orange / ranged green / magic
+// blue. RGB (0-1 floats) for OutlineEffect's per-material color override;
+// hex for everything else (projectile tint, etc). Compound style-shift
+// telegraphs (style undecided until cast time) reuse 'ranged' green — the
+// Boss Bible's own literal color for that transition ("Mandibles glow
+// green"), not an invented neutral.
+const DOCTRINE_RGB = {
+    melee:  [0.878, 0.337, 0.102],
+    ranged: [0.224, 0.827, 0.224],
+    magic:  [0.357, 0.659, 0.878],
+};
+const DOCTRINE_HEX = { melee: '#e0561a', ranged: '#39d339', magic: '#5ba8e0' };
+
 // 3-step toon ramp shared by every material.
 let gradientMap = null;
 function getGradientMap() {
@@ -582,6 +595,39 @@ function playOverlay(actor, role, { ts = 1, fade = 0.08, hold = false, force = t
     actor.overlay = { action: a, role, hold };
 }
 
+// ── StyleTelegraphSystem (shared, boss-agnostic) ──────────────────────────
+// Boss Bible "prayer grammar": style changes telegraph 2 ticks ahead via
+// "weapon glow / stance" — an in-world tell, not a text pop-up. Driven by
+// setBattleTelegraph below; any boss that sets a forecast gets this for
+// free, no boss-specific code.
+
+// Windup pose: the same attack-role clip the real swing will use, played at
+// a fraction of speed so it visibly "winds up" rather than immediately
+// resolving — the actual attack (played at full speed, force:true) then
+// naturally interrupts and reads as the sudden release.
+function windupRoleForStyle(actor, style) {
+    if (style === 'ranged') return actor.clips.throw ? 'throw' : 'swordA';
+    if (style === 'magic') return actor.clips.cast ? 'cast' : 'swordA';
+    actor.swingAlt ^= 1;
+    return actor.swingAlt ? 'swordA' : 'swordB';
+}
+
+// Sets (rgb != null) or clears (rgb == null) a pulsing rim-outline color on
+// every material in the actor's hierarchy — OutlineEffect reads
+// material.userData.outlineParameters per-mesh (see OutlineEffect.js), so
+// this is the "weapon glow / stance" telegraph's actual paint step.
+function setActorTelegraphGlow(actor, rgb, alpha) {
+    actor.ch.group.traverse(n => {
+        if (!n.isMesh && !n.isSkinnedMesh) return;
+        const mats = Array.isArray(n.material) ? n.material : [n.material];
+        for (const m of mats) {
+            if (!m) continue;
+            if (rgb) m.userData.outlineParameters = { color: rgb, alpha, thickness: 0.015, keepAlive: true };
+            else if (m.userData.outlineParameters) delete m.userData.outlineParameters;
+        }
+    });
+}
+
 // Idle stance: a modeled weapon swaps the resting loop for the library's
 // sword-ready pose. Only the blend-space's anchor-0 node changes — walk/jog/
 // sprint and every one-shot stay shared, and the node keeps its current
@@ -731,7 +777,7 @@ async function initBattle(canvasId, opts) {
         viewRot: 0, // 0 or 90: CSS view rotation of the portrait fight
         player: null, enemy: null, dotnet: opts.dotnetRef ?? null,
         splats: [], hazardQuads: new Map(), marker: null, targetTile: null,
-        obstacles: [], flags: {}, projectiles: [], addMeshes: new Map(),
+        obstacles: [], flags: {}, projectiles: [], addMeshes: new Map(), telegraph: null,
         clock: new THREE.Clock(), raf: 0, drag: null,
         enemyId: opts.enemyId,
     };
@@ -962,6 +1008,15 @@ async function initBattle(canvasId, opts) {
         for (const [id, m] of st.addMeshes)
             m.position.y = 0.3 + Math.sin(now * 0.006 + id.length) * 0.05;
 
+        // StyleTelegraphSystem: pulsing doctrine-color rim glow while a
+        // telegraph is live (boss bible "weapon glow / stance").
+        if (st.telegraph?.active && st.telegraph.style) {
+            const rgb = DOCTRINE_RGB[st.telegraph.style] ?? [1, 1, 1];
+            setActorTelegraphGlow(st.enemy, rgb, 0.55 + 0.35 * Math.sin(now * 0.014));
+        } else {
+            setActorTelegraphGlow(st.enemy, null);
+        }
+
         // splats rise & fade
         for (let i = st.splats.length - 1; i >= 0; i--) {
             const s = st.splats[i];
@@ -1021,6 +1076,32 @@ const api = {
     setBattleFlags(canvasId, flags) {
         const st = battles.get(canvasId);
         if (st) Object.assign(st.flags, flags);
+    },
+    // StyleTelegraphSystem entry point: t = { active, style, projectile, ticks }.
+    // Fires the windup pose + (for a committed ranged/magic read) a
+    // style-colored projectile on the rising edge only; the render loop owns
+    // the rim-glow paint every frame from st.telegraph directly.
+    setBattleTelegraph(canvasId, t) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const rising = t?.active && !st.telegraph?.active;
+        st.telegraph = t;
+        if (!rising) return;
+
+        const style = t.style ?? 'melee';
+        playOverlay(st.enemy, windupRoleForStyle(st.enemy, style), { ts: 0.35, fade: 0.15, hold: true });
+
+        if (t.projectile && (style === 'ranged' || style === 'magic')) {
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8),
+                new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX[style] ?? '#ffffff' }));
+            const from = new THREE.Vector3(st.enemy.pos.wx, 1.3, st.enemy.pos.wz);
+            mesh.position.copy(from);
+            st.scene.add(mesh);
+            st.projectiles.push({
+                mesh, t0: performance.now(), dur: (t.ticks ?? 2) * TILE_MS,
+                from, to: new THREE.Vector3(st.player.pos.wx, 1.2, st.player.pos.wz),
+            });
+        }
     },
     setBattleVitals(canvasId, v) {
         const st = battles.get(canvasId);

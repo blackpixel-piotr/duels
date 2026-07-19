@@ -285,6 +285,55 @@ surfaced two real gaps, both fixed:
   confirm damage is landing at all. Worth another look once the render fix
   lets a playtester actually see hits connecting.
 
+## Fourth pass: StyleTelegraphSystem replaces the text-popup telegraph
+
+**Deviation being fixed**: the first two passes implemented the boss
+bible's "prayer grammar" (style changes telegraph 2 ticks ahead) as a
+floating text bubble (`BubbleText`) plus a HUD icon (`ForecastStyle`). The
+boss bible is explicit that the tell is **in-world**: "weapon glow /
+stance" — a text pop-up was never the intended primary channel, and the UI
+bible frames the HUD icon as secondary ("a HUD echo of the in-world tell").
+Replaced with a shared, boss-agnostic `StyleTelegraphSystem`:
+
+- **C# (`BattleScene.razor`)**: new `TelegraphVisual` computed property
+  resolves the boss's `ForecastAttackId` to `(doctrine style, is it worth a
+  projectile)`. A compound telegraph (style undecided until cast time —
+  the King's own "lash/grub_volley") maps to **green**, not an invented
+  neutral color — that's the Boss Bible's own literal text for that exact
+  transition ("Mandibles glow green"). `BubbleText` now excludes
+  style-telegraph log lines specifically (`"mandibles glow"`) so it doesn't
+  duplicate the new in-world tell, while still surfacing other boss-script
+  announcements (Rot Burst, swarms, phase shift, eruption waves) that don't
+  have a dedicated visual system yet. `ForecastStyle`/the HUD badge is
+  untouched — it's the explicitly-requested secondary echo.
+- **Renderer (`toon.js`)**: new `setBattleTelegraph(canvasId, {active,
+  style, projectile, ticks})`, fired only on the rising edge. Paints a
+  pulsing doctrine-color rim-outline glow on the boss every frame via
+  `OutlineEffect`'s per-material `userData.outlineParameters` (traversing
+  the actor's mesh hierarchy — the same pattern already used for weapon
+  tinting); plays a slow-motion (`ts:0.35`, held) version of the real
+  attack-role clip as the windup pose, so the actual full-speed swing on
+  resolution naturally interrupts and fades it in — no new clip needed,
+  reuses the existing attack roles (`throw`/`cast`/`swordA`/`swordB`). For
+  a *committed* ranged/magic read (never the ambiguous compound case), a
+  style-tinted projectile spawns at the boss and travels to the player over
+  exactly the telegraph's tick duration (2 ticks × 600ms = 1200ms), so it
+  visually lands the instant the attack should resolve — the render loop's
+  existing arc-lerp projectile lifecycle handles the travel, unchanged.
+- **Not implemented**: the audio-cue leg of the boss bible's "shape + color
+  + audio, colorblind-safe" triple. There is no sound engine anywhere in
+  this codebase to hook into — adding one is real new infrastructure, out
+  of scope for a telegraph-visual swap. Flagging rather than silently
+  dropping: shape (outline silhouette + distinct HUD icon) and color are
+  covered; audio is not.
+- **Noted, not fixed**: Phase 1's *second* Bile Spit (T4) still has no
+  telegraph of its own — only T0 (now seeded at construction) and the
+  T8/T16 mid-loop shifts do, matching the boss bible's literal rotation
+  table (which only marks style *changes*, and T0→T4 isn't one). This is a
+  rotation-schedule question, not a visual one, so it's out of scope for
+  this fix; flagging in case "every attack should have some tell" turns out
+  to be the intended reading once this is played with the visuals working.
+
 ## Still open / explicitly out of scope this milestone
 
 Everything the plan's §13 already excludes (bank, shop, drops/loot tables,
