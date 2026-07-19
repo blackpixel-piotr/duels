@@ -10,7 +10,7 @@ using Duels.Infrastructure.Persistence;
 using System.Reflection;
 using Xunit;
 
-namespace Duels.Application.Tests;
+namespace Duels.Infrastructure.Tests;
 
 // Choreography tests for the M1 boss (m1-plan Workstream D): rotation
 // timeline, eruption cadence, pool->scorch conversion, Rot Burst safe-tile
@@ -114,11 +114,14 @@ public sealed class MaggotKingTests
         var (svc, state, _) = Build();
         state.Player.ToggleProtection(ProtectionPrayer.Magic); // must not matter — unprayable
         state.AddHazardWave([state.PlayerTile], warningTicks: 1, poolTicks: 20);
-        int hpBefore = state.Player.CurrentHp;
 
-        await Tick(svc);
+        await Tick(svc); // this tick is also RotationTick 0 — Bile Spit fires concurrently
 
-        Assert.Equal(hpBefore - 35, state.Player.CurrentHp); // Heavy band
+        // Assert on the specific hazard hitsplat rather than total HP delta:
+        // the eruption shares this tick with the boss's own scripted T0
+        // Bile Spit (reduced by the Magic prayer this test raised), so the
+        // net HP change isn't just the eruption's 35.
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.HitsplatNpc && e.Message == "35:hazard");
         Assert.True(state.PlayerPoisoned);
     }
 
@@ -154,7 +157,9 @@ public sealed class MaggotKingTests
 
         await Tick(svc);
 
-        Assert.Equal(15, state.Player.SpecialEnergy);
+        // Perfect Dodge's +15 plus the unconditional +1/tick base regen that
+        // also fires this same tick.
+        Assert.Equal(16, state.Player.SpecialEnergy);
         Assert.NotEqual(standingTile, state.PlayerTile);
     }
 
@@ -209,7 +214,14 @@ public sealed class MaggotKingTests
     {
         var (svc, state, npc) = Build();
         npc.TakeDamage(npc.MaxHp / 2);
-        await Tick(svc);
+        await Tick(svc); // also crosses the 50% swarm threshold
+
+        // Swarm adds are incidental to this test (which is only about Rot
+        // Burst vs. scorch shelter) but crawl toward the player every tick
+        // and can land a contact bleed by coincidence of timing. Neutralize
+        // them so their movement can't add noise to the HP assertion below.
+        foreach (var add in state.Adds) add.TakeDamage(add.MaxHp);
+        state.RemoveDeadAdds();
 
         state.AddHazardWave([state.PlayerTile], warningTicks: 1, poolTicks: 1);
         await Tick(svc); // warning -> pool

@@ -6,17 +6,70 @@ where the docs didn't specify a number. Updated as work proceeds.
 
 ---
 
-## Verification caveat (read first)
+## Verification caveat (read first) — RESOLVED
 
-This session's sandboxed environment has **no .NET SDK** and the egress
-proxy denies `builds.dotnet.microsoft.com` (same constraint hit in M0).
-Every file was hand-traced for type/signature correctness, JSON content was
-validated for well-formedness and cross-reference integrity, and several
-latent bugs were caught this way (see below) — but **`dotnet build` and
-`dotnet test` have not actually been run.** This must happen (CI, or a
-session with a working SDK) before M1 is considered done. Given the scale of
-this milestone (touches ~90% of the codebase), treat the first build as a
-real risk surface, not a formality.
+Update: a working .NET 8 SDK was obtained this session via
+`apt-get install dotnet-sdk-8.0` (the distro mirror is reachable even though
+the egress proxy still denies `builds.dotnet.microsoft.com`, the constraint
+that blocked M0 and the earlier part of this milestone). `dotnet build
+Duels.sln` and `dotnet test Duels.sln` have now actually been run — first
+time this milestone. Future sessions/CI should install the SDK the same way
+rather than assuming it's unavailable.
+
+Results: one real build error, both from the same root cause — a test file
+using `Duels.Infrastructure.Persistence` types while sitting in
+`Duels.Application.Tests` (which only references Application+Domain, per
+the Onion Architecture's inward-only rule). Fixed by moving
+`MaggotKingTests.cs` into `Duels.Infrastructure.Tests` and updating its
+namespace. Everything else — 90% of the codebase, hand-traced without a
+compiler for most of this milestone — built clean on the first real
+attempt.
+
+Of the 63 tests across all four test projects, 4 in `MaggotKingTests`
+failed on the first real run. All 4 were diagnosed and fixed; none turned
+out to be "the game is broken":
+
+1. **`Phase1_StyleTelegraphAtTick8_SetsForecast`** — real production bug,
+   fixed in `GameTickService.cs`. `ProcessTick`'s original order called
+   `npc.TickForecast()` *after* `ProcessBossScript`, so a style-telegraph
+   step that calls `SetForecast(id, 2)` mid-tick had its own fresh value
+   immediately decremented to 1 on the same tick it was set. Fix: moved
+   `TickForecast()` to run before `ProcessBossScript` each tick (kept
+   `TickSap()` where it was). Purely cosmetic in practice — actual attack
+   timing is driven by `RotationTick`/`ForecastAttackId`, not by
+   `ForecastTicksLeft`, so nothing was actually landing wrong; the HUD
+   countdown badge would just have shown "1" for what should read "2" for
+   one tick.
+2. **`Eruption_DealsUnprayableDamage_AndPoisonsOnLandedTile`** — test bug.
+   The test's single tick happens to be RotationTick 0, which is also
+   scripted to fire the King's own Bile Spit (18 magic, unprayable-immune
+   reduced by the test's own Magic prayer to 4 via banker's rounding),
+   landing alongside the eruption's 35 unprayable damage in the same tick —
+   39 total, not 35. The eruption mechanic itself was correct. Fixed by
+   asserting on the specific `"35:hazard"` hitsplat log entry
+   (`GameTickService.cs:544`) instead of the total HP delta, decoupling the
+   assertion from whatever else the rotation happens to be doing that tick.
+3. **`PerfectDodge_GrantsSpecialEnergy_WhenVacatingFinalFuseTileInTime`** —
+   test bug. Perfect Dodge's own tick also carries the unconditional base
+   special-energy regen (+1/tick in combat), so the real total is
+   0 + 15 (PD) + 1 (regen) = 16, not 15. The mechanic was correct; the
+   test's expected value didn't account for a second concurrent system.
+   Fixed the assertion.
+4. **`RotBurst_NegatedForPlayerStandingOnScorch`** — test isolation bug.
+   Triggering Phase 2 via `TakeDamage(MaxHp/2)` also crosses the 50% swarm
+   spawn threshold; the spawned adds crawl toward the player every tick,
+   and this test's specific tick counts (building the scorch tile, then
+   resolving Rot Burst) happened to put a swarm add in contact range on the
+   exact tick being measured, landing an incidental 2-damage contact bleed
+   that has nothing to do with what the test checks (Rot Burst's scorch
+   negation). Fixed by neutralizing the spawned adds (`TakeDamage` +
+   `RemoveDeadAdds()`) right after the phase-2 tick, before the assertions
+   that follow — the swarm-spawn behavior itself is already covered by
+   `Swarms_SpawnOncePhase2Begins_AndContactAppliesBleed`.
+
+After all four fixes: `dotnet build Duels.sln` — 0 errors, 0 warnings.
+`dotnet test Duels.sln` — 63/63 passing across
+Duels.Domain.Tests/Duels.Application.Tests/Duels.Infrastructure.Tests.
 
 ## Sequencing deviation
 
@@ -350,6 +403,7 @@ deliberately shallow rather than missing:
 - **Per-weapon default attack style and the 5 named loadout presets**
   (UI bible §4.1) — explicitly deferred by the plan itself, noted above.
 
-Everything else in the plan's Workstreams A–J landed this session, subject
-to the verification caveat at the top of this file: **no build has actually
-been run.**
+Everything else in the plan's Workstreams A–J landed this session. See the
+verification caveat at the top of this file for the real build/test run
+that has since confirmed the solution compiles clean and its test suite
+passes (63/63) — this is no longer an open risk.
