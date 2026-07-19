@@ -407,3 +407,42 @@ Everything else in the plan's Workstreams A–J landed this session. See the
 verification caveat at the top of this file for the real build/test run
 that has since confirmed the solution compiles clean and its test suite
 passes (63/63) — this is no longer an open risk.
+
+## Fifth pass: playtest report — "getting melee-hit while far away"
+
+User feedback: felt melee hits landing every ~Nth tick even while standing
+well outside the King's melee range. Traced to a real rendering bug, not a
+combat-math or range bug.
+
+- **Root cause**: `GameTickService.ResolveBossAttack`'s hitsplat log entry
+  (`{damage}:normal`, `LogEntryKind.HitsplatNpc`) never carried the attack's
+  style. `BattleScene.razor`'s render loop always sent `style = null` for
+  enemy-attack events, and `toon.js`'s `enemyAttack` handler defaults a null
+  style to `'melee'` (`const style = evt.style ?? 'melee'`) — so *every*
+  boss attack (Bile Spit/Magic, Lash/Slash, Grub Volley/Ranged alike) played
+  the same armed melee-swing animation on impact, regardless of actual
+  style or the player's distance. The style-shift *telegraph* (rim glow,
+  windup pose, projectile) added in the fourth pass was and is correct — the
+  bug was specifically in the impact-moment animation a tick later. Combat
+  math itself was never affected: damage/range/prayer resolution don't read
+  this render-only field.
+- **Fix**: `ResolveBossAttack` now logs `{damage}:normal:{styleToken}` (new
+  `StyleToken(AttackType)` helper, mirrors the existing `StyleClass` used on
+  the player side); `BattleScene.razor` parses that third field as the
+  NPC's style when the hitsplat is `HitsplatNpc` (previously that slot was
+  read only for the player's spec-weapon-revert case, `HitsplatPlayer`) and
+  forwards it into the `enemyAttack` battle event instead of `null`. No
+  `toon.js` change was needed — its handler already branches correctly on
+  `evt.style`, it just never received one.
+- **Not fixed, flagged as a smaller follow-on gap**: Bile Spit (Magic, no
+  telegraph — see the fourth pass's "second Bile Spit" note) now plays the
+  correct `cast` animation on impact, but still spawns no projectile mesh
+  (the telegraph system's projectile only exists for the telegraphed
+  lash/grub_volley compound action). Cosmetic only.
+- **Added while diagnosing**: a `TestScene`-only "Last hit" debug readout in
+  `BattleScene.razor` (`.last-hit-debug`, top-center) that echoes the most
+  recent `LogEntryKind.NpcHit` combat-log line plus the live
+  `GameState.DistanceToNpc` reading, so "what actually hit me, from how far"
+  can be confirmed directly against the log instead of inferred from the
+  animation. Gated behind the same `State.TestScene` flag as the existing
+  freeze/camera/movement debug panels — not shown in a real fight.

@@ -48,6 +48,11 @@
     }
     @if (State?.TestScene == true)
     {
+        @if (_lastHitDebug is { } lastHit)
+        {
+            <div class="cam-debug-panel last-hit-debug">Last hit: @lastHit</div>
+        }
+
         <button class="freeze-btn @(EnemyFrozen ? "freeze-btn-on" : "")"
                 @onclick="ToggleFreezeEnemy">
             @(EnemyFrozen ? "UNFREEZE" : "FREEZE ENEMY")
@@ -138,6 +143,7 @@
     [Parameter] public string? WeaponId { get; set; }
 
     private int _lastCount;
+    private string? _lastHitDebug;
     private bool _inited;
     private DotNetObjectReference<BattleScene>? _selfRef;
     private bool _lastTelegraph;
@@ -421,19 +427,28 @@
                 await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas", new { type = "perfectDodge" });
                 continue;
             }
+            if (e.Kind == LogEntryKind.NpcHit && State?.TestScene == true)
+                _lastHitDebug = $"{e.Message} | dist {State?.DistanceToNpc}";
+
             if (e.Kind is not (LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)) continue;
             var parts = e.Message.Split(':');
             int dmg = int.TryParse(parts[0], out var d) ? d : 0;
             string tier = parts.Length > 1 ? parts[1] : "normal";
-            // A spec hitsplat carries the weapon it was thrown with (e.g. a dds
-            // spec that reverts to the main-hand this same tick) — show that
-            // weapon + its animation, not the reverted equipped weapon.
-            string? specWeapon = parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
 
             // HitsplatPlayer = damage dealt BY the player → lands on the enemy;
             // HitsplatNpc = damage dealt BY the NPC → lands on the player.
             // (The splat itself is drawn in-canvas by battleEvent's impact.)
             bool onEnemy = e.Kind == LogEntryKind.HitsplatPlayer;
+
+            // parts[2]'s meaning depends on who's hitting: a player spec
+            // hitsplat carries the weapon it was thrown with (e.g. a dds spec
+            // that reverts to the main-hand this same tick — show that weapon
+            // + its animation, not the reverted equipped weapon); a boss
+            // hitsplat instead carries its real attack style (melee/ranged/
+            // magic), so its impact animation matches what actually hit
+            // rather than always defaulting to a melee swing.
+            string? specWeapon = onEnemy && parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
+            string? npcStyle = !onEnemy && parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
 
             // DoT ticks and ground hazards aren't attacks — no swing, just
             // the victim's flash (the eruption burst is drawn tile-side).
@@ -442,7 +457,7 @@
                     new
                     {
                         type = onEnemy ? "playerAttack" : "enemyAttack",
-                        style = onEnemy ? PlayerStyle() : null,
+                        style = onEnemy ? PlayerStyle() : npcStyle,
                         kind = onEnemy ? PlayerKind() : null,
                         tier,   // 'spec' selects the weapon's special-attack flourish
                         weapon = onEnemy ? (specWeapon ?? WeaponId) : null, // spec weapon wins the revert race

@@ -534,6 +534,23 @@ html, body {
 }
 .cam-debug-reset:hover { background: rgba(130, 74, 30, 0.85); }
 
+/* Test-fight "what hit me" readout — plain text of the last boss-attack log
+   line plus live distance-to-boss, so a suspected mismatch between the
+   visual swing and the actual attack style/range can be confirmed at a glance. */
+.last-hit-debug {
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: auto;
+    right: auto;
+    width: max-content;
+    max-width: 90%;
+    font-size: 9px;
+    color: var(--west-cream);
+    white-space: normal;
+    text-align: center;
+}
+
 /* Telegraphed special — wanted-poster warning banner above the enemy */
 .telegraph-bubble {
     position: absolute;

@@ -487,7 +487,7 @@ public sealed class GameTickService : IDisposable
         player.TakeDamage(damage);
         state.RecordDamageTaken(damage);
         if (damage > 0) state.SetKilledBy($"{attack.Name} ({StyleName(attack.Style)})");
-        state.AppendLog($"{damage}:normal", LogEntryKind.HitsplatNpc);
+        state.AppendLog($"{damage}:normal:{StyleToken(attack.Style)}", LogEntryKind.HitsplatNpc);
         string prayedMsg = damage < attack.Damage && !attack.Unprayable ? " (prayed)" : "";
         state.AppendLog($"{npc.Template.Name} uses {attack.Name} for {damage}{prayedMsg}. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
     }
@@ -682,6 +682,16 @@ public sealed class GameTickService : IDisposable
         AttackType.Magic => "Magic",
         AttackType.Ranged => "Ranged",
         _ => "Melee",
+    };
+
+    // Renderer-facing token (matches BattleScene.razor's StyleClass) — lets
+    // the boss's hit-impact animation match its actual attack style instead
+    // of defaulting to a melee swing for everything.
+    private static string StyleToken(AttackType t) => t switch
+    {
+        AttackType.Magic => "magic",
+        AttackType.Ranged => "ranged",
+        _ => "melee",
     };
 
     private AttackerProfile BuildAttackerProfile(Player player, Weapon? weapon)
