@@ -46,13 +46,12 @@
     {
         <div class="telegraph-bubble">@bubble</div>
     }
+    @if (_lastHitDebug is { } lastHit)
+    {
+        <div class="cam-debug-panel last-hit-debug">Last hit: @lastHit</div>
+    }
     @if (State?.TestScene == true)
     {
-        @if (_lastHitDebug is { } lastHit)
-        {
-            <div class="cam-debug-panel last-hit-debug">Last hit: @lastHit</div>
-        }
-
         <button class="freeze-btn @(EnemyFrozen ? "freeze-btn-on" : "")"
                 @onclick="ToggleFreezeEnemy">
             @(EnemyFrozen ? "UNFREEZE" : "FREEZE ENEMY")
@@ -427,7 +426,7 @@
                 await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas", new { type = "perfectDodge" });
                 continue;
             }
-            if (e.Kind == LogEntryKind.NpcHit && State?.TestScene == true)
+            if (e.Kind == LogEntryKind.NpcHit)
                 _lastHitDebug = $"{e.Message} | dist {State?.DistanceToNpc}";
 
             if (e.Kind is not (LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)) continue;

@@ -446,3 +446,30 @@ combat-math or range bug.
   can be confirmed directly against the log instead of inferred from the
   animation. Gated behind the same `State.TestScene` flag as the existing
   freeze/camera/movement debug panels — not shown in a real fight.
+
+## Sixth pass: "last hit" panel invisible, and "still getting hit for 4 while praying correctly"
+
+- **`State.TestScene` is dead code.** `GameState.SetTestScene(bool)` exists
+  but nothing in the reachable app ever calls it — not `Game.razor` (the
+  real duel flow, which only ever calls `StartDuelCommand`), not
+  `AnimEditor.razor`. `GameState.StartDuel` also force-resets it to `false`
+  every duel. So the fifth pass's new "Last hit" readout, gated behind that
+  flag, was unreachable the moment it shipped — same as the pre-existing
+  freeze/camera/movement debug panels, which are apparently *also*
+  currently unreachable in the live app for the same reason (not fixed here
+  — out of scope for this pass, flagging since it's a real, separate gap).
+  Fix: the "Last hit" readout no longer checks `TestScene` — it now shows
+  whenever there's a hit to report, in any fight (M1 only has one boss, so
+  every fight is currently a "test" fight in practice).
+- **"Still getting hit for 4 with the matching prayer up" is correct,
+  not a bug.** Every one of the King's three core attacks (Bile Spit,
+  Lash, Grub Volley) deals a flat 18 base damage. `ResolveIncomingDamage`
+  applies protection prayer as a 75% reduction, not a full block —
+  18 × 0.25 = 4.5, and `Math.Round`'s default banker's rounding takes 4.5
+  to 4 (even). So a perfectly-timed, correctly-styled prayer against any of
+  these three attacks still chips 4 HP every time — this is the boss
+  bible's "reduced 75% by a matching protection prayer" grammar working
+  exactly as designed, not a miss-flick or a range bug. Only the truly
+  unprayable mechanics (Eruption, its pool, Rot Burst) are meant to ignore
+  prayer entirely and hit for their full band. No code change; explained to
+  the user directly since it wasn't an obvious reading of "protection."
