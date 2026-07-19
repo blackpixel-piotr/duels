@@ -7,6 +7,54 @@
       "length": 1.25,
       "tint": "tier1_iron",
       "flag": "🟢"
+    },
+    {
+      "itemId": "wpn_melee_t1",
+      "displayName": "Rustcleaver",
+      "modelRef": "sword.glb",
+      "length": 1.25,
+      "tint": "placeholder_reskin",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "wpn_ranged_t1",
+      "displayName": "Poacher's Bow",
+      "modelRef": "sword.glb",
+      "length": 1.25,
+      "tint": "placeholder_reskin",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "wpn_magic_t1",
+      "displayName": "Cinder Wand",
+      "modelRef": "sword.glb",
+      "length": 1.25,
+      "tint": "placeholder_reskin",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "wpn_melee_t2",
+      "displayName": "Splitter",
+      "modelRef": "sword.glb",
+      "length": 1.25,
+      "tint": "placeholder_reskin",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "wpn_ranged_t2",
+      "displayName": "Bolt Thrower",
+      "modelRef": "sword.glb",
+      "length": 1.25,
+      "tint": "placeholder_reskin",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "wpn_magic_t2",
+      "displayName": "Hexknot Staff",
+      "modelRef": "sword.glb",
+      "length": 1.25,
+      "tint": "placeholder_reskin",
+      "flag": "🟡"
     }
   ],
   "armor": [
@@ -57,6 +105,294 @@
       "region": null,
       "tint": "ranger_leather",
       "flag": "🟢"
+    },
+    {
+      "itemId": "arm_warbound_helmet_t1",
+      "displayName": "Warbound Helmet (T1)",
+      "modelRef": "Male_Ranger_Head_Hood.gltf",
+      "region": null,
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_warbound_helmet_t2",
+      "displayName": "Warbound Helmet (T2)",
+      "modelRef": "Male_Ranger_Head_Hood.gltf",
+      "region": null,
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_warbound_body_t1",
+      "displayName": "Warbound Body (T1)",
+      "modelRef": "Male_Ranger_Body.gltf",
+      "region": "body",
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_warbound_body_t2",
+      "displayName": "Warbound Body (T2)",
+      "modelRef": "Male_Ranger_Body.gltf",
+      "region": "body",
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_warbound_legs_t1",
+      "displayName": "Warbound Legs (T1)",
+      "modelRef": "Male_Ranger_Legs.gltf",
+      "region": "legs",
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_warbound_legs_t2",
+      "displayName": "Warbound Legs (T2)",
+      "modelRef": "Male_Ranger_Legs.gltf",
+      "region": "legs",
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_warbound_boots_t1",
+      "displayName": "Warbound Boots (T1)",
+      "modelRef": "Male_Ranger_Feet_Boots.gltf",
+      "region": "boots",
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_warbound_boots_t2",
+      "displayName": "Warbound Boots (T2)",
+      "modelRef": "Male_Ranger_Feet_Boots.gltf",
+      "region": "boots",
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_warbound_gloves_t1",
+      "displayName": "Warbound Gloves (T1)",
+      "modelRef": "Male_Ranger_Arms.gltf",
+      "region": "arms",
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_warbound_gloves_t2",
+      "displayName": "Warbound Gloves (T2)",
+      "modelRef": "Male_Ranger_Arms.gltf",
+      "region": "arms",
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_warbound_cape_t1",
+      "displayName": "Warbound Cape (T1)",
+      "modelRef": "Male_Ranger_Acc_Pauldron.gltf",
+      "region": null,
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_warbound_cape_t2",
+      "displayName": "Warbound Cape (T2)",
+      "modelRef": "Male_Ranger_Acc_Pauldron.gltf",
+      "region": null,
+      "tint": "warbound_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_helmet_t1",
+      "displayName": "Stalker Helmet (T1)",
+      "modelRef": "Male_Ranger_Head_Hood.gltf",
+      "region": null,
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_helmet_t2",
+      "displayName": "Stalker Helmet (T2)",
+      "modelRef": "Male_Ranger_Head_Hood.gltf",
+      "region": null,
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_body_t1",
+      "displayName": "Stalker Body (T1)",
+      "modelRef": "Male_Ranger_Body.gltf",
+      "region": "body",
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_body_t2",
+      "displayName": "Stalker Body (T2)",
+      "modelRef": "Male_Ranger_Body.gltf",
+      "region": "body",
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_legs_t1",
+      "displayName": "Stalker Legs (T1)",
+      "modelRef": "Male_Ranger_Legs.gltf",
+      "region": "legs",
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_legs_t2",
+      "displayName": "Stalker Legs (T2)",
+      "modelRef": "Male_Ranger_Legs.gltf",
+      "region": "legs",
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_boots_t1",
+      "displayName": "Stalker Boots (T1)",
+      "modelRef": "Male_Ranger_Feet_Boots.gltf",
+      "region": "boots",
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_boots_t2",
+      "displayName": "Stalker Boots (T2)",
+      "modelRef": "Male_Ranger_Feet_Boots.gltf",
+      "region": "boots",
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_gloves_t1",
+      "displayName": "Stalker Gloves (T1)",
+      "modelRef": "Male_Ranger_Arms.gltf",
+      "region": "arms",
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_gloves_t2",
+      "displayName": "Stalker Gloves (T2)",
+      "modelRef": "Male_Ranger_Arms.gltf",
+      "region": "arms",
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_cape_t1",
+      "displayName": "Stalker Cape (T1)",
+      "modelRef": "Male_Ranger_Acc_Pauldron.gltf",
+      "region": null,
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_stalker_cape_t2",
+      "displayName": "Stalker Cape (T2)",
+      "modelRef": "Male_Ranger_Acc_Pauldron.gltf",
+      "region": null,
+      "tint": "stalker_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_helmet_t1",
+      "displayName": "Occult Helmet (T1)",
+      "modelRef": "Male_Ranger_Head_Hood.gltf",
+      "region": null,
+      "tint": "occult_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_helmet_t2",
+      "displayName": "Occult Helmet (T2)",
+      "modelRef": "Male_Ranger_Head_Hood.gltf",
+      "region": null,
+      "tint": "occult_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_body_t1",
+      "displayName": "Occult Body (T1)",
+      "modelRef": "Male_Ranger_Body.gltf",
+      "region": "body",
+      "tint": "occult_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_body_t2",
+      "displayName": "Occult Body (T2)",
+      "modelRef": "Male_Ranger_Body.gltf",
+      "region": "body",
+      "tint": "occult_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_legs_t1",
+      "displayName": "Occult Legs (T1)",
+      "modelRef": "Male_Ranger_Legs.gltf",
+      "region": "legs",
+      "tint": "occult_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_legs_t2",
+      "displayName": "Occult Legs (T2)",
+      "modelRef": "Male_Ranger_Legs.gltf",
+      "region": "legs",
+      "tint": "occult_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_boots_t1",
+      "displayName": "Occult Boots (T1)",
+      "modelRef": "Male_Ranger_Feet_Boots.gltf",
+      "region": "boots",
+      "tint": "occult_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_boots_t2",
+      "displayName": "Occult Boots (T2)",
+      "modelRef": "Male_Ranger_Feet_Boots.gltf",
+      "region": "boots",
+      "tint": "occult_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_gloves_t1",
+      "displayName": "Occult Gloves (T1)",
+      "modelRef": "Male_Ranger_Arms.gltf",
+      "region": "arms",
+      "tint": "occult_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_gloves_t2",
+      "displayName": "Occult Gloves (T2)",
+      "modelRef": "Male_Ranger_Arms.gltf",
+      "region": "arms",
+      "tint": "occult_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_cape_t1",
+      "displayName": "Occult Cape (T1)",
+      "modelRef": "Male_Ranger_Acc_Pauldron.gltf",
+      "region": null,
+      "tint": "occult_placeholder",
+      "flag": "🟡"
+    },
+    {
+      "itemId": "arm_occult_cape_t2",
+      "displayName": "Occult Cape (T2)",
+      "modelRef": "Male_Ranger_Acc_Pauldron.gltf",
+      "region": null,
+      "tint": "occult_placeholder",
+      "flag": "🟡"
     }
   ]
 }
