@@ -18,8 +18,7 @@ public sealed class AttackHandlerTests
         if (inDuel)
         {
             var goblin = new NpcTemplate("goblin", "Goblin", "It's a goblin.",
-                new CombatStats(1, 1, 1, 10), ItemModifiers.Zero, AttackType.Crush,
-                [], goldReward: 5);
+                new CombatStats(1, 1, 1, 10), [], GoldReward: 5, DummyStyle: AttackType.Crush);
             state.StartDuel(new NpcInstance(goblin));
         }
 

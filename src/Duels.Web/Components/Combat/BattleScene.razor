@@ -17,9 +17,8 @@
 
     <div class="battle-box battle-box-enemy">
         <div class="battle-box-name glow-red">
-            @if (State?.ActiveNpc is { } liveNpc)
+            @if (ForecastStyle is { } styleKey)
             {
-                var styleKey = liveNpc.CurrentAttackType;
                 <span @key="styleKey" class="style-badge style-badge-@StyleClass(styleKey)"
                       title="Incoming: @StyleName(styleKey)">@StyleIcon(styleKey)</span>
             }
@@ -243,13 +242,24 @@
     // PrayerPoints caps at 99, not 100 — normalize for the bar fill.
     private int PlayerPrayerPct => (int)((State?.Player?.PrayerPoints ?? 0) * 100.0 / 99);
 
-    // Armed special persists until it fires; style-rotation and other warnings
-    // fall back to the newest BossSpecial log line for a short window.
+    // Style-shift telegraphs and other boss-script warnings fall back to the
+    // newest BossSpecial log line for a short window.
     private string? BubbleText =>
-        State?.ActiveNpc?.PendingSpecial?.WarningText
-        ?? State?.CombatLog.LastOrDefault(e =>
+        State?.CombatLog.LastOrDefault(e =>
             e.Kind == LogEntryKind.BossSpecial &&
             (DateTimeOffset.UtcNow - e.Timestamp) < TimeSpan.FromSeconds(2.4))?.Message;
+
+    // Forecast widget (UI bible §3.2): the boss's telegraphed next-attack
+    // style, resolved to a badge only when it's a single (non-compound) attack.
+    private AttackType? ForecastStyle
+    {
+        get
+        {
+            var npc = State?.ActiveNpc;
+            if (npc?.ForecastAttackId is not { } id || id.Contains('/')) return null;
+            return npc.Template.Script?.Attacks.GetValueOrDefault(id)?.Style;
+        }
+    }
 
     // Overhead prayer icons are drawn in-canvas by voxel.js (pixel art);
     // these just name the active icon per side.
@@ -258,12 +268,11 @@
         { ActiveProtection: ProtectionPrayer.Melee } => "melee",
         { ActiveProtection: ProtectionPrayer.Range } => "ranged",
         { ActiveProtection: ProtectionPrayer.Magic } => "magic",
-        { PietyActive: true }                        => "piety",
+        { BoostPrayerActive: true }                  => "piety",
         _ => null,
     };
 
-    private string? NpcOverhead =>
-        State?.ActiveNpc is { WarlordPrayerActive: true } ? "melee" : null;
+    private string? NpcOverhead => null;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -303,7 +312,7 @@
             await JS.InvokeVoidAsync("voxel.resetBattle", "battle-canvas");
         }
 
-        // Endless waves swap the enemy without remounting the scene.
+        // A retry/re-fight can swap the enemy without remounting the scene.
         if (State?.ActiveNpc is { } npc && npc.Template.Id != _enemyId)
         {
             _enemyId = npc.Template.Id;
@@ -339,14 +348,18 @@
                 player = new { x = s.PlayerTile.X, z = s.PlayerTile.Z },
                 enemy = new { x = s.NpcTile.X, z = s.NpcTile.Z },
             });
-            // Tile hazards (boss mechanic): pending warnings + active pools.
-            // JS diffs pending→gone itself to fire the eruption burst, so no
-            // separate event plumbing is needed and visuals can't desync.
+            // Tile hazards v2 (boss mechanic): warning fuse -> pool -> scorch
+            // (permanent, safe). JS diffs pending→gone itself to fire the
+            // eruption burst, so no separate event plumbing is needed.
             await JS.InvokeVoidAsync("voxel.setBattleHazards", "battle-canvas", new
             {
-                pending = s.Hazards.Where(h => !h.Pool).Select(h => new { x = h.X, z = h.Z, t = h.TicksLeft }).ToArray(),
-                pools   = s.Hazards.Where(h =>  h.Pool).Select(h => new { x = h.X, z = h.Z }).ToArray(),
+                pending = s.Hazards.Where(h => h.State == HazardState.Warning).Select(h => new { x = h.X, z = h.Z, t = h.TicksLeft }).ToArray(),
+                pools   = s.Hazards.Where(h => h.State == HazardState.Pool).Select(h => new { x = h.X, z = h.Z }).ToArray(),
+                scorch  = s.Hazards.Where(h => h.State == HazardState.Scorch).Select(h => new { x = h.X, z = h.Z }).ToArray(),
             });
+            // Swarm adds (m1-plan Workstream C.7).
+            await JS.InvokeVoidAsync("voxel.setBattleAdds", "battle-canvas",
+                s.Adds.Select(a => new { id = a.Id, x = a.Tile.X, z = a.Tile.Z, hpPct = a.MaxHp > 0 ? a.CurrentHp * 100 / a.MaxHp : 0 }).ToArray());
         }
 
         // Overhead prayer icons (drawn in-canvas); send only on change.
@@ -363,14 +376,14 @@
 
         foreach (var e in newEntries)
         {
-            // Eating: raise-to-mouth animation with the food in the off-hand.
-            if (e.Kind == LogEntryKind.Info && e.Message.StartsWith("You eat the "))
+            // Flask sip: raise-to-mouth animation (UI bible §3.2 flask belt).
+            if (e.Kind == LogEntryKind.Info && e.Message.StartsWith("You sip the "))
             {
-                var rest = e.Message["You eat the ".Length..];
+                var rest = e.Message["You sip the ".Length..];
                 var dot = rest.IndexOf('.');
                 var item = dot > 0 ? rest[..dot] : rest;
                 await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
-                    new { type = "playerEat", item });
+                    new { type = "playerSip", item });
                 continue;
             }
             if (e.Kind is not (LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)) continue;
@@ -403,23 +416,19 @@
                 new { type = onEnemy ? "enemyHit" : "playerHit", tier, dmg });
         }
 
-        if (newEntries.Any(e => e.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit
-                                       or LogEntryKind.Vengeance or LogEntryKind.BossSpecial))
+        if (newEntries.Any(e => e.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit or LogEntryKind.BossSpecial))
             await JS.InvokeVoidAsync("triggerShake", "battle-scene", 180);
 
-        bool telegraph = State?.ActiveNpc?.PendingSpecial is not null;
+        bool telegraph = State?.ActiveNpc?.ForecastAttackId is not null;
         if (telegraph != _lastTelegraph)
         {
             _lastTelegraph = telegraph;
             await JS.InvokeVoidAsync("voxel.setBattleFlags", "battle-canvas", new { telegraph });
         }
 
-        // NpcCooldown == 1 after a tick means the enemy attacks on the next
-        // tick (~600ms) — the reaction window prayer flicking will key off.
-        // No cue while the NPC is still walking into melee range.
-        string? windup =
-            State is { InDuel: true, NpcCooldown: 1, NpcInRange: true, ActiveNpc: { } wn } && !EnemyDead && !PlayerDead
-                ? StyleClass(wn.CurrentAttackType) : null;
+        // Punish window (m1-plan Workstream C.6): boss can't act, +25% damage
+        // taken — the slump pose cue.
+        string? windup = State is { ActiveNpc.InPunishWindow: true } && !EnemyDead && !PlayerDead ? "slump" : null;
         if (windup != _lastWindup)
         {
             _lastWindup = windup;
@@ -486,7 +495,18 @@
     public async Task OnEnemyClick()
     {
         if (GameSvc.PlayerId is { } pid)
+        {
+            await GameSvc.DispatchAsync(new SetTargetCommand(pid, null));
             await GameSvc.DispatchAsync(new EngageCommand(pid));
+        }
+    }
+
+    // Tap a swarm add to target it (m1-plan Workstream C.7).
+    [JSInvokable]
+    public async Task OnAddClick(string addId)
+    {
+        if (GameSvc.PlayerId is { } pid)
+            await GameSvc.DispatchAsync(new SetTargetCommand(pid, addId));
     }
 
     // Non-weapon equipped item ids, sorted for a stable diff key — the scene

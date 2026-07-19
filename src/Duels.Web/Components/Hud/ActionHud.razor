@@ -11,100 +11,57 @@
     {
         <div class="tick-metronome" id="tick-bar"></div>
 
-        @* ── Row 1: consumable belt ── *@
+        @* ── Flask belt (UI bible §3.2): 2 bound slots, sip pips, dims attack while consumed ── *@
         <div class="hud-row hud-belt">
-            <button class="belt-slot @(FoodCount("shark") == 0 ? "qs-spec-depleted" : "")"
-                    title="Shark — heals 20 (+2 tick delay)"
-                    disabled="@(_busy || FoodCount("shark") == 0)"
-                    @onclick='() => Eat("shark")'>
-                <span class="belt-icon">🦈</span>
-                <span class="belt-count">@FoodCount("shark")</span>
-            </button>
-            <button class="belt-slot @(FoodCount("karambwan") == 0 ? "qs-spec-depleted" : "")"
-                    title="Karambwan — heals 18, combo food (no delay)"
-                    disabled="@(_busy || FoodCount("karambwan") == 0)"
-                    @onclick='() => Eat("karambwan")'>
-                <span class="belt-icon">🦑</span>
-                <span class="belt-count">@FoodCount("karambwan")</span>
-            </button>
-            <button class="belt-slot @(FoodCount("anglerfish") == 0 ? "qs-spec-depleted" : "")"
-                    title="Anglerfish — heals 22, overheals (+2 tick delay)"
-                    disabled="@(_busy || FoodCount("anglerfish") == 0)"
-                    @onclick='() => Eat("anglerfish")'>
-                <span class="belt-icon">🐟</span>
-                <span class="belt-count">@FoodCount("anglerfish")</span>
-            </button>
-            <button class="belt-slot @(FoodCount("super_combat_potion") == 0 ? "qs-spec-depleted" : "")"
-                    title="Super Combat Potion — +Atk/Str for 4 rounds (+1 tick delay)"
-                    disabled="@(_busy || FoodCount("super_combat_potion") == 0)"
-                    @onclick='() => Drink("super_combat_potion")'>
-                <span class="belt-icon">⚗</span>
-                <span class="belt-count">@FoodCount("super_combat_potion")</span>
-            </button>
-            @if (FoodCount("antidote") > 0 || State.PlayerPoisoned)
+            @for (int i = 0; i < 2; i++)
             {
-                <button class="belt-slot @(State.PlayerPoisoned ? "belt-poisoned" : "") @(FoodCount("antidote") == 0 ? "qs-spec-depleted" : "")"
-                        title="Antidote — cures poison (+1 tick delay)"
-                        disabled="@(_busy || FoodCount("antidote") == 0)"
-                        @onclick='() => Drink("antidote")'>
-                    <span class="belt-icon">🧪</span>
-                    <span class="belt-count">@FoodCount("antidote")</span>
+                var slotIndex = i;
+                var slot = State.Player!.FlaskBelt.Slots[slotIndex];
+                <button class="belt-slot @(slot.FlaskId is null ? "belt-empty" : "") @(slot.SipsRemaining == 0 && slot.FlaskId is not null ? "qs-spec-depleted" : "")"
+                        title="@FlaskTitle(slot)"
+                        disabled="@(_busy || slot.FlaskId is null || slot.SipsRemaining == 0)"
+                        @onclick="() => Sip(slotIndex)">
+                    <span class="belt-icon">@(slot.FlaskId == "flask_prayer" ? "🧪" : "❤")</span>
+                    <span class="belt-pips">@SipPips(slot)</span>
                 </button>
             }
-            <button class="belt-slot @VengClass"
-                    title="@VengTitle"
-                    disabled="@(_busy || !VengReady)"
-                    @onclick="Veng">
-                <span class="belt-icon">💢</span>
-                <span class="belt-label">@VengLabel</span>
+        </div>
+
+        @* ── Attack the current target: boss by default, or a tapped add. ── *@
+        <div class="hud-row hud-target-row">
+            <button class="attack-target-btn @(State.PlayerCooldown == 0 && !State.HoldPosition ? "qs-ready" : "") @QueuedClass(State.QueuedAction != null)"
+                    title="Attack @TargetName" disabled="@_busy" @onclick="Attack">
+                <span class="atk-target-icon">⚔</span>
+                <span class="atk-target-text">
+                    <span class="atk-target-label">ATTACK</span>
+                    <span class="atk-target-name">@TargetName</span>
+                </span>
             </button>
         </div>
 
-        @* ── Attack the targeted enemy: a move order suspends attacking
-             (but never changes who's targeted — 1v1, there's only ever the
-             one enemy) until re-engaged. This button re-engages and attacks
-             in one press, same as clicking the enemy or a weapon slot. ── *@
-        @if (State.ActiveNpc is { } target)
-        {
-            <div class="hud-row hud-target-row">
-                <button class="attack-target-btn @(State.PlayerCooldown == 0 && !State.HoldPosition ? "qs-ready" : "") @QueuedClass(State.QueuedAction != null)"
-                        title="Attack @target.Template.Name" disabled="@_busy" @onclick="Attack">
-                    <span class="atk-target-icon">⚔</span>
-                    <span class="atk-target-text">
-                        <span class="atk-target-label">ATTACK</span>
-                        <span class="atk-target-name">@target.Template.Name</span>
-                    </span>
-                </button>
-            </div>
-        }
-
-        @* ── Row 2: weapons ── *@
+        @* ── Weapon action bar (RS3-style, UI bible §4): sourced from the bound Loadout, not inventory ── *@
         <div class="hud-row hud-weapons">
             @{ var weaponSlots = WeaponSlots().ToList(); }
-            @if (weaponSlots.Count == 0)
+            @foreach (var slot in weaponSlots)
             {
-                <button class="quickslot qs-primary @(State.PlayerCooldown == 0 ? "qs-ready" : "") @QueuedClass(State.QueuedAction != null)"
-                        title="Attack" disabled="@_busy" @onclick="Attack">
-                    <span class="qs-cd-fill" style="height:@(CooldownPct(null))%"></span>
-                    <span class="qs-icon">⚔</span>
-                    <span class="qs-label">ATTACK</span>
-                </button>
-            }
-            else
-            {
-                @foreach (var slot in weaponSlots)
+                var slotLocal = slot;
+                @if (slot.WeaponId is null)
                 {
-                    var depleted  = SpecDepleted(slot.WeaponId);
-                    var slotLocal = slot;
-                    <button @key="slot.WeaponId" class="quickslot @(slot.IsPrimary ? "qs-primary" : "") @(slot.IsPrimary && State.PlayerCooldown == 0 ? "qs-ready" : "") @(depleted ? "qs-spec-depleted" : "") @QueuedClass(slot.IsQueued)"
+                    <button class="quickslot qs-empty" title="Empty slot — bind in the Loadout Editor" disabled>
+                        <span class="qs-icon">—</span>
+                    </button>
+                }
+                else
+                {
+                    <button @key="slot.WeaponId" class="quickslot @(slot.IsPrimary ? "qs-primary" : "") @(slot.IsPrimary && State.PlayerCooldown == 0 ? "qs-ready" : "") @(slot.SpecDepleted ? "qs-spec-depleted" : "") @QueuedClass(slot.IsQueued)"
                             title="@slot.Label"
                             disabled="@_busy"
-                            @onclick="() => WeaponShortcut(slotLocal.WeaponId)">
+                            @onclick="() => WeaponShortcut(slotLocal.WeaponId!)">
                         @if (slot.IsPrimary)
                         {
                             <span class="qs-cd-fill" style="height:@(CooldownPct(slot.WeaponId))%"></span>
                         }
-                        @if (_specCosts.TryGetValue(slot.WeaponId, out int cost))
+                        @if (slot.SpecCost is { } cost)
                         {
                             <span class="qs-spec-badge">@cost%</span>
                         }
@@ -117,13 +74,17 @@
                     </button>
                 }
             }
+            <button class="quickslot qs-special" title="Special attack" disabled="@_busy" @onclick="Spec">
+                <span class="qs-spec-fill" style="height:@(State.Player!.SpecialEnergy)%"></span>
+                <span class="qs-icon">⚡</span>
+            </button>
         </div>
 
-        @* ── Row 3: prayers + style ── *@
+        @* ── Prayers + style ── *@
         <div class="hud-row hud-prayers">
             @{
                 var activeProt  = State.Player?.ActiveProtection ?? ProtectionPrayer.None;
-                var pietyActive = State.Player?.PietyActive == true;
+                var boostActive = State.Player?.BoostPrayerActive == true;
                 var noPrayer    = (State.Player?.PrayerPoints ?? 0) <= 0;
             }
             <button class="quickslot pray-slot @(activeProt == ProtectionPrayer.Melee ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
@@ -138,9 +99,9 @@
                     title="Protect from Magic" disabled="@_busy" @onclick='() => Protect("protect_magic")'>
                 <span class="qs-icon">✦</span><span class="qs-label">MAGIC</span>
             </button>
-            <button class="quickslot pray-slot @(pietyActive ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
-                    title="Piety — +20% Atk/Str, drains prayer faster" disabled="@_busy" @onclick="Piety">
-                <span class="qs-icon">⚡</span><span class="qs-label">PIETY</span>
+            <button class="quickslot pray-slot @(boostActive ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
+                    title="Boost prayer — +20% damage, drains prayer" disabled="@_busy" @onclick="Boost">
+                <span class="qs-icon">⚡</span><span class="qs-label">BOOST</span>
             </button>
             <button class="quickslot pray-slot" title="Cycle combat style" disabled="@_busy" @onclick="CycleStyle">
                 <span class="qs-icon">🎯</span><span class="qs-label">@CurrentStyleLabel</span>
@@ -150,23 +111,11 @@
     else
     {
         <div class="hud-row hud-nav">
-            <button class="quickslot nav-slot" title="Duel Arena" @onclick="() => OnOpenLadder.InvokeAsync()">
-                <span class="qs-icon">⚔</span><span class="qs-label">ARENA</span>
-            </button>
-            <button class="quickslot nav-slot" title="Shop" @onclick="() => OnOpenShop.InvokeAsync()">
-                <span class="qs-icon">🏪</span><span class="qs-label">SHOP</span>
-            </button>
-            <button class="quickslot nav-slot" title="Bank — store items" @onclick="() => OnOpenBank.InvokeAsync()">
-                <span class="qs-icon">🏦</span><span class="qs-label">BANK</span>
-            </button>
             <button class="quickslot nav-slot" title="Bag — inventory & equipment" @onclick="() => OnOpenBag.InvokeAsync()">
                 <span class="qs-icon">🎒</span><span class="qs-label">BAG</span>
             </button>
             <button class="quickslot nav-slot" title="Character sheet" @onclick="() => OnOpenCharacter.InvokeAsync()">
                 <span class="qs-icon">📜</span><span class="qs-label">CHAR</span>
-            </button>
-            <button class="quickslot nav-slot" title="Collection Log" @onclick="() => OnOpenLog.InvokeAsync()">
-                <span class="qs-icon">📖</span><span class="qs-label">LOG</span>
             </button>
         </div>
     }
@@ -177,64 +126,31 @@
     // "dock" = bottom grid in the portrait hub; "float" = RS3-style floating
     // clusters over the full-bleed fight (same buttons, positioned by CSS).
     [Parameter] public string Layout { get; set; } = "dock";
-    [Parameter] public EventCallback OnOpenShop { get; set; }
-    [Parameter] public EventCallback OnOpenLadder { get; set; }
-    [Parameter] public EventCallback OnOpenLog { get; set; }
     [Parameter] public EventCallback OnOpenBag { get; set; }
     [Parameter] public EventCallback OnOpenCharacter { get; set; }
-    [Parameter] public EventCallback OnOpenBank { get; set; }
 
     private bool _busy;
 
-    private static readonly Dictionary<string, string> _shorthands = new()
-    {
-        ["armadyl_godsword"]   = "AGS",
-        ["bandos_godsword"]    = "BGS",
-        ["zamorak_godsword"]   = "ZGS",
-        ["saradomin_godsword"] = "SGS",
-        ["dragon_dagger"]      = "DDS",
-        ["dragon_claws"]       = "CLAWS",
-        ["abyssal_whip"]       = "WHIP",
-        ["scythe_of_vitur"]    = "SCYTHE",
-        ["corrupted_whip"]     = "C.WHIP",
-        ["granite_maul"]       = "G.MAUL",
-        ["abyssal_bludgeon"]   = "BLUDGN",
-        ["elder_maul"]         = "E.MAUL",
-        ["zamorakian_hasta"]   = "HASTA",
-        ["ghrazi_rapier"]      = "RAPIER",
-        ["venomous_fang"]      = "FANG",
-    };
-
-    private static readonly string[] _weaponOrder =
-    [
-        "rune_scimitar", "dragon_scimitar", "dragon_dagger", "granite_maul",
-        "abyssal_whip", "zamorakian_hasta", "armadyl_sword", "dragon_claws",
-        "abyssal_bludgeon", "bandos_godsword", "zamorak_godsword", "ghrazi_rapier",
-        "saradomin_godsword", "armadyl_godsword", "elder_maul", "scythe_of_vitur",
-        "corrupted_whip", "venomous_fang",
-    ];
-
-    private static readonly HashSet<string> _knownWeaponIds = new(_weaponOrder);
-
     private static readonly Dictionary<string, int> _specCosts = new()
     {
-        ["dragon_dagger"]      = 25,
-        ["corrupted_whip"]     = 25,
-        ["dragon_claws"]       = 50,
-        ["bandos_godsword"]    = 50,
-        ["zamorak_godsword"]   = 50,
-        ["saradomin_godsword"] = 50,
-        ["armadyl_godsword"]   = 50,
-        ["granite_maul"]       = 50,
-        ["abyssal_bludgeon"]   = 50,
-        ["elder_maul"]         = 50,
-        ["scythe_of_vitur"]    = 100,
+        ["wpn_melee_t1"]  = 25, ["wpn_ranged_t1"] = 25, ["wpn_magic_t1"] = 25,
+        ["wpn_melee_t2"]  = 40, ["wpn_ranged_t2"] = 40, ["wpn_magic_t2"] = 40,
     };
 
-    private int FoodCount(string id) => State?.Player?.Inventory.Count(i => i == id) ?? 0;
+    private string TargetName => State?.CurrentTargetAdd is { } add
+        ? "Maggot Swarm"
+        : State?.ActiveNpc?.Template.Name ?? "—";
 
-    // Cooldown fill: % of the primary weapon's attack speed still remaining.
-    // Eat-delays can push PlayerCooldown above the weapon speed — clamp at 100.
+    private string FlaskTitle(FlaskSlotState slot) => slot.FlaskId switch
+    {
+        "flask_health" => "Health Flask — restores 40 HP",
+        "flask_prayer" => "Prayer Flask — restores 40 prayer",
+        _ => "Empty slot — bind in the Loadout Editor",
+    };
+
+    private static string SipPips(FlaskSlotState slot) =>
+        slot.FlaskId is null ? "" : string.Concat(Enumerable.Range(0, slot.MaxSips).Select(i => i < slot.SipsRemaining ? "●" : "○"));
+
     private int CooldownPct(string? weaponId)
     {
         int cd = State?.PlayerCooldown ?? 0;
@@ -243,62 +159,30 @@
         return Math.Clamp(cd * 100 / Math.Max(1, speed), 0, 100);
     }
 
-    private bool VengReady => State is { VengActive: false, VengCooldownRounds: 0 };
-    private string VengClass => State?.VengActive == true ? "qs-active"
-        : (State?.VengCooldownRounds ?? 0) > 0 ? "qs-spec-depleted" : "";
-    private string VengLabel => State?.VengActive == true ? "ARMED"
-        : (State?.VengCooldownRounds ?? 0) > 0 ? $"VENG {State!.VengCooldownRounds}" : "VENG";
-    private string VengTitle => State?.VengActive == true
-        ? "Vengeance armed — next hit taken reflects 75%"
-        : "Vengeance — reflect 75% of the next hit taken";
-
-    // Pulsing ring on the button whose action is armed for the next tick;
-    // spec-colored when the queued action is a special. Clears by itself —
-    // ProcessTick nulls QueuedAction the moment the attack fires.
     private string QueuedClass(bool isQueued) =>
         !isQueued ? ""
         : State?.QueuedAction == "spec" ? "qs-queued qs-queued-spec"
         : "qs-queued";
 
-    private bool SpecDepleted(string weaponId) =>
-        _specCosts.TryGetValue(weaponId, out int cost) &&
-        (State?.Player?.SpecialEnergy ?? 100) < cost;
-
     private IEnumerable<WeaponSlotDef> WeaponSlots()
     {
         if (State?.Player is not { } player) yield break;
-
         var equippedId = player.GetEquippedWeaponId();
         var primaryId  = State?.RevertWeaponId ?? equippedId;
-        var queuedId   = State?.RevertWeaponId != null ? equippedId : null;
 
-        // Slot 1 is always the primary (auto-attack) weapon. It's the queued
-        // button when an action is armed WITHOUT a weapon swap (pressing your
-        // own main weapon / ATTACK mid-cooldown).
-        if (primaryId is not null && _knownWeaponIds.Contains(primaryId))
-            yield return MakeSlot(primaryId, isPrimary: true,
-                isQueued: queuedId is null && State?.QueuedAction != null);
-
-        // Every other weapon stays in its natural, stable position — only the
-        // queued flag (dashed amber border) toggles in place, nothing reorders.
-        // Use HasItem (inventory OR equipped): the queued weapon is temporarily
-        // equipped by WeaponShortcutHandler, so it's briefly out of Inventory —
-        // checking Inventory alone would make it vanish from the row entirely.
-        foreach (var id in _weaponOrder)
+        for (int i = 0; i < 4; i++)
         {
-            if (id == primaryId) continue;
-            if (player.HasItem(id))
-                yield return MakeSlot(id, isPrimary: false, isQueued: id == queuedId);
+            var boundId = player.Loadout.WeaponSlots.ElementAtOrDefault(i);
+            bool isPrimary = boundId is not null && boundId == primaryId;
+            bool isQueued  = isPrimary && State?.QueuedAction != null;
+            bool depleted  = boundId is not null && _specCosts.TryGetValue(boundId, out int cost) && (State?.Player?.SpecialEnergy ?? 100) < cost;
+            int? specCost  = boundId is not null && _specCosts.TryGetValue(boundId, out int c) ? c : null;
+            yield return new WeaponSlotDef(boundId, Label(boundId), isPrimary, isQueued, depleted, specCost);
         }
     }
 
-    private static WeaponSlotDef MakeSlot(string weaponId, bool isPrimary, bool isQueued)
-    {
-        var label = _shorthands.TryGetValue(weaponId, out var sh)
-            ? sh
-            : weaponId.Replace("_", " ").ToUpperInvariant();
-        return new WeaponSlotDef(weaponId, label, isPrimary, isQueued);
-    }
+    private static string Label(string? weaponId) =>
+        weaponId is null ? "" : weaponId.Replace("wpn_", "").Replace("_", " ").ToUpperInvariant();
 
     private string CurrentStyleLabel => State?.Player?.ChosenStyle switch
     {
@@ -328,12 +212,11 @@
     }
 
     private Task Attack()                  => Run(() => GameSvc.DispatchAsync(new AttackCommand(GameSvc.PlayerId!, AttackStyle.Accurate)));
+    private Task Spec()                    => Run(() => GameSvc.DispatchAsync(new AttackCommand(GameSvc.PlayerId!, AttackStyle.Accurate, UseSpecial: true)));
     private Task WeaponShortcut(string id) => Run(() => GameSvc.DispatchAsync(new WeaponShortcutCommand(GameSvc.PlayerId!, id)));
     private Task Protect(string prayer)    => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, prayer)));
-    private Task Piety()                   => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, "piety")));
-    private Task Eat(string id)            => Run(() => GameSvc.DispatchAsync(new EatItemCommand(GameSvc.PlayerId!, id)));
-    private Task Drink(string id)          => Run(() => GameSvc.DispatchAsync(new DrinkPotionCommand(GameSvc.PlayerId!, id)));
-    private Task Veng()                    => Run(() => GameSvc.DispatchAsync(new VengeanceCommand(GameSvc.PlayerId!)));
+    private Task Boost()                   => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, "boost")));
+    private Task Sip(int slot)             => Run(() => GameSvc.DispatchAsync(new SipFlaskCommand(GameSvc.PlayerId!, slot)));
 
-    private sealed record WeaponSlotDef(string WeaponId, string Label, bool IsPrimary, bool IsQueued);
+    private sealed record WeaponSlotDef(string? WeaponId, string Label, bool IsPrimary, bool IsQueued, bool SpecDepleted, int? SpecCost);
 }

@@ -6,30 +6,25 @@
 <div class="duel-result-overlay">
     <div class="duel-result-panel">
         <div class="duel-result-header @(Summary.Won ? "result-win glow-yellow" : "result-lose glow-red")">
-            @(Summary.Won ? "YOU WIN" : "YOU LOSE")
+            @(Summary.Won ? "YOU WIN" : "DEFEATED")
         </div>
         <div class="duel-result-npc">vs @Summary.NpcName</div>
+
+        @if (!Summary.Won && Summary.KilledBy is { } killedBy)
+        {
+            <div class="duel-result-row result-killedby">Killed by: @killedBy</div>
+        }
 
         @if (Summary.Won && Summary.Flawless)
         {
             <div class="duel-result-flawless">⭐ FLAWLESS ⭐</div>
         }
-        @if (Summary.EndlessWaveReached > 0)
-        {
-            <div class="duel-result-row">Reached wave <b>@Summary.EndlessWaveReached</b></div>
-        }
+
+        <div class="duel-result-row">Kill time: <b>@KillTimeLabel</b>@(Summary.PersonalBest ? " — NEW BEST!" : "")</div>
 
         @if (Summary.GoldGained > 0)
         {
             <div class="duel-result-row result-gold">+@Summary.GoldGained.ToString("N0")g</div>
-        }
-        @if (Summary.XpGained > 0)
-        {
-            <div class="duel-result-row result-xp">+@Summary.XpGained.ToString("N0") xp</div>
-        }
-        @if (Summary.Won && Summary.WinStreak > 1)
-        {
-            <div class="duel-result-row result-streak">Win streak: @Summary.WinStreak</div>
         }
 
         @if (Summary.LootItemIds.Count > 0)
@@ -46,11 +41,11 @@
         }
 
         <div class="duel-result-actions">
-            <button class="quickslot result-btn" @onclick="() => OnContinue.InvokeAsync()">CONTINUE</button>
             @if (ShowRetry)
             {
-                <button class="quickslot result-btn" @onclick="() => OnRetry.InvokeAsync()">@RetryLabel</button>
+                <button class="quickslot result-btn result-btn-primary" @onclick="() => OnRetry.InvokeAsync()">@RetryLabel</button>
             }
+            <button class="quickslot result-btn" @onclick="() => OnContinue.InvokeAsync()">LEAVE</button>
         </div>
     </div>
 </div>
@@ -61,6 +56,8 @@
     [Parameter] public EventCallback OnRetry { get; set; }
     [Parameter] public bool ShowRetry { get; set; }
     [Parameter] public string RetryLabel { get; set; } = "RETRY";
+
+    private string KillTimeLabel => $"{(Summary.KillTimeTicks * 0.6):F1}s";
 
     private static string ShortName(string id) =>
         string.Join(" ", id.Split('_').Select(w => char.ToUpper(w[0]) + w[1..]));

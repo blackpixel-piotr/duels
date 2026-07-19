@@ -5,10 +5,6 @@
     <div class="panel-title">Character</div>
     @if (State?.Player is { } p)
     {
-        @if (p.PrestigeLevel > 0)
-        {
-            <div class="stat-phat stat-phat-@p.PrestigeLevel">@PhatLabel(p.PrestigeLevel)</div>
-        }
         <div class="stat-name">@p.Name</div>
         <div class="stat-row">
             <span class="stat-label">HP</span>
@@ -17,27 +13,8 @@
             </div>
             <span class="stat-val">@p.CurrentHp / @p.MaxHp</span>
         </div>
-        <div class="stat-row">
-            <span class="stat-label">Atk</span>
-            <div class="xp-bar-wrap"><div class="xp-bar" style="width: @XpPct(p.AttackXp)%"></div></div>
-            <span class="stat-val">@BoostVal(p.AttackLevel, p.CombatBoostRoundsLeft)</span>
-        </div>
-        <div class="stat-row">
-            <span class="stat-label">Str</span>
-            <div class="xp-bar-wrap"><div class="xp-bar" style="width: @XpPct(p.StrengthXp)%"></div></div>
-            <span class="stat-val">@BoostVal(p.StrengthLevel, p.CombatBoostRoundsLeft)</span>
-        </div>
-        <div class="stat-row">
-            <span class="stat-label">Def</span>
-            <div class="xp-bar-wrap"><div class="xp-bar" style="width: @XpPct(p.DefenceXp)%"></div></div>
-            <span class="stat-val">@p.DefenceLevel</span>
-        </div>
         <div class="stat-row"><span class="stat-label">Style</span><span class="stat-val stat-style">@StyleLabel(p.ChosenStyle)</span></div>
         <div class="stat-row"><span class="stat-label">Gold</span><span class="stat-val">@p.Gold gp</span></div>
-        @if (p.CombatBoostRoundsLeft > 0)
-        {
-            <div class="stat-row"><span class="stat-label">Boost</span><span class="stat-val stat-boosted">@p.CombatBoostRoundsLeft rds</span></div>
-        }
         <div class="stat-row">
             <span class="stat-label">Special</span>
             <div class="spec-bar-wrap">
@@ -56,25 +33,13 @@
         {
             <div class="stat-row"><span class="stat-label">Protect</span><span class="stat-val stat-prayer">⛉ @p.ActiveProtection</span></div>
         }
-        @if (p.PietyActive)
+        @if (p.BoostPrayerActive)
         {
-            <div class="stat-row"><span class="stat-label">Piety</span><span class="stat-val stat-piety">⚡ ON</span></div>
+            <div class="stat-row"><span class="stat-label">Boost</span><span class="stat-val stat-piety">⚡ ON</span></div>
         }
-        @if (State.WinStreak > 1)
+        @if (p.PersonalBestKillTicks is { } best)
         {
-            <div class="stat-row"><span class="stat-label">Streak</span><span class="stat-val stat-streak">@State.WinStreak ×@(State.WinStreakMultiplier.ToString("F1"))</span></div>
-        }
-        @if (State.VengActive)
-        {
-            <div class="stat-row"><span class="stat-label">Veng</span><span class="stat-val stat-veng">READY</span></div>
-        }
-        @if (State.BestEndlessWave > 0)
-        {
-            <div class="stat-row"><span class="stat-label">Best</span><span class="stat-val">Wave @State.BestEndlessWave</span></div>
-        }
-        @if (State.InEndlessMode)
-        {
-            <div class="stat-row"><span class="stat-label">Wave</span><span class="stat-val stat-streak">@State.EndlessWave</span></div>
+            <div class="stat-row"><span class="stat-label">Best kill</span><span class="stat-val">@((best * 0.6).ToString("F1"))s</span></div>
         }
         @if (State.BleedTicksLeft > 0)
         {
@@ -97,26 +62,10 @@
     private static int HpPercent(Duels.Domain.Entities.Player p) =>
         p.MaxHp == 0 ? 0 : (int)(p.CurrentHp * 100.0 / p.MaxHp);
 
-    private static string BoostVal(int base_, int boostRounds)
-    {
-        if (boostRounds <= 0) return base_.ToString();
-        int boosted = (int)(base_ * 1.15) + 5;
-        return $"{boosted}↑";
-    }
-
-    private static string PhatLabel(int level) => level switch
-    {
-        1 => "[Red Phat]",
-        2 => "[Blue Phat]",
-        _ => "[White Phat]"
-    };
-
-    private static int XpPct(int xp) => Duels.Domain.Services.ExperienceTable.ProgressPercent(xp);
-
     private static string StyleLabel(AttackStyle style) => style switch
     {
-        AttackStyle.Aggressive => "AGG (Str)",
-        AttackStyle.Defensive  => "DEF (Def)",
-        _                      => "ACC (Atk)",
+        AttackStyle.Aggressive => "AGGRESSIVE",
+        AttackStyle.Defensive  => "DEFENSIVE",
+        _                      => "ACCURATE",
     };
 }

@@ -11,10 +11,7 @@
 @using Duels.Web.Components.Hud
 @using Duels.Web.Components.Hub
 @using Duels.Web.Components.Bag
-@using Duels.Web.Components.Shop
-@using Duels.Web.Components.Ladder
-@using Duels.Web.Components.Log
-@using Duels.Web.Components.Bank
+@using Duels.Web.Components.Loadout
 
 @if (!GameSvc.IsStarted)
 {
@@ -23,22 +20,6 @@
 else
 {
     <div class="game-shell">
-        @if (_shopOpen)
-        {
-            <ShopModal State="@_state"
-                       OnClose="@(() => { _shopOpen = false; StateHasChanged(); })" />
-        }
-        @if (_ladderOpen)
-        {
-            <NpcLadderModal State="@_state"
-                            OnClose="@(() => { _ladderOpen = false; StateHasChanged(); })"
-                            OnDuelStarted="HandleDuelStarted" />
-        }
-        @if (_logOpen)
-        {
-            <CollectionLogModal State="@_state"
-                                 OnClose="@(() => { _logOpen = false; StateHasChanged(); })" />
-        }
         @if (_bagOpen)
         {
             <BagSheet State="@_state"
@@ -49,10 +30,10 @@ else
             <CharacterSheet State="@_state"
                             OnClose="@(() => { _charOpen = false; StateHasChanged(); })" />
         }
-        @if (_bankOpen)
+        @if (_loadoutOpen)
         {
-            <BankModal State="@_state"
-                       OnClose="@(() => { _bankOpen = false; StateHasChanged(); })" />
+            <LoadoutEditor State="@_state"
+                           OnClose="@(() => { _loadoutOpen = false; StateHasChanged(); })" />
         }
 
         @if (_state?.InDuel == true || _duelResult is not null)
@@ -71,7 +52,7 @@ else
                 {
                     <DuelResultOverlay Summary="@_duelResult"
                                        ShowRetry="@CanRetry"
-                                       RetryLabel="@RetryLabel"
+                                       RetryLabel="RETRY"
                                        OnContinue="@(() => { _duelResult = null; StateHasChanged(); })"
                                        OnRetry="RetryDuel" />
                 }
@@ -83,37 +64,25 @@ else
             <StatusStrip State="@_state" />
             <HubMenu State="@_state"
                      Processing="@_processing"
-                     RetryLabel="@RetryLabel"
-                     OnTestFight="StartTestFight"
-                     OnTestBoss="StartBossTestFight"
-                     OnArena="@(() => { _ladderOpen = true; StateHasChanged(); })"
-                     OnEndless="StartEndless"
-                     OnShop="@(() => { _shopOpen = true; StateHasChanged(); })"
+                     OnFight="StartMaggotKingFight"
                      OnRetry="RetryDuel"
-                     OnPrestige="Prestige"
-                     OnBeg="Beg" />
+                     OnOpenLoadout="@(() => { _loadoutOpen = true; StateHasChanged(); })"
+                     OnGrantDevLoadout="GrantDevLoadout" />
 
             <ActionHud State="@_state" Layout="dock"
-                       OnOpenShop="@(() => { _shopOpen = true; StateHasChanged(); })"
-                       OnOpenLadder="@(() => { _ladderOpen = true; StateHasChanged(); })"
-                       OnOpenLog="@(() => { _logOpen = true; StateHasChanged(); })"
                        OnOpenBag="@(() => { _bagOpen = true; StateHasChanged(); })"
-                       OnOpenCharacter="@(() => { _charOpen = true; StateHasChanged(); })"
-                       OnOpenBank="@(() => { _bankOpen = true; StateHasChanged(); })" />
+                       OnOpenCharacter="@(() => { _charOpen = true; StateHasChanged(); })" />
         }
     </div>
 }
 
 @code {
     private GameState? _state;
-    private bool _shopOpen   = false;
-    private bool _ladderOpen = false;
-    private bool _logOpen    = false;
-    private bool _bagOpen    = false;
-    private bool _charOpen   = false;
-    private bool _bankOpen   = false;
-    private bool _processing = false;
-    private bool _wasDueling = false;
+    private bool _bagOpen     = false;
+    private bool _charOpen    = false;
+    private bool _loadoutOpen = false;
+    private bool _processing  = false;
+    private bool _wasDueling  = false;
     private DuelSummary? _duelResult;
 
     protected override async Task OnInitializedAsync()
@@ -132,9 +101,9 @@ else
     private void OnStateChanged() => InvokeAsync(StateHasChanged);
 
     // Persistence cadence (M0): GameService.DispatchAsync skips high-frequency
-    // in-duel commands, so the duel's outcome (gold/xp/loot/hp) is only ever
-    // guaranteed to disk from here — once when the duel ends, and every
-    // PersistEveryNTicks as a safety net against a hard crash mid-fight.
+    // in-duel commands, so the duel's outcome is only ever guaranteed to disk
+    // from here — once when the duel ends, and every PersistEveryNTicks as a
+    // safety net against a hard crash mid-fight.
     private const int PersistEveryNTicks = 10; // ~6s at the 0.6s tick
     private int _ticksSinceLastPersist = 0;
 
@@ -161,56 +130,26 @@ else
         });
     }
 
-    private async Task HandleDuelStarted()
+    private async Task StartMaggotKingFight()
     {
-        _ladderOpen = false;
-        await SyncTickService(_wasDueling);
-        StateHasChanged();
+        if (_processing || GameSvc.PlayerId is null) return;
+        await RunDuelAction(() =>
+            GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, "maggot_king")));
     }
 
     private async Task RetryDuel()
     {
         if (_processing || GameSvc.PlayerId is null || _state?.LastOpponentId is null) return;
         await RunDuelAction(() =>
-            GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, _state!.LastOpponentId!, RetryWager)));
+            GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, _state!.LastOpponentId!)));
     }
 
-    private async Task StartTestFight()
-    {
-        if (_processing || GameSvc.PlayerId is null) return;
-        await RunDuelAction(() =>
-            GameSvc.DispatchAsync(new StartTestFightCommand(GameSvc.PlayerId!)));
-    }
-
-    private async Task StartBossTestFight()
-    {
-        if (_processing || GameSvc.PlayerId is null) return;
-        await RunDuelAction(() =>
-            GameSvc.DispatchAsync(new StartTestFightCommand(GameSvc.PlayerId!, "maggot_king")));
-    }
-
-    private async Task StartEndless()
-    {
-        if (_processing || GameSvc.PlayerId is null) return;
-        await RunDuelAction(() =>
-            GameSvc.DispatchAsync(new StartEndlessCommand(GameSvc.PlayerId!)));
-    }
-
-    private async Task Prestige()
+    private async Task GrantDevLoadout(int tier)
     {
         if (_processing || GameSvc.PlayerId is null) return;
         _processing = true;
         StateHasChanged();
-        try { await GameSvc.DispatchAsync(new PrestigeCommand(GameSvc.PlayerId!)); }
-        finally { _processing = false; StateHasChanged(); }
-    }
-
-    private async Task Beg()
-    {
-        if (_processing || GameSvc.PlayerId is null) return;
-        _processing = true;
-        StateHasChanged();
-        try { await GameSvc.DispatchAsync(new BegCommand(GameSvc.PlayerId!)); }
+        try { await GameSvc.DispatchAsync(new GrantDevLoadoutCommand(GameSvc.PlayerId!, tier, "Warbound")); }
         finally { _processing = false; StateHasChanged(); }
     }
 
@@ -249,16 +188,7 @@ else
         }
     }
 
-    private int RetryWager =>
-        (_state?.LastWager ?? 0) > 0 && (_state?.Player?.Gold ?? 0) >= _state!.LastWager
-            ? _state!.LastWager : 0;
-
-    // Endless waves use synthetic npc ids that can't be re-duelled directly.
-    private bool CanRetry =>
-        _state?.LastOpponentId is { } id && !id.StartsWith("endless_");
-
-    private string RetryLabel =>
-        RetryWager > 0 ? $"RETRY ({RetryWager:N0}g)" : "RETRY";
+    private bool CanRetry => _state?.LastOpponentId is not null;
 
     public void Dispose()
     {

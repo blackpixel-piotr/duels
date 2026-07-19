@@ -1,0 +1,116 @@
+@using Duels.Application.GameSession
+@using Duels.Application.Abstractions
+@using Duels.Application.Commands
+@inject Duels.Web.Services.GameService GameSvc
+@inject IItemRepository ItemRepo
+
+@* Minimal Loadout Editor (UI bible §4.1): 4-slot action bar + 2-slot flask
+   belt, tap-to-bind / tap-to-clear. Manual binding only — the bar is locked
+   the moment a fight starts. *@
+<div class="shop-overlay" @onclick="OnClose">
+    <div class="shop-panel loadout-panel" @onclick:stopPropagation>
+        <div class="shop-header">
+            <span class="shop-title">Loadout Editor</span>
+            <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
+        </div>
+        <div class="loadout-body">
+            <div class="loadout-bar">
+                <div class="panel-title">Action Bar</div>
+                @for (int i = 0; i < 4; i++)
+                {
+                    var slot = i;
+                    var boundId = State?.Player?.Loadout.WeaponSlots.ElementAtOrDefault(slot);
+                    <button class="loadout-slot @(_editingWeaponSlot == slot ? "loadout-slot-active" : "")" @onclick="() => SelectWeaponSlot(slot)">
+                        <span class="loadout-slot-label">Slot @(slot + 1)</span>
+                        <span class="loadout-slot-item">@(boundId is null ? "empty" : Name(boundId))</span>
+                        @if (boundId is not null)
+                        {
+                            <span class="loadout-slot-clear" @onclick:stopPropagation @onclick="() => BindWeapon(slot, null)">✕</span>
+                        }
+                    </button>
+                }
+            </div>
+            @if (_editingWeaponSlot is { } editing)
+            {
+                <div class="loadout-picker">
+                    <div class="panel-title">Choose a weapon for Slot @(editing + 1)</div>
+                    @foreach (var id in OwnedWeapons())
+                    {
+                        <button class="loadout-pick-item" @onclick="() => BindWeapon(editing, id)">@Name(id)</button>
+                    }
+                    @if (!OwnedWeapons().Any())
+                    {
+                        <div class="loadout-pick-empty">No weapons owned — grab a dev loadout first.</div>
+                    }
+                </div>
+            }
+
+            <div class="loadout-bar">
+                <div class="panel-title">Flask Belt</div>
+                @for (int i = 0; i < 2; i++)
+                {
+                    var slot = i;
+                    var boundId = State?.Player?.Loadout.FlaskSlots.ElementAtOrDefault(slot);
+                    <button class="loadout-slot @(_editingFlaskSlot == slot ? "loadout-slot-active" : "")" @onclick="() => SelectFlaskSlot(slot)">
+                        <span class="loadout-slot-label">Flask @(slot + 1)</span>
+                        <span class="loadout-slot-item">@(boundId is null ? "empty" : Name(boundId))</span>
+                        @if (boundId is not null)
+                        {
+                            <span class="loadout-slot-clear" @onclick:stopPropagation @onclick="() => BindFlask(slot, null)">✕</span>
+                        }
+                    </button>
+                }
+            </div>
+            @if (_editingFlaskSlot is { } editingFlask)
+            {
+                <div class="loadout-picker">
+                    <div class="panel-title">Choose a flask for Slot @(editingFlask + 1)</div>
+                    @foreach (var id in OwnedFlasks())
+                    {
+                        <button class="loadout-pick-item" @onclick="() => BindFlask(editingFlask, id)">@Name(id)</button>
+                    }
+                    @if (!OwnedFlasks().Any())
+                    {
+                        <div class="loadout-pick-empty">No flasks owned — grab a dev loadout first.</div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private int? _editingWeaponSlot;
+    private int? _editingFlaskSlot;
+
+    private void SelectWeaponSlot(int slot) { _editingWeaponSlot = _editingWeaponSlot == slot ? null : slot; _editingFlaskSlot = null; }
+    private void SelectFlaskSlot(int slot) { _editingFlaskSlot = _editingFlaskSlot == slot ? null : slot; _editingWeaponSlot = null; }
+
+    private List<string> OwnedWeapons() =>
+        (State?.Player?.Inventory ?? Array.Empty<string>())
+            .Concat(State?.Player?.Equipped.Values ?? Array.Empty<string>())
+            .Distinct().Where(id => ItemRepo.IsWeapon(id)).ToList();
+
+    private static readonly string[] KnownFlasks = ["flask_health", "flask_prayer"];
+    private List<string> OwnedFlasks() =>
+        KnownFlasks.Where(id => State?.Player?.HasItem(id) == true).ToList();
+
+    private string Name(string id) => ItemRepo.GetItemName(id) ?? id;
+
+    private async Task BindWeapon(int slot, string? weaponId)
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new BindWeaponSlotCommand(GameSvc.PlayerId, slot, weaponId));
+        _editingWeaponSlot = null;
+    }
+
+    private async Task BindFlask(int slot, string? flaskId)
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new BindFlaskSlotCommand(GameSvc.PlayerId, slot, flaskId));
+        _editingFlaskSlot = null;
+    }
+}

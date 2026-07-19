@@ -11,14 +11,6 @@ public sealed class GameState
     public bool InDuel => ActiveNpc is { IsAlive: true };
     public string? LastOpponentId { get; private set; }
     public List<CombatLogEntry> CombatLog { get; } = new();
-    // maggot_king is a standalone boss (not on the ladder) — open from the start.
-    public List<string> UnlockedOpponents { get; } = ["swashbuckler", "goblin", "maggot_king"];
-
-    // Staking / winstreak
-    public int CurrentWager { get; private set; }
-    public int LastWager { get; private set; }
-    public int WinStreak { get; private set; }
-    public double WinStreakMultiplier => 1.0 + Math.Min(WinStreak * 0.10, 1.0);
 
     // Tick engine
     public int PlayerCooldown { get; private set; }
@@ -27,17 +19,29 @@ public sealed class GameState
     public string? RevertWeaponId { get; private set; }
     public ProtectionPrayer TickStartProtection { get; set; }
 
-    // Arena positions (duel-scoped). Tile grid centered on the arena; melee
-    // combatants must close to adjacency before they can hit.
-    public const int ArenaRadius = 5;
+    // Arena positions (duel-scoped). Fixed 9×9 arena (Boss Bible: Maggot
+    // King) — M1 ships one boss, so the radius isn't per-duel data yet.
+    public const int ArenaRadius = 4;
     public (int X, int Z) PlayerTile { get; private set; }
     public (int X, int Z) NpcTile { get; private set; }
 
-    // Solid obstacles (duel-scoped): walkable tiles that block movement, so the
-    // pathfinder routes around them. They do NOT affect ranged line-of-sight —
-    // movement only. Placed off both spawn tiles and sparse enough never to
-    // disconnect the arena (a BFS reachability test guards this).
-    private static readonly (int X, int Z)[] ObstacleLayout = { (-2, 0), (2, 1), (-1, -2) };
+    // Boss footprint (Boss Bible: the King is 2×2 and pivots, doesn't walk).
+    // NpcTile is the footprint's anchor (min X, min Z) corner.
+    public (int Width, int Height) NpcFootprint { get; private set; } = (1, 1);
+    public bool NpcStationary { get; private set; }
+
+    public IEnumerable<(int X, int Z)> NpcFootprintTiles()
+    {
+        for (int dx = 0; dx < NpcFootprint.Width; dx++)
+            for (int dz = 0; dz < NpcFootprint.Height; dz++)
+                yield return (NpcTile.X + dx, NpcTile.Z + dz);
+    }
+
+    // Solid obstacles (duel-scoped): walkable tiles that block movement.
+    // Empty for M1's only boss (Maggot King's arena has none per the Boss
+    // Bible) — kept as reusable pathfinding infrastructure for future bosses
+    // (e.g. Millstone Golem's player-built rubble walls).
+    private static readonly (int X, int Z)[] ObstacleLayout = Array.Empty<(int, int)>();
     private readonly HashSet<(int X, int Z)> _obstacles = new();
     public IReadOnlyCollection<(int X, int Z)> Obstacles => _obstacles;
     public bool IsObstacle((int X, int Z) tile) => _obstacles.Contains(tile);
@@ -47,81 +51,98 @@ public sealed class GameState
     public bool IsBlocked((int X, int Z) tile, (int X, int Z) occupant) =>
         tile == occupant || _obstacles.Contains(tile);
 
-    // Tile hazards (duel-scoped, boss mechanic — see HazardProfile). Pending
-    // tiles are telegraphed warnings counting down to an eruption; erupted
-    // tiles become pools that damage whoever stands on them at tick end.
-    // Hazards never block pathing — walking THROUGH danger is allowed (and
-    // sometimes correct), only ENDING the tick there costs you.
+    // Tile hazards v2 (m1-plan Workstream C.4): warning fuse -> pool -> scorch
+    // (permanent, walkable, safe — and the Rot Burst's safe tile). Hazards
+    // never block pathing — walking THROUGH danger is allowed, only ENDING
+    // the tick there costs you.
     private readonly List<HazardTile> _hazards = new();
     public IReadOnlyList<HazardTile> Hazards => _hazards;
-    public bool IsPool((int X, int Z) tile) =>
-        _hazards.Any(h => h.Pool && (h.X, h.Z) == tile);
+    public bool IsPool((int X, int Z) tile) => _hazards.Any(h => h.State == HazardState.Pool && (h.X, h.Z) == tile);
+    public bool IsScorch((int X, int Z) tile) => _hazards.Any(h => h.State == HazardState.Scorch && (h.X, h.Z) == tile);
 
-    public void AddHazardWave(IEnumerable<(int X, int Z)> tiles, int warningTicks)
+    /// <summary>Tiles whose warning fuse will expire (erupt) THIS tick — read
+    /// BEFORE movement/TickHazards to detect Perfect Dodge (vacating on the
+    /// final fuse tick).</summary>
+    public List<(int X, int Z)> TilesErupting() =>
+        _hazards.Where(h => h.State == HazardState.Warning && h.TicksLeft == 1).Select(h => (h.X, h.Z)).ToList();
+
+    public void AddHazardWave(IEnumerable<(int X, int Z)> tiles, int warningTicks, int poolTicks)
     {
         foreach (var t in tiles)
             if (!_hazards.Any(h => (h.X, h.Z) == t))
-                _hazards.Add(new HazardTile(t.X, t.Z, Pool: false, TicksLeft: warningTicks));
+                _hazards.Add(new HazardTile(t.X, t.Z, HazardState.Warning, warningTicks, poolTicks));
     }
 
-    /// <summary>Advance all hazards one tick: expired pools vanish, pending
-    /// warnings that hit zero erupt into pools. Returns the tiles that
-    /// erupted THIS tick so the caller can damage whoever stands there.</summary>
-    public List<(int X, int Z)> TickHazards(int poolTicks)
+    /// <summary>Advance all hazards one tick. Warning fuses that hit zero
+    /// erupt into pools (returned so the caller can damage whoever stands
+    /// there); pools that dry out become permanent scorch.</summary>
+    public List<(int X, int Z)> TickHazards()
     {
         var erupted = new List<(int X, int Z)>();
         for (int i = _hazards.Count - 1; i >= 0; i--)
         {
-            var h = _hazards[i] with { TicksLeft = _hazards[i].TicksLeft - 1 };
-            if (h.TicksLeft > 0) { _hazards[i] = h; continue; }
-            if (h.Pool) { _hazards.RemoveAt(i); continue; }
-            erupted.Add((h.X, h.Z));
-            _hazards[i] = h with { Pool = true, TicksLeft = poolTicks };
+            var h = _hazards[i];
+            if (h.State == HazardState.Scorch) continue;
+
+            var next = h with { TicksLeft = h.TicksLeft - 1 };
+            if (next.TicksLeft > 0) { _hazards[i] = next; continue; }
+
+            if (h.State == HazardState.Warning)
+            {
+                erupted.Add((h.X, h.Z));
+                _hazards[i] = h with { State = HazardState.Pool, TicksLeft = h.PoolDurationTicks };
+            }
+            else
+            {
+                _hazards[i] = h with { State = HazardState.Scorch, TicksLeft = 0 };
+            }
         }
         return erupted;
     }
 
     private void ClearHazards() => _hazards.Clear();
 
+    // Swarm adds (m1-plan Workstream C.7)
+    private readonly List<AddInstance> _adds = new();
+    public IReadOnlyList<AddInstance> Adds => _adds;
+    public void SpawnAdd(AddInstance add) => _adds.Add(add);
+    public void RemoveDeadAdds() => _adds.RemoveAll(a => !a.IsAlive);
+
+    /// <summary>Current attack target: null = the boss (default). Tapping an
+    /// add switches it; killing the current add target reverts to the boss.</summary>
+    public string? TargetId { get; private set; }
+    public void SetTarget(string? addId) => TargetId = addId;
+    public AddInstance? CurrentTargetAdd => TargetId is null ? null : _adds.FirstOrDefault(a => a.Id == TargetId && a.IsAlive);
+
     /// <summary>True when a tile is inside the walkable arena square.</summary>
     public static bool InArena((int X, int Z) t) =>
         Math.Abs(t.X) <= ArenaRadius && Math.Abs(t.Z) <= ArenaRadius;
 
-    /// <summary>Chebyshev distance between the combatants (diagonals count 1).</summary>
+    /// <summary>Chebyshev distance to the NEAREST boss footprint tile.</summary>
     public int DistanceToNpc =>
-        Math.Max(Math.Abs(PlayerTile.X - NpcTile.X), Math.Abs(PlayerTile.Z - NpcTile.Z));
+        NpcFootprintTiles().Min(t => Math.Max(Math.Abs(PlayerTile.X - t.X), Math.Abs(PlayerTile.Z - t.Z)));
 
     /// <summary>OSRS melee rule: attacks land only from a CARDINAL neighbour
-    /// tile (N/S/E/W) — never across a diagonal. Longer ranges stay Chebyshev.</summary>
+    /// tile of any footprint tile — never across a diagonal. Longer ranges stay Chebyshev.</summary>
     public bool InAttackRange(int range) =>
         range <= AttackRange.Melee
-            ? Math.Abs(PlayerTile.X - NpcTile.X) + Math.Abs(PlayerTile.Z - NpcTile.Z) == 1
+            ? NpcFootprintTiles().Any(t => Math.Abs(PlayerTile.X - t.X) + Math.Abs(PlayerTile.Z - t.Z) == 1)
             : DistanceToNpc <= range;
-
-    /// <summary>True when the NPC can reach the player with its current style —
-    /// the wind-up cue keys off this so it doesn't fire mid-approach.</summary>
-    public bool NpcInRange =>
-        ActiveNpc is { } npc && InAttackRange(AttackRange.ForStyle(npc.CurrentAttackType));
 
     public void SetPlayerTile(int x, int z) => PlayerTile = (x, z);
     public void SetNpcTile(int x, int z) => NpcTile = (x, z);
 
-    // Targeting: ActiveNpc IS the target for the whole duel (1v1, so there's
-    // nothing else to point at) — clicking the enemy never changes WHO the
-    // target is, only whether the player is engaging it. HoldPosition is
-    // that engagement switch: click-to-move sets it (walking cancels both
-    // chasing and attacking), and it stays set after arrival — no auto-chase,
-    // no auto-retaliate — until re-engaged via the enemy, a weapon, or the
-    // ATTACK button (all three call Engage()).
+    // Targeting: click-to-move sets HoldPosition (walking cancels chasing and
+    // attacking); it stays set after arrival — no auto-chase, no
+    // auto-retaliate — until re-engaged via the target, a weapon, or ATTACK
+    // (all three call Engage()).
     public (int X, int Z)? PlayerMoveTarget { get; private set; }
     public bool HoldPosition { get; private set; }
 
     public void OrderMove(int x, int z)
     {
-        // Clamp to the arena square so orders can't walk out of the scene.
         x = Math.Clamp(x, -ArenaRadius, ArenaRadius);
         z = Math.Clamp(z, -ArenaRadius, ArenaRadius);
-        // Can't stand on a solid obstacle: snap the order to the nearest free tile.
         (x, z) = NearestFreeTile((x, z));
         PlayerMoveTarget = (x, z);
         HoldPosition = true;
@@ -129,8 +150,6 @@ public sealed class GameState
 
     public void ClearMoveOrder() => PlayerMoveTarget = null;
 
-    /// <summary>Nearest in-arena tile that isn't a solid obstacle (spiral search
-    /// outward by Chebyshev radius). Returns the input if it's already free.</summary>
     private (int X, int Z) NearestFreeTile((int X, int Z) t)
     {
         if (!_obstacles.Contains(t)) return t;
@@ -138,66 +157,43 @@ public sealed class GameState
             for (int dx = -r; dx <= r; dx++)
                 for (int dz = -r; dz <= r; dz++)
                 {
-                    if (Math.Max(Math.Abs(dx), Math.Abs(dz)) != r) continue; // ring only
+                    if (Math.Max(Math.Abs(dx), Math.Abs(dz)) != r) continue;
                     var c = (X: t.X + dx, Z: t.Z + dz);
                     if (InArena(c) && !_obstacles.Contains(c)) return c;
                 }
         return t;
     }
 
-    /// <summary>Resume chasing and attacking the (already-)targeted enemy.
-    /// Called by clicking the enemy, and by any attack/weapon shortcut so
-    /// they work as re-engage even after a move order left the player
-    /// holding position.</summary>
     public void Engage()
     {
         PlayerMoveTarget = null;
         HoldPosition = false;
     }
 
-    // Test-fight convenience: spawn holding position (no auto-chase/attack)
-    // so an admin can inspect animations before manually engaging.
     public void HoldPositionAtSpawn() => HoldPosition = true;
 
-    // Test-fight duels render the open-field scene instead of the arena ring.
     public bool TestScene { get; private set; }
     public void SetTestScene(bool on) => TestScene = on;
 
-    // Freeze the enemy (test-fight only): stops NPC movement and attacking.
     public bool EnemyFrozen { get; private set; }
     public void FreezeEnemy(bool frozen) => EnemyFrozen = frozen;
 
-    public bool HasBegged { get; private set; }
-
-    // Prestige
-    public bool CanPrestige { get; private set; }
-
-    // Vengeance
-    public bool VengActive { get; private set; }
-    public int VengCooldownRounds { get; private set; }
-
-    // Endless mode
-    public bool InEndlessMode { get; private set; }
-    public int EndlessWave { get; private set; }
-    public int BestEndlessWave { get; private set; }
-
-    // Damage-over-time (duel-scoped, cleared on Start/EndDuel)
+    // Damage-over-time (duel-scoped). Reused for both Rend's bleed and
+    // Scorch's burn (m1-plan Workstream B: "deliberately simplified" single
+    // DoT track for M1 — a second application refreshes rather than stacks).
     public int BleedTicksLeft { get; private set; }
     public int BleedPerTick { get; private set; }
     public bool PlayerPoisoned { get; private set; }
     public int PoisonTickCounter { get; private set; }
 
-    // Collection log / achievements — persist across prestige (the account's permanent record)
-    public List<string> CollectionLog { get; } = new();
-    public List<string> DefeatedNpcs { get; } = new();
-
-    // Bank — off-inventory storage; cleared on prestige
-    public List<string> Bank { get; } = new();
     public int DamageTakenThisDuel { get; private set; }
 
-    // Duel result — populated at duel end, consumed by the result overlay
+    // Fight stats (m1-plan Workstream C.10 / H)
+    public int FightTicks { get; private set; }
+    public string? KilledBy { get; private set; }
+    public void SetKilledBy(string description) => KilledBy = description;
+
     public DuelSummary? LastDuelSummary { get; private set; }
-    public int XpGainedThisDuel { get; private set; }
 
     public GameState(string playerId, Player player)
     {
@@ -211,18 +207,29 @@ public sealed class GameState
         ActiveNpc = npc;
         CombatLog.Clear();
         Player.RestorePrayer();
+        Player.RestoreSpecialEnergy();
+        Player.FlaskBelt.RefillForDuel(Player.Loadout);
         InitDuelCooldowns();
         ClearDots();
         DamageTakenThisDuel = 0;
-        XpGainedThisDuel = 0;
-        // Opposite ends of the arena; melee walks in from here.
+        FightTicks = 0;
+        KilledBy = null;
+        TargetId = null;
+        _adds.Clear();
+
+        var script = npc.Template.Script;
+        NpcFootprint = script?.Footprint is { } fp ? (fp.Width, fp.Height) : (1, 1);
+        NpcStationary = script?.Stationary ?? false;
+
+        // Opposite ends of the arena; the boss anchors center-north on its mound.
         PlayerTile = (0, 3);
-        NpcTile = (1, -3);
-        // Solid obstacles for this duel — never on a spawn tile.
+        NpcTile = NpcStationary ? (-(NpcFootprint.Width / 2), -ArenaRadius) : (1, -3);
+
         _obstacles.Clear();
         foreach (var o in ObstacleLayout)
-            if (o != PlayerTile && o != NpcTile)
+            if (o != PlayerTile && !NpcFootprintTiles().Contains(o))
                 _obstacles.Add(o);
+
         PlayerMoveTarget = null;
         HoldPosition = false;
         TestScene = false;
@@ -232,12 +239,10 @@ public sealed class GameState
         PendingWeaponSwapId = null;
     }
 
-    public void RecordDamageTaken(int amount) { if (amount > 0) DamageTakenThisDuel += amount; }
-    public void RecordXpGained(int xp) { if (xp > 0) XpGainedThisDuel += xp; }
-    public void SetDuelSummary(DuelSummary summary) => LastDuelSummary = summary;
+    public void TickFight() => FightTicks++;
 
-    public void RecordLoot(string itemId) { if (!CollectionLog.Contains(itemId)) CollectionLog.Add(itemId); }
-    public void RecordDefeat(string npcId) { if (!DefeatedNpcs.Contains(npcId)) DefeatedNpcs.Add(npcId); }
+    public void RecordDamageTaken(int amount) { if (amount > 0) DamageTakenThisDuel += amount; }
+    public void SetDuelSummary(DuelSummary summary) => LastDuelSummary = summary;
 
     public void ApplyBleed(int ticks, int perTick) { BleedTicksLeft = ticks; BleedPerTick = perTick; }
     public void TickBleed() { if (BleedTicksLeft > 0) BleedTicksLeft--; }
@@ -266,14 +271,10 @@ public sealed class GameState
     }
 
     public void SetQueuedAction(string? action) => QueuedAction = action;
-
     public void SetRevertWeapon(string? weaponId) => RevertWeaponId = weaponId;
 
     // Weapon-swap input buffer (UI bible §3.2): "max one swap per tick;
-    // extra taps buffer" to the following tick instead of racing the current
-    // one. WeaponSwapClaimedThisTick resets every ProcessTick; a second
-    // same-tick swap attempt instead overwrites PendingWeaponSwapId (latest
-    // tap wins), consumed at the top of the next tick.
+    // extra taps buffer" to the following tick.
     public bool WeaponSwapClaimedThisTick { get; private set; }
     public string? PendingWeaponSwapId { get; private set; }
 
@@ -296,10 +297,7 @@ public sealed class GameState
     public void ResetWeaponSwapGate() => WeaponSwapClaimedThisTick = false;
 
     public void ResetPlayerCooldown(int ticks) => PlayerCooldown = ticks;
-
-    /// <summary>Eating/drinking mid-duel pushes back the next attack — trades DPS for sustain.</summary>
     public void DelayPlayerAttack(int ticks) { if (ticks > 0) PlayerCooldown += ticks; }
-
     public void ResetNpcCooldown(int ticks) => NpcCooldown = ticks;
 
     public void DecrementCooldowns()
@@ -313,12 +311,7 @@ public sealed class GameState
         ActiveNpc = null;
         ClearDots();
         ClearHazards();
-    }
-
-    public void UnlockOpponent(string id)
-    {
-        if (!UnlockedOpponents.Contains(id))
-            UnlockedOpponents.Add(id);
+        _adds.Clear();
     }
 
     public void AppendLog(string message, LogEntryKind kind = LogEntryKind.Info)
@@ -327,97 +320,29 @@ public sealed class GameState
         if (CombatLog.Count > 500)
             CombatLog.RemoveAt(0);
     }
-
-    // Staking
-    public void SetWager(int amount) => CurrentWager = amount;
-    public void SetLastWager(int amount) => LastWager = amount;
-    public void IncrementWinStreak() => WinStreak++;
-    public void ResetWinStreak() => WinStreak = 0;
-
-    // Beg
-    public void SetHasBegged() => HasBegged = true;
-
-    // Prestige
-    public void SetCanPrestige() => CanPrestige = true;
-
-    // Vengeance
-    public void ActivateVeng() { VengActive = true; VengCooldownRounds = 5; }
-    public void TickVeng() { if (VengCooldownRounds > 0) VengCooldownRounds--; }
-    public void ConsumeVeng() => VengActive = false;
-
-    // Endless
-    public void StartEndless() { InEndlessMode = true; EndlessWave = 0; }
-    public int NextEndlessWave() => ++EndlessWave;
-    public void EndEndless()
-    {
-        if (EndlessWave > BestEndlessWave) BestEndlessWave = EndlessWave;
-        InEndlessMode = false;
-        EndlessWave = 0;
-    }
-
-    // Prestige reset
-    public void Reset()
-    {
-        UnlockedOpponents.Clear();
-        UnlockedOpponents.Add("swashbuckler");
-        UnlockedOpponents.Add("goblin");
-        UnlockedOpponents.Add("maggot_king");
-        WinStreak = 0;
-        CurrentWager = 0;
-        CanPrestige = false;
-        LastOpponentId = null;
-        VengActive = false;
-        VengCooldownRounds = 0;
-        HasBegged = false;
-        InEndlessMode = false;
-        EndlessWave = 0;
-        Bank.Clear();
-    }
-
-    public void RestoreFromSave(int winStreak, int bestEndlessWave, IEnumerable<string> unlockedOpponents,
-        IEnumerable<string>? collectionLog = null, IEnumerable<string>? defeatedNpcs = null,
-        IEnumerable<string>? bank = null)
-    {
-        WinStreak = winStreak;
-        BestEndlessWave = bestEndlessWave;
-        UnlockedOpponents.Clear();
-        foreach (var op in unlockedOpponents)
-            if (!UnlockedOpponents.Contains(op))
-                UnlockedOpponents.Add(op);
-
-        CollectionLog.Clear();
-        foreach (var id in collectionLog ?? [])
-            if (!CollectionLog.Contains(id))
-                CollectionLog.Add(id);
-
-        DefeatedNpcs.Clear();
-        foreach (var id in defeatedNpcs ?? [])
-            if (!DefeatedNpcs.Contains(id))
-                DefeatedNpcs.Add(id);
-
-        Bank.Clear();
-        foreach (var id in bank ?? [])
-            Bank.Add(id);
-    }
 }
 
 public sealed record CombatLogEntry(string Message, LogEntryKind Kind, DateTimeOffset Timestamp);
 
-/// <summary>One hazard tile: a pending eruption warning (Pool=false, TicksLeft
-/// until it blows) or an active pool (Pool=true, TicksLeft until it dries).</summary>
-public readonly record struct HazardTile(int X, int Z, bool Pool, int TicksLeft);
+public enum HazardState { Warning, Pool, Scorch }
 
-/// <summary>Snapshot of a finished duel for the end-of-fight result overlay.</summary>
+/// <summary>One hazard tile: Warning counts down its fuse, Pool counts down
+/// until it dries into permanent Scorch. PoolDurationTicks is captured at
+/// creation so a Warning->Pool transition doesn't need the caller to repass it.</summary>
+public readonly record struct HazardTile(int X, int Z, HazardState State, int TicksLeft, int PoolDurationTicks);
+
+/// <summary>Snapshot of a finished duel for the end-of-fight result overlay
+/// (m1-plan Workstream H).</summary>
 public sealed record DuelSummary(
     bool Won,
     string NpcId,
     string NpcName,
-    int GoldGained,
-    IReadOnlyList<string> LootItemIds,
-    int XpGained,
-    int WinStreak,
+    int KillTimeTicks,
+    string? KilledBy,
+    bool PersonalBest,
     bool Flawless,
-    int EndlessWaveReached);
+    int GoldGained,
+    IReadOnlyList<string> LootItemIds);
 
 public enum LogEntryKind
 {
@@ -430,10 +355,8 @@ public enum LogEntryKind
     Loot,
     MaxHit,
     SpecHit,
-    Vengeance,
     Prayer,
     BossSpecial,
     HitsplatPlayer,
     HitsplatNpc,
-    LevelUp,
 }

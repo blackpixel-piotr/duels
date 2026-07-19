@@ -20,13 +20,7 @@ public sealed class SetStyleHandler : ICommandHandler<SetStyleCommand>
         if (state is null) return CommandResult.Fail("No active game.");
 
         state.Player.SetStyle(command.Style);
-        var trains = command.Style switch
-        {
-            AttackStyle.Aggressive => "Strength",
-            AttackStyle.Defensive  => "Defence",
-            _                      => "Attack",
-        };
-        state.AppendLog($"Combat style: {command.Style} (training {trains}).", LogEntryKind.Info);
+        state.AppendLog($"Combat style: {command.Style}.", LogEntryKind.Info);
 
         await _stateRepo.SaveAsync(state, ct);
         return CommandResult.Ok();

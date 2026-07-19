@@ -18,9 +18,9 @@ namespace Duels.Application.Tests;
 // GameState/WeaponShortcutHandler/GameTickService.
 public sealed class WeaponSwapBufferTests
 {
-    private static readonly Weapon SwordA = new("sword_a", "Sword A", AttackType.Slash, ItemModifiers.Zero);
-    private static readonly Weapon SwordB = new("sword_b", "Sword B", AttackType.Slash, ItemModifiers.Zero);
-    private static readonly Weapon SwordC = new("sword_c", "Sword C", AttackType.Slash, ItemModifiers.Zero);
+    private static readonly Weapon SwordA = new("sword_a", "Sword A", AttackType.Slash, DocStats.Zero);
+    private static readonly Weapon SwordB = new("sword_b", "Sword B", AttackType.Slash, DocStats.Zero);
+    private static readonly Weapon SwordC = new("sword_c", "Sword C", AttackType.Slash, DocStats.Zero);
 
     private sealed class StubItemRepo : IItemRepository
     {
@@ -34,12 +34,6 @@ public sealed class WeaponSwapBufferTests
         public bool IsWeapon(string id) => _weapons.ContainsKey(id);
         public IReadOnlyList<(string Id, string Name, int Price)> GetShopItems() => [];
         public int GetFenceValue(string id) => 0;
-    }
-
-    private sealed class StubNpcRepo : INpcRepository
-    {
-        public NpcTemplate? GetTemplate(string id) => null;
-        public IReadOnlyList<NpcTemplate> GetAll() => [];
     }
 
     private sealed class StubEventBus : IEventBus
@@ -70,7 +64,7 @@ public sealed class WeaponSwapBufferTests
     }
 
     private static NpcTemplate Tank() =>
-        new("dummy", "Dummy", "", new CombatStats(1, 1, 99, 500), ItemModifiers.Zero, AttackType.Crush, []);
+        new("dummy", "Dummy", "", new CombatStats(1, 1, 99, 500), [], DummyStyle: AttackType.Crush);
 
     private static (GameTickService svc, GameState state, WeaponShortcutHandler handler) Build()
     {
@@ -82,15 +76,15 @@ public sealed class WeaponSwapBufferTests
 
         var state = new GameState("p1", player);
         state.StartDuel(new NpcInstance(Tank()));
-        state.SetTestScene(true); // bypass the Attack-level wield gate
+        state.SetTestScene(true);
         state.HoldPositionAtSpawn();
 
         var items = new StubItemRepo();
         var stateRepo = new InMemoryStateRepo(state);
-        var combat = new CombatCalculator(new AlwaysHitMaxRandom());
+        var damage = new DamageModel(new AlwaysHitMaxRandom());
         var svc = new GameTickService(
-            stateRepo, combat, new AlwaysHitMaxRandom(),
-            items, new StubNpcRepo(), new StubEventBus(), new StubTickSource());
+            stateRepo, damage, new AlwaysHitMaxRandom(),
+            items, new StubEventBus(), new StubTickSource());
         var handler = new WeaponShortcutHandler(stateRepo, items);
 
         return (svc, state, handler);
@@ -121,8 +115,6 @@ public sealed class WeaponSwapBufferTests
         await handler.HandleAsync(new WeaponShortcutCommand("p1", "sword_b"));
         await handler.HandleAsync(new WeaponShortcutCommand("p1", "sword_c"));
 
-        // Slot already claimed by the sword_b tap — sword_c buffers instead
-        // of equipping now.
         Assert.Equal("sword_b", state.Player.GetEquippedWeaponId());
         Assert.Equal("sword_c", state.PendingWeaponSwapId);
     }
@@ -151,7 +143,6 @@ public sealed class WeaponSwapBufferTests
 
         await handler.HandleAsync(new WeaponShortcutCommand("p1", "sword_c"));
 
-        // A fresh tick means a fresh slot — this resolves immediately, no buffering.
         Assert.Equal("sword_c", state.Player.GetEquippedWeaponId());
         Assert.Null(state.PendingWeaponSwapId);
     }

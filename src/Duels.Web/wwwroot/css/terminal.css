@@ -1444,7 +1444,21 @@ html, body {
     top: 0; left: 25%; right: 25%;
     margin: 0;
 }
-/* consumables cluster, bottom-left (wraps upward, 3 wide) */
+/* UI bible §2: two-thumb claw — left thumb owns prayers, right thumb owns
+   weapons/attacks. Prayer arc bottom-left (stacked above the flask belt),
+   weapon arc + special bottom-right. */
+.action-hud-float .hud-prayers {
+    position: absolute;
+    left: max(10px, env(safe-area-inset-left));
+    bottom: calc(max(10px, var(--safe-bottom)) + 54px);
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 8px;
+    width: auto;
+    grid-template-columns: none;
+}
+/* flask belt sits under the prayer arc, same left edge (wraps upward, 3 wide) */
 .action-hud-float .hud-belt {
     position: absolute;
     left: max(10px, env(safe-area-inset-left));
@@ -1455,12 +1469,11 @@ html, body {
     width: 154px;
     grid-template-columns: none;
 }
-/* weapons (upper) + prayers (lower) cluster, bottom-right — single rows that
-   grow leftward from the right edge, so they never overlap each other. */
-.action-hud-float .hud-weapons,
-.action-hud-float .hud-prayers {
+/* weapon arc + special, bottom-right — grows leftward from the right edge. */
+.action-hud-float .hud-weapons {
     position: absolute;
     right: max(10px, env(safe-area-inset-right));
+    bottom: max(10px, var(--safe-bottom));
     display: flex;
     flex-wrap: nowrap;
     justify-content: flex-end;
@@ -1468,15 +1481,13 @@ html, body {
     width: auto;
     grid-template-columns: none;
 }
-.action-hud-float .hud-weapons { bottom: calc(max(10px, var(--safe-bottom)) + 54px); }
-.action-hud-float .hud-prayers { bottom: max(10px, var(--safe-bottom)); }
 /* Attack-target button floats right above the weapons cluster, same
    right edge — the "bigger button above the quick weapon bar" the RS3-style
    float layout asks for. */
 .action-hud-float .hud-target-row {
     position: absolute;
     right: max(10px, env(safe-area-inset-right));
-    bottom: calc(max(10px, var(--safe-bottom)) + 108px);
+    bottom: calc(max(10px, var(--safe-bottom)) + 62px);
 }
 .action-hud-float .attack-target-btn {
     background: linear-gradient(160deg, #2e1a10, #160c07);
@@ -1515,3 +1526,63 @@ html, body {
 .action-hud-float .qs-spec-badge { top: -2px; right: -2px; }
 .action-hud-float .qs-label,
 .action-hud-float .belt-label { font-family: var(--west-font); letter-spacing: 0.5px; }
+
+/* ─── M1: doctrine palette (UI bible §1) — semantic aliases over the existing
+   interim tokens; the reskin only needs to swap these values. ─── */
+:root {
+    --doctrine-melee:  #e0561a; /* red-orange */
+    --doctrine-ranged: var(--green);
+    --doctrine-magic:  var(--blue);
+    --doctrine-hazard: var(--purple);
+    --doctrine-safe:   var(--yellow);
+    --doctrine-poison: #a8c93c; /* sickly yellow-green */
+    --doctrine-bleed:  #8b1a1a; /* deep crimson */
+}
+
+/* ─── M1: flask belt sip pips + special-attack action-bar button ─── */
+.belt-pips { font-size: 9px; letter-spacing: 1px; color: var(--amber); }
+.belt-empty { opacity: 0.4; border-style: dashed; }
+.qs-empty { opacity: 0.35; border-style: dashed; cursor: default; }
+.qs-special { position: relative; overflow: hidden; }
+.qs-special .qs-spec-fill {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: rgba(255, 215, 0, 0.28);
+    transition: height 120ms linear;
+}
+.qs-special .qs-icon { position: relative; z-index: 1; }
+
+/* ─── M1: Loadout Editor ─── */
+.loadout-panel { max-width: 480px; }
+.loadout-body { display: flex; flex-direction: column; gap: var(--panel-gap); padding: 10px; overflow-y: auto; }
+.loadout-bar { display: flex; flex-direction: column; gap: 6px; }
+.loadout-slot {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg-input); border: 2px solid var(--border); color: var(--text);
+    padding: 8px 10px; text-align: left; cursor: pointer; font-family: var(--font);
+}
+.loadout-slot:hover { border-color: var(--amber); }
+.loadout-slot-active { border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
+.loadout-slot-label { font-size: 10px; color: var(--text-dim); flex: 0 0 auto; min-width: 56px; }
+.loadout-slot-item { flex: 1 1 auto; font-size: 12px; }
+.loadout-slot-clear { color: var(--red); font-weight: bold; padding: 0 4px; }
+.loadout-picker {
+    display: flex; flex-direction: column; gap: 4px;
+    border: 2px dashed var(--border); padding: 8px; background: var(--bg-panel);
+}
+.loadout-pick-item {
+    background: var(--bg-input); border: 2px solid var(--border); color: var(--text);
+    padding: 6px 10px; text-align: left; cursor: pointer; font-family: var(--font); font-size: 12px;
+}
+.loadout-pick-item:hover { border-color: var(--amber); color: var(--amber); }
+.loadout-pick-empty { color: var(--text-dim); font-size: 11px; padding: 4px; }
+
+/* ─── M1: hub cards ─── */
+.hub-card-group { display: flex; gap: var(--panel-gap); }
+.hub-card-group .hub-card { flex: 1 1 0; }
+.hub-card-fight { border-color: var(--doctrine-melee); }
+.hub-card-fight .hub-card-title { color: var(--doctrine-melee); }
+.hub-card-loadout { border-color: var(--amber); }
+
+/* ─── M1: victory/death result screen additions ─── */
+.result-killedby { color: var(--doctrine-bleed); font-size: 11px; }
+.result-btn-primary { border-color: var(--doctrine-safe); color: var(--doctrine-safe); }

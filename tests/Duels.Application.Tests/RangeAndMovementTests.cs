@@ -13,7 +13,7 @@ namespace Duels.Application.Tests;
 
 public sealed class RangeAndMovementTests
 {
-    private sealed class AlwaysHitMaxRandom : IRandomProvider
+    private sealed class AlwaysHitRandom : IRandomProvider
     {
         public int Next(int min, int max) => max > min ? max - 1 : min;
         public double NextDouble() => 0.0;
@@ -27,12 +27,6 @@ public sealed class RangeAndMovementTests
         public bool IsWeapon(string id) => false;
         public IReadOnlyList<(string Id, string Name, int Price)> GetShopItems() => [];
         public int GetFenceValue(string id) => 0;
-    }
-
-    private sealed class StubNpcRepo : INpcRepository
-    {
-        public NpcTemplate? GetTemplate(string id) => null;
-        public IReadOnlyList<NpcTemplate> GetAll() => [];
     }
 
     private sealed class StubEventBus : IEventBus
@@ -56,10 +50,10 @@ public sealed class RangeAndMovementTests
         public Task WaitForNextTickAsync(CancellationToken ct) => Task.CompletedTask;
     }
 
-    // Beefy dummy so nobody dies while we watch positioning.
-    private static NpcTemplate Tank(AttackType style, IReadOnlyList<AttackType>? rotation = null) =>
-        new("dummy", "Dummy", "", new CombatStats(1, 1, 99, 500), ItemModifiers.Zero, style,
-            [], styleRotation: rotation);
+    // Beefy, unscripted (Script=null) dummy — exercises the generic mover and
+    // player-vs-NPC range/pathfinding logic without a boss rotation.
+    private static NpcTemplate Tank(AttackType style) =>
+        new("dummy", "Dummy", "", new CombatStats(1, 1, 99, 500), [], DummyStyle: style);
 
     private static (GameTickService svc, GameState state) Build(NpcTemplate template)
     {
@@ -67,10 +61,10 @@ public sealed class RangeAndMovementTests
         var state = new GameState("p1", player);
         state.StartDuel(new NpcInstance(template));
 
-        var combat = new CombatCalculator(new AlwaysHitMaxRandom());
+        var damage = new DamageModel(new AlwaysHitRandom());
         var svc = new GameTickService(
-            new InMemoryStateRepo(state), combat, new AlwaysHitMaxRandom(),
-            new StubItemRepo(), new StubNpcRepo(), new StubEventBus(), new StubTickSource());
+            new InMemoryStateRepo(state), damage, new AlwaysHitRandom(),
+            new StubItemRepo(), new StubEventBus(), new StubTickSource());
         return (svc, state);
     }
 
@@ -92,26 +86,21 @@ public sealed class RangeAndMovementTests
         // Tick 1: player runs 2 tiles, NPC walks 1 (closure 3) — no reach yet.
         await Tick(svc);
         Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
-        Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatNpc));
 
-        // Tick 2: adjacency reached — both attacks land this tick.
+        // Tick 2: adjacency reached — player's attack lands this tick.
         await Tick(svc);
         Assert.Equal(1, state.DistanceToNpc);
         Assert.True(Hitsplats(state, LogEntryKind.HitsplatPlayer) > 0);
-        Assert.True(Hitsplats(state, LogEntryKind.HitsplatNpc) > 0);
     }
 
     [Fact]
-    public async Task RangedNpc_HitsFromSpawnDistance_WhilePlayerStillWalking()
+    public async Task RangedNpc_StandsGround_WhilePlayerWalksIn()
     {
         var (svc, state) = Build(Tank(AttackType.Ranged));
 
         await Tick(svc);
 
-        // NPC fired from across the arena; melee player landed nothing yet.
-        Assert.True(Hitsplats(state, LogEntryKind.HitsplatNpc) > 0);
-        Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
-        // Ranged NPC stands its ground; the player walked.
+        // Ranged dummy stands its ground; the player walked.
         Assert.Equal((1, -3), state.NpcTile);
         Assert.NotEqual((0, 3), state.PlayerTile);
     }
@@ -171,24 +160,18 @@ public sealed class RangeAndMovementTests
             await Tick(svc);
             Assert.Equal(hitsBefore, Hitsplats(state, LogEntryKind.HitsplatPlayer)); // never attacks mid-walk
         }
-        // Arrived — or stopped adjacent when the chasing NPC sits on the tile.
         Assert.True(Math.Max(Math.Abs(state.PlayerTile.X - -4), Math.Abs(state.PlayerTile.Z - 4)) <= 1);
         Assert.True(state.HoldPosition);
         var held = state.PlayerTile;
         await Tick(svc);
         Assert.Equal(held, state.PlayerTile); // no auto-chase while holding
 
-        // The enemy remains the target and keeps chasing — but even once it
-        // catches up and stands adjacent, a held player does NOT retaliate.
-        // The enemy is still the target throughout; only engagement changed.
         for (int i = 0; i < 8 && state.DistanceToNpc > 1; i++) await Tick(svc);
         Assert.Equal(1, state.DistanceToNpc);
         await Tick(svc);
         Assert.Equal(hitsBefore, Hitsplats(state, LogEntryKind.HitsplatPlayer)); // still no attack
         Assert.Equal(held, state.PlayerTile); // never moved — held throughout
 
-        // Re-engage (click the enemy / a weapon / ATTACK) — attacking resumes
-        // immediately since the enemy, still the target, is already adjacent.
         state.Engage();
         await Tick(svc);
         Assert.True(Hitsplats(state, LogEntryKind.HitsplatPlayer) > hitsBefore);
@@ -216,8 +199,6 @@ public sealed class RangeAndMovementTests
         var state = new GameState("p1", new Player("p1", "Hero"));
         state.StartDuel(new NpcInstance(Tank(AttackType.Crush)));
 
-        // Arena is a square (see GameState.InArena) — a diagonal order clamps
-        // to the corner, not to a circle inscribed inside it.
         state.OrderMove(99, -99);
         var t = state.PlayerMoveTarget!.Value;
         Assert.True(Math.Abs(t.X) <= GameState.ArenaRadius);
@@ -227,8 +208,6 @@ public sealed class RangeAndMovementTests
 
     // ── Pathfinding (straight line unless blocked, around solid obstacles) ──
 
-    // Calls the private static NextStepToward so we get the exact tile-by-tile
-    // path, independent of NPC turns / tick cadence.
     private static (int X, int Z) NextStep(GameState state, (int X, int Z) from,
                                            (int X, int Z) goal, (int X, int Z) avoid)
     {
@@ -245,14 +224,13 @@ public sealed class RangeAndMovementTests
         for (int i = 0; i < 40 && cur != goal; i++)
         {
             var next = NextStep(state, cur, goal, avoid);
-            if (next == cur) break; // stuck
+            if (next == cur) break;
             cur = next;
             path.Add(cur);
         }
         return path;
     }
 
-    // Mirror of GameTickService.BresenhamLine (diagonal steps allowed).
     private static List<(int X, int Z)> Bresenham((int X, int Z) a, (int X, int Z) b)
     {
         var pts = new List<(int X, int Z)>();
@@ -269,31 +247,18 @@ public sealed class RangeAndMovementTests
         return pts;
     }
 
+    // NOTE: M1's arena carries no obstacles (Maggot King's arena has none per
+    // the Boss Bible) — ObstacleLayout is empty, so this suite only verifies
+    // the straight-line case and the never-share-a-tile guarantee.
     [Fact]
-    public void Path_ClearOfObstacles_IsStraightLine()
+    public void Path_IsStraightLine_WhenClear()
     {
         var (_, state) = Build(Tank(AttackType.Crush));
-        var from = (0, 3); var goal = (4, 1); // off-axis, clear of the fixed obstacles
-        Assert.DoesNotContain(Bresenham(from, goal), state.IsObstacle); // sanity: line is clear
+        var from = (0, 3); var goal = (4, 1);
 
         var path = WalkPath(state, from, goal, (99, 99));
         Assert.Equal(goal, path[^1]);
-        Assert.Equal(Bresenham(from, goal), path); // exact straight line, no dogleg
-    }
-
-    [Fact]
-    public void Path_BlockedByObstacle_RoutesAroundAndReaches()
-    {
-        var (_, state) = Build(Tank(AttackType.Crush));
-        var obstacle = (2, 1);
-        Assert.True(state.IsObstacle(obstacle)); // part of the fixed layout
-        var from = (0, 1); var goal = (4, 1);     // straight line runs through (2,1)
-        Assert.Contains(obstacle, Bresenham(from, goal));
-
-        var path = WalkPath(state, from, goal, (99, 99));
-        Assert.Equal(goal, path[^1]);                       // still arrives
-        Assert.DoesNotContain(path, state.IsObstacle);      // never enters a solid tile
-        Assert.Contains(path, t => t.Z != 1);               // deviated off the blocked line
+        Assert.Equal(Bresenham(from, goal), path);
     }
 
     [Fact]
@@ -301,21 +266,8 @@ public sealed class RangeAndMovementTests
     {
         var (_, state) = Build(Tank(AttackType.Crush));
         var opponent = (0, 0);
-        var path = WalkPath(state, (0, 3), (0, -3), opponent); // opponent sits on the line
+        var path = WalkPath(state, (0, 3), (0, -3), opponent);
         Assert.DoesNotContain(opponent, path);
-    }
-
-    [Fact]
-    public void OrderMove_OntoObstacle_SnapsToFreeTile()
-    {
-        var state = new GameState("p1", new Player("p1", "Hero"));
-        state.StartDuel(new NpcInstance(Tank(AttackType.Crush)));
-        var obstacle = state.Obstacles.First();
-
-        state.OrderMove(obstacle.X, obstacle.Z);
-        var t = state.PlayerMoveTarget!.Value;
-        Assert.False(state.IsObstacle(t));
-        Assert.True(GameState.InArena(t));
     }
 
     [Fact]
@@ -324,8 +276,6 @@ public sealed class RangeAndMovementTests
         var state = new GameState("p1", new Player("p1", "Hero"));
         state.StartDuel(new NpcInstance(Tank(AttackType.Crush)));
 
-        // Flood from the player spawn over free tiles; every free in-arena tile
-        // must be reachable — no obstacle layout may wall a region off.
         var start = state.PlayerTile;
         var seen = new HashSet<(int X, int Z)> { start };
         var q = new Queue<(int X, int Z)>();
@@ -356,55 +306,48 @@ public sealed class RangeAndMovementTests
     public async Task MeleeApproach_StraightWhenAligned_NoDiagonalSidestep()
     {
         var (svc, state) = Build(Tank(AttackType.Crush));
-        state.FreezeEnemy(true);       // isolate the player's approach (NPC won't move)
+        state.FreezeEnemy(true); // isolate the player's approach (NPC won't move)
         state.SetNpcTile(0, 0);
-        state.SetPlayerTile(0, 4);     // directly in front, same column
+        state.SetPlayerTile(0, 4);
 
-        // Player auto-chases (not holding). It must close along x=0 — a straight
-        // step in — never sidestepping to a diagonal flank tile.
         for (int i = 0; i < 6 && state.DistanceToNpc > 1; i++)
         {
             await Tick(svc);
-            Assert.Equal(0, state.PlayerTile.X); // stayed straight in front
+            Assert.Equal(0, state.PlayerTile.X);
         }
-        Assert.Equal(1, state.DistanceToNpc);    // reached adjacency
+        Assert.Equal(1, state.DistanceToNpc);
         Assert.Equal(0, state.PlayerTile.X);
     }
 
     [Fact]
     public async Task MeleeApproach_TwoTilesStraight_LiveEnemy_ClosesCardinal()
     {
-        // The reported case: standing two tiles dead ahead and attacking must
-        // walk one tile straight in — never a forward-then-diagonal dogleg —
-        // with the NPC live and closing too.
         var (svc, state) = Build(Tank(AttackType.Crush));
         state.SetNpcTile(0, 0);
         state.SetPlayerTile(0, 2);
 
         await Tick(svc);
 
-        Assert.Equal(0, state.PlayerTile.X);     // no sidestep
-        Assert.Equal(0, state.NpcTile.X);        // enemy stayed on the line too
-        Assert.Equal(1, state.DistanceToNpc);    // cardinal adjacency reached
+        Assert.Equal(0, state.PlayerTile.X);
+        Assert.Equal(0, state.NpcTile.X);
+        Assert.Equal(1, state.DistanceToNpc);
     }
 
     [Fact]
     public async Task Melee_FromDiagonal_SquaresUpToCardinal_NeverAttacksAcrossCorner()
     {
         // OSRS melee rule: diagonal (corner) tiles are OUT of melee range.
-        // Starting Chebyshev-adjacent on the corner, the player must step to
-        // a cardinal neighbour rather than swing across the diagonal.
         var (svc, state) = Build(Tank(AttackType.Crush));
         state.FreezeEnemy(true);
         state.SetNpcTile(0, 0);
         state.SetPlayerTile(1, 1);
 
-        Assert.False(state.InAttackRange(AttackRange.Melee)); // corner ≠ in range
+        Assert.False(state.InAttackRange(AttackRange.Melee));
 
         await Tick(svc);
 
         var manhattan = Math.Abs(state.PlayerTile.X) + Math.Abs(state.PlayerTile.Z);
-        Assert.Equal(1, manhattan);                            // squared up N/S/E/W
+        Assert.Equal(1, manhattan);
         Assert.True(state.InAttackRange(AttackRange.Melee));
     }
 
@@ -417,50 +360,31 @@ public sealed class RangeAndMovementTests
         state.SetPlayerTile(0, 1);
         Assert.True(state.InAttackRange(AttackRange.Melee));
         state.SetPlayerTile(1, 1);
-        Assert.False(state.InAttackRange(AttackRange.Melee));  // diagonal excluded
-        Assert.True(state.InAttackRange(AttackRange.Distant)); // ranged unaffected
+        Assert.False(state.InAttackRange(AttackRange.Melee));
+        Assert.True(state.InAttackRange(AttackRange.Distant));
         state.SetPlayerTile(0, 0 + AttackRange.Distant);
         Assert.True(state.InAttackRange(AttackRange.Distant));
     }
 
     [Fact]
-    public void NpcInRange_TracksStyle()
-    {
-        var state = new GameState("p1", new Player("p1", "Hero"));
-        state.StartDuel(new NpcInstance(Tank(AttackType.Magic)));
-
-        Assert.Equal(6, state.DistanceToNpc);
-        Assert.True(state.NpcInRange); // magic covers the arena
-
-        state.StartDuel(new NpcInstance(Tank(AttackType.Stab)));
-        Assert.False(state.NpcInRange); // melee must close first
-    }
-
-    [Fact]
     public async Task MoveOrder_HoldsAfterArrival_NoAutoAttack_UntilReengaged()
     {
-        // The enemy stays the target the whole time (1v1 — nothing else to
-        // target) but a move order suspends attacking, and — unlike the old
-        // "auto-retaliate once in range" behaviour — it STAYS suspended
-        // after arrival even though the enemy is adjacent, until re-engaged.
         var (svc, state) = Build(Tank(AttackType.Crush));
-        state.FreezeEnemy(true); // isolate: NPC never moves or swings back
+        state.FreezeEnemy(true);
         state.SetNpcTile(0, 0);
-        state.SetPlayerTile(0, 1); // already cardinal-adjacent
-        state.OrderMove(0, 1);     // click-to-move "onto" the same tile: arrives instantly
+        state.SetPlayerTile(0, 1);
+        state.OrderMove(0, 1);
 
         await Tick(svc);
 
         Assert.True(state.HoldPosition);
         Assert.Null(state.PlayerMoveTarget);
-        Assert.Equal(1, state.DistanceToNpc); // adjacent...
-        Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer)); // ...but not attacking
+        Assert.Equal(1, state.DistanceToNpc);
+        Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
 
-        // Still holding a tick later — no attack just because time passed.
         await Tick(svc);
         Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
 
-        // Re-engage (what clicking the enemy / a weapon / ATTACK all do).
         state.Engage();
         await Tick(svc);
 

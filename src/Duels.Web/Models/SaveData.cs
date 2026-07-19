@@ -1,26 +1,20 @@
 namespace Duels.Web.Models;
 
+/// <summary>Schema v2 (m1-plan Workstream G): drops the OSRS ladder fields
+/// (xp, prestige, win streak, endless, bank, collection log — retired in the
+/// M1 sweep) and adds the action bar + flask belt bindings. v1 saves migrate
+/// automatically: System.Text.Json ignores the now-unknown old properties and
+/// leaves the new ones at their defaults (empty bar).</summary>
 public sealed record SaveData(
     string PlayerId,
     string PlayerName,
     int Gold,
     int CurrentHp,
     int SpecialEnergy,
-    int PrestigeLevel,
-    int WinStreak,
-    int BestEndlessWave,
     List<string> Inventory,
     Dictionary<string, string> Equipped,
-    List<string> UnlockedOpponents,
-    // v2: xp fields — -1 sentinel means "legacy save" (grandfathered to max level on restore)
-    int AttackXp = -1,
-    int StrengthXp = -1,
-    int DefenceXp = -1,
-    int HitpointsXp = -1,
     string ChosenStyle = "Accurate",
-    // v3: permanent account record — survives prestige, absent on older saves
-    List<string>? CollectionLog = null,
-    List<string>? DefeatedNpcs = null,
-    // v4: bank storage — cleared on prestige, absent on older saves
-    List<string>? Bank = null
+    int? PersonalBestKillTicks = null,
+    List<string?>? LoadoutWeaponSlots = null,
+    List<string?>? LoadoutFlaskSlots = null
 );

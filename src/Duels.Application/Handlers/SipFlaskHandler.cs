@@ -1,0 +1,47 @@
+using Duels.Application.Abstractions;
+using Duels.Application.Commands;
+using Duels.Application.GameSession;
+
+namespace Duels.Application.Handlers;
+
+public sealed class SipFlaskHandler : ICommandHandler<SipFlaskCommand>
+{
+    // Flask restore amounts (design decisions doc: unspecified — T-list tunable).
+    private static readonly Dictionary<string, (string Label, Action<Domain.Entities.Player> Apply)> Effects = new()
+    {
+        ["flask_health"] = ("Health Flask", p => p.Heal(40)),
+        ["flask_prayer"] = ("Prayer Flask", p => p.RestorePrayerPoints(40)),
+    };
+
+    private readonly IGameStateRepository _stateRepo;
+
+    public SipFlaskHandler(IGameStateRepository stateRepo)
+    {
+        _stateRepo = stateRepo;
+    }
+
+    public async Task<CommandResult> HandleAsync(SipFlaskCommand command, CancellationToken ct = default)
+    {
+        var state = await _stateRepo.GetAsync(command.PlayerId, ct);
+        if (state is null) return CommandResult.Fail("No active game.");
+        if (!state.InDuel) return CommandResult.Fail("Not in a duel.");
+        if (command.Slot is not (0 or 1)) return CommandResult.Fail("Invalid flask slot.");
+
+        var slot = state.Player.FlaskBelt.Slots[command.Slot];
+        if (slot.FlaskId is not { } flaskId)
+            return CommandResult.Fail("No flask bound to that slot — bind one in the Loadout Editor.");
+        if (!Effects.TryGetValue(flaskId, out var effect))
+            return CommandResult.Fail($"Unknown flask '{flaskId}'.");
+        if (!slot.TrySip())
+            return CommandResult.Fail($"{effect.Label} is empty.");
+
+        effect.Apply(state.Player);
+        state.AppendLog($"You sip the {effect.Label}. ({slot.SipsRemaining}/{slot.MaxSips} sips left)", LogEntryKind.Info);
+
+        // Sipping consumes the tick's action — the same cooldown an attack would set.
+        if (state.PlayerCooldown == 0) state.ResetPlayerCooldown(1);
+
+        await _stateRepo.SaveAsync(state, ct);
+        return CommandResult.Ok();
+    }
+}

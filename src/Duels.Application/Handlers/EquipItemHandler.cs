@@ -28,20 +28,6 @@ public sealed class EquipItemHandler : ICommandHandler<EquipItemCommand>
         if (gear is null)
             return CommandResult.Fail($"'{command.ItemId}' cannot be equipped.");
 
-        var weapon = _itemRepo.GetWeapon(command.ItemId);
-        if (weapon is not null && player.AttackLevel < weapon.AttackLevelRequired)
-        {
-            state.AppendLog($"You need {weapon.AttackLevelRequired} Attack to wield {weapon.Name}. (You: {player.AttackLevel})", LogEntryKind.System);
-            await _stateRepo.SaveAsync(state, ct);
-            return CommandResult.Fail($"Requires {weapon.AttackLevelRequired} Attack.");
-        }
-        if (weapon is null && player.DefenceLevel < gear.DefenceLevelRequired)
-        {
-            state.AppendLog($"You need {gear.DefenceLevelRequired} Defence to wear {gear.Name}. (You: {player.DefenceLevel})", LogEntryKind.System);
-            await _stateRepo.SaveAsync(state, ct);
-            return CommandResult.Fail($"Requires {gear.DefenceLevelRequired} Defence.");
-        }
-
         player.Equip(command.ItemId, gear.Slot);
         state.AppendLog($"You equip {gear.Name}.", LogEntryKind.Info);
 

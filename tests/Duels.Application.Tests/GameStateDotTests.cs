@@ -11,7 +11,7 @@ public sealed class GameStateDotTests
     {
         var player = new Player("p1", "Hero");
         var state = new GameState("p1", player);
-        var npc = new NpcTemplate("goblin", "Goblin", "", new CombatStats(1, 1, 1, 50), ItemModifiers.Zero, AttackType.Crush, []);
+        var npc = new NpcTemplate("goblin", "Goblin", "", new CombatStats(1, 1, 1, 50), [], DummyStyle: AttackType.Crush);
         state.StartDuel(new NpcInstance(npc));
         return state;
     }
@@ -68,7 +68,7 @@ public sealed class GameStateDotTests
         state.ApplyBleed(5, 2);
         state.ApplyPoison();
 
-        var npc2 = new NpcTemplate("goblin2", "Goblin2", "", new CombatStats(1, 1, 1, 20), ItemModifiers.Zero, AttackType.Crush, []);
+        var npc2 = new NpcTemplate("goblin2", "Goblin2", "", new CombatStats(1, 1, 1, 20), [], DummyStyle: AttackType.Crush);
         state.StartDuel(new NpcInstance(npc2));
 
         Assert.Equal(0, state.BleedTicksLeft);
@@ -84,21 +84,5 @@ public sealed class GameStateDotTests
         state.EndDuel();
         Assert.Equal(0, state.BleedTicksLeft);
         Assert.False(state.PlayerPoisoned);
-    }
-}
-
-public sealed class NpcPoisonTests
-{
-    [Fact]
-    public void NpcPoison_TicksEveryFourthCall()
-    {
-        var template = new NpcTemplate("goblin", "Goblin", "", new CombatStats(1, 1, 1, 50), ItemModifiers.Zero, AttackType.Crush, []);
-        var npc = new NpcInstance(template);
-        npc.ApplyPoison();
-        Assert.True(npc.Poisoned);
-        Assert.False(npc.TickPoison());
-        Assert.False(npc.TickPoison());
-        Assert.False(npc.TickPoison());
-        Assert.True(npc.TickPoison());
     }
 }

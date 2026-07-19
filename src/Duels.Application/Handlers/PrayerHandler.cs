@@ -53,17 +53,17 @@ public sealed class PrayerHandler : ICommandHandler<PrayerCommand>
                     LogEntryKind.Prayer);
                 break;
 
-            case "piety":
-                player.TogglePiety();
+            case "boost":
+                player.ToggleBoostPrayer();
                 state.AppendLog(
-                    player.PietyActive
-                        ? "⚡ Piety activated! +20% attack and strength. Prayer drains 2x faster."
-                        : "Piety deactivated.",
+                    player.BoostPrayerActive
+                        ? "⚡ Boost prayer activated! +20% damage. Prayer drains while active."
+                        : "Boost prayer deactivated.",
                     LogEntryKind.Prayer);
                 break;
 
             default:
-                return CommandResult.Fail($"Unknown prayer '{command.PrayerName}'. Try: protect_melee, piety.");
+                return CommandResult.Fail($"Unknown prayer '{command.PrayerName}'. Try: protect_melee, boost.");
         }
 
         await _stateRepo.SaveAsync(state, ct);

@@ -23,7 +23,7 @@ public sealed class StartGameHandler : ICommandHandler<StartGameCommand>
         var state = new GameState(playerId, player);
 
         state.AppendLog($"Welcome, {player.Name}! Your dueling career begins.", LogEntryKind.System);
-        state.AppendLog("Tap ARENA to pick a foe, or SHOP to gear up first.", LogEntryKind.System);
+        state.AppendLog("Grab a dev loadout, then tap FIGHT to face the Maggot King.", LogEntryKind.System);
 
         await _playerRepo.SaveAsync(player, ct);
         await _stateRepo.SaveAsync(state, ct);

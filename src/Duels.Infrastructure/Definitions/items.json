@@ -1,387 +1,648 @@
 {
   "weapons": [
     {
-      "Id": "steel_sword", "Name": "Steel Sword", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 16, "SlashAttack": 21, "StrengthBonus": 20 },
-      "AttackSpeed": 4, "ExamineText": "A trusty steel arming sword.",
-      "Special": null, "AttackLevelRequired": 1, "Range": 1
-    },
-    {
-      "Id": "rune_scimitar", "Name": "Rune Scimitar", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 45, "SlashAttack": 67, "StrengthBonus": 66 },
-      "AttackSpeed": 4, "ExamineText": "A powerful rune scimitar.",
-      "Special": null, "AttackLevelRequired": 60, "Range": 1
-    },
-    {
-      "Id": "dragon_scimitar", "Name": "Dragon Scimitar", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 40, "SlashAttack": 60, "StrengthBonus": 67 },
-      "AttackSpeed": 4, "ExamineText": "A fearsome dragon scimitar.",
-      "Special": null, "AttackLevelRequired": 65, "Range": 1
-    },
-    {
-      "Id": "dragon_dagger", "Name": "Dragon Dagger", "AttackType": "Stab",
-      "Modifiers": { "StabAttack": 40, "SlashAttack": 25, "StrengthBonus": 40 },
-      "AttackSpeed": 4, "ExamineText": "A vicious dragon dagger.",
-      "Special": {
-        "CommandAlias": "!spec", "EnergyRequired": 25, "DamageMultiplier": 1.0,
-        "Description": "Double stab — boosted accuracy, uses 25% energy.",
-        "Hits": 2, "AccuracyMultiplier": 1.15, "SecondHitGuaranteed": false, "HealOnHit": false
+      "Id": "wpn_melee_t1",
+      "Name": "Rustcleaver",
+      "AttackType": "Slash",
+      "Doc": {
+        "Power": 10,
+        "Precision": 0,
+        "DefPoints": 0,
+        "Line": "Warbound",
+        "Tier": 1,
+        "Special": {
+          "Id": "lunge",
+          "Cost": 25,
+          "Description": "Next hit connects from 2 tiles — closes the gap."
+        }
       },
-      "AttackLevelRequired": 65, "Range": 1
+      "AttackSpeed": 3,
+      "ExamineText": "A pitted shortsword, still sharp where it counts.",
+      "AttackLevelRequired": 1,
+      "Range": 1
     },
     {
-      "Id": "abyssal_whip", "Name": "Abyssal Whip", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 82, "SlashAttack": 82, "StrengthBonus": 82 },
-      "AttackSpeed": 4, "ExamineText": "Fast, accurate, and drains nothing. Pure DPS.",
-      "Special": null, "AttackLevelRequired": 70, "Range": 1
-    },
-    {
-      "Id": "armadyl_sword", "Name": "Armadyl Sword", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 75, "SlashAttack": 80, "StrengthBonus": 85 },
-      "AttackSpeed": 4, "ExamineText": "A sword blessed by Armadyl.",
-      "Special": null, "AttackLevelRequired": 72, "Range": 1
-    },
-    {
-      "Id": "dragon_claws", "Name": "Dragon Claws", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 41, "SlashAttack": 57, "StrengthBonus": 56 },
-      "AttackSpeed": 4, "ExamineText": "Four rapid slashes.",
-      "Special": {
-        "CommandAlias": "!spec", "EnergyRequired": 50, "DamageMultiplier": 0.5,
-        "Description": "Four rapid hits — each at half max hit. Uses 50% energy.",
-        "Hits": 4, "AccuracyMultiplier": 1.0, "SecondHitGuaranteed": false, "HealOnHit": false
+      "Id": "wpn_ranged_t1",
+      "Name": "Poacher's Bow",
+      "AttackType": "Ranged",
+      "Doc": {
+        "Power": 10,
+        "Precision": 0,
+        "DefPoints": 0,
+        "Line": "Stalker",
+        "Tier": 1,
+        "Special": {
+          "Id": "snipe",
+          "Cost": 25,
+          "Description": "+50% damage on a single shot."
+        }
       },
-      "AttackLevelRequired": 75, "Range": 1
+      "AttackSpeed": 3,
+      "ExamineText": "A simple shortbow, quiet in the brush.",
+      "AttackLevelRequired": 1,
+      "Range": 7
     },
     {
-      "Id": "bandos_godsword", "Name": "Bandos Godsword", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 132, "SlashAttack": 132, "StrengthBonus": 132 },
-      "AttackSpeed": 6, "ExamineText": "The weapon of the Big High War God.",
-      "Special": {
-        "CommandAlias": "!spec", "EnergyRequired": 50, "DamageMultiplier": 1.0,
-        "Description": "Two powerful strikes. Uses 50% energy.",
-        "Hits": 2, "AccuracyMultiplier": 1.0, "SecondHitGuaranteed": false, "HealOnHit": false
+      "Id": "wpn_magic_t1",
+      "Name": "Cinder Wand",
+      "AttackType": "Magic",
+      "Doc": {
+        "Power": 10,
+        "Precision": 0,
+        "DefPoints": 0,
+        "Line": "Occult",
+        "Tier": 1,
+        "Special": {
+          "Id": "scorch",
+          "Cost": 25,
+          "Description": "Hit plus a 3-tick burn."
+        }
       },
-      "AttackLevelRequired": 80, "Range": 1
+      "AttackSpeed": 3,
+      "ExamineText": "A wand that never quite stops smoking.",
+      "AttackLevelRequired": 1,
+      "Range": 7
     },
     {
-      "Id": "zamorak_godsword", "Name": "Zamorak Godsword", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 132, "SlashAttack": 132, "StrengthBonus": 132 },
-      "AttackSpeed": 6, "ExamineText": "Frozen in time, twice as deadly.",
-      "Special": {
-        "CommandAlias": "!spec", "EnergyRequired": 50, "DamageMultiplier": 1.0,
-        "Description": "Two hits — second always connects. Uses 50% energy.",
-        "Hits": 2, "AccuracyMultiplier": 1.0, "SecondHitGuaranteed": true, "HealOnHit": false
+      "Id": "wpn_melee_t2",
+      "Name": "Splitter",
+      "AttackType": "Slash",
+      "Doc": {
+        "Power": 14,
+        "Precision": 0.02,
+        "DefPoints": 0,
+        "Line": "Warbound",
+        "Tier": 2,
+        "Special": {
+          "Id": "rend",
+          "Cost": 40,
+          "Description": "Heavy hit plus a bleed stack."
+        }
       },
-      "AttackLevelRequired": 80, "Range": 1
+      "AttackSpeed": 4,
+      "ExamineText": "A battleaxe built to open plate armor.",
+      "AttackLevelRequired": 1,
+      "Range": 1
     },
     {
-      "Id": "saradomin_godsword", "Name": "Saradomin Godsword", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 132, "SlashAttack": 132, "StrengthBonus": 132 },
-      "AttackSpeed": 6, "ExamineText": "Heals the faithful.",
-      "Special": {
-        "CommandAlias": "!spec", "EnergyRequired": 50, "DamageMultiplier": 1.0,
-        "Description": "Heals 50% of damage dealt. Uses 50% energy.",
-        "Hits": 1, "AccuracyMultiplier": 1.0, "SecondHitGuaranteed": false, "HealOnHit": true
+      "Id": "wpn_ranged_t2",
+      "Name": "Bolt Thrower",
+      "AttackType": "Ranged",
+      "Doc": {
+        "Power": 14,
+        "Precision": 0.02,
+        "DefPoints": 0,
+        "Line": "Stalker",
+        "Tier": 2,
+        "Special": {
+          "Id": "pin_shot",
+          "Cost": 40,
+          "Description": "Hit; delays the target's next action by 1 tick."
+        }
       },
-      "AttackLevelRequired": 80, "Range": 1
+      "AttackSpeed": 4,
+      "ExamineText": "A crossbow with real stopping power.",
+      "AttackLevelRequired": 1,
+      "Range": 7
     },
     {
-      "Id": "armadyl_godsword", "Name": "Armadyl Godsword", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 132, "SlashAttack": 132, "StrengthBonus": 132 },
-      "AttackSpeed": 6, "ExamineText": "The most powerful spec in the arena.",
-      "Special": {
-        "CommandAlias": "!spec", "EnergyRequired": 50, "DamageMultiplier": 1.25,
-        "Description": "Massive single hit — 125% damage, boosted accuracy. Uses 50% energy.",
-        "Hits": 1, "AccuracyMultiplier": 1.375, "SecondHitGuaranteed": false, "HealOnHit": false
+      "Id": "wpn_magic_t2",
+      "Name": "Hexknot Staff",
+      "AttackType": "Magic",
+      "Doc": {
+        "Power": 14,
+        "Precision": 0.02,
+        "DefPoints": 0,
+        "Line": "Occult",
+        "Tier": 2,
+        "Special": {
+          "Id": "sap",
+          "Cost": 40,
+          "Description": "Hit; the target's damage output is -10% for 5 ticks."
+        }
       },
-      "AttackLevelRequired": 82, "Range": 1
-    },
-    {
-      "Id": "scythe_of_vitur", "Name": "Scythe of Vitur", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 75, "SlashAttack": 110, "StrengthBonus": 75 },
-      "AttackSpeed": 5, "ExamineText": "Three hits per special. Costs 100% energy.",
-      "Special": {
-        "CommandAlias": "!spec", "EnergyRequired": 100, "DamageMultiplier": 1.0,
-        "Description": "Three sweeping hits. Uses 100% energy.",
-        "Hits": 3, "AccuracyMultiplier": 1.0, "SecondHitGuaranteed": false, "HealOnHit": false
-      },
-      "AttackLevelRequired": 90, "Range": 1
-    },
-    {
-      "Id": "corrupted_whip", "Name": "Corrupted Whip", "AttackType": "Slash",
-      "Modifiers": { "StabAttack": 90, "SlashAttack": 90, "StrengthBonus": 90 },
-      "AttackSpeed": 4, "ExamineText": "A whip twisted by dark energy. Untradeable.",
-      "Special": {
-        "CommandAlias": "!spec", "EnergyRequired": 25, "DamageMultiplier": 1.0,
-        "Description": "Dark lash — boosted strength. Uses 25% energy.",
-        "Hits": 1, "AccuracyMultiplier": 1.10, "SecondHitGuaranteed": false, "HealOnHit": false
-      },
-      "AttackLevelRequired": 75, "Range": 1
-    },
-    {
-      "Id": "granite_maul", "Name": "Granite Maul", "AttackType": "Crush",
-      "Modifiers": { "CrushAttack": 81, "StrengthBonus": 79 },
-      "AttackSpeed": 5, "ExamineText": "Heavy granite on a stick. Smashes light armor.",
-      "Special": {
-        "CommandAlias": "!spec", "EnergyRequired": 50, "DamageMultiplier": 0.9,
-        "Description": "Two quick smashes at 90% damage. Uses 50% energy.",
-        "Hits": 2, "AccuracyMultiplier": 1.0, "SecondHitGuaranteed": false, "HealOnHit": false
-      },
-      "AttackLevelRequired": 65, "Range": 1
-    },
-    {
-      "Id": "abyssal_bludgeon", "Name": "Abyssal Bludgeon", "AttackType": "Crush",
-      "Modifiers": { "CrushAttack": 102, "StrengthBonus": 85 },
-      "AttackSpeed": 4, "ExamineText": "A spiked club from the abyss.",
-      "Special": {
-        "CommandAlias": "!spec", "EnergyRequired": 50, "DamageMultiplier": 1.2,
-        "Description": "A crushing blow at 120% damage. Uses 50% energy.",
-        "Hits": 1, "AccuracyMultiplier": 1.0, "SecondHitGuaranteed": false, "HealOnHit": false
-      },
-      "AttackLevelRequired": 78, "Range": 1
-    },
-    {
-      "Id": "elder_maul", "Name": "Elder Maul", "AttackType": "Crush",
-      "Modifiers": { "CrushAttack": 135, "StrengthBonus": 147 },
-      "AttackSpeed": 6, "ExamineText": "Colossal. Slow. Ruinous.",
-      "Special": {
-        "CommandAlias": "!spec", "EnergyRequired": 50, "DamageMultiplier": 1.0,
-        "Description": "An accurate overhead slam. Uses 50% energy.",
-        "Hits": 1, "AccuracyMultiplier": 1.25, "SecondHitGuaranteed": false, "HealOnHit": false
-      },
-      "AttackLevelRequired": 85, "Range": 1
-    },
-    {
-      "Id": "zamorakian_hasta", "Name": "Zamorakian Hasta", "AttackType": "Stab",
-      "Modifiers": { "StabAttack": 85, "SlashAttack": 30, "StrengthBonus": 75 },
-      "AttackSpeed": 4, "ExamineText": "A blessed spear. Pierces heavy defences.",
-      "Special": null, "AttackLevelRequired": 70, "Range": 1
-    },
-    {
-      "Id": "ghrazi_rapier", "Name": "Ghrazi Rapier", "AttackType": "Stab",
-      "Modifiers": { "StabAttack": 94, "SlashAttack": 35, "StrengthBonus": 89 },
-      "AttackSpeed": 4, "ExamineText": "A vampyric blade of surgical precision.",
-      "Special": null, "AttackLevelRequired": 80, "Range": 1
-    },
-    {
-      "Id": "venomous_fang", "Name": "Venomous Fang", "AttackType": "Stab",
-      "Modifiers": { "StabAttack": 88, "StrengthBonus": 70 },
-      "AttackSpeed": 4, "ExamineText": "A poison-tipped dagger looted from the Desert Bandit. 20% chance to poison on hit.",
-      "Special": null, "AttackLevelRequired": 70, "Range": 1
+      "AttackSpeed": 4,
+      "ExamineText": "A gnarled staff humming with a dull curse.",
+      "AttackLevelRequired": 1,
+      "Range": 7
     }
   ],
   "gear": [
     {
-      "Id": "ranger_hood", "Name": "Ranger Hood", "Slot": "Helmet",
-      "Modifiers": { "StabDefence": 4, "SlashDefence": 4, "CrushDefence": 4, "RangedDefence": 6, "MagicDefence": 3 },
-      "ExamineText": "A weathered leather hood.", "DefenceLevelRequired": 1
+      "Id": "arm_warbound_helmet_t1",
+      "Name": "Warbound Helmet (T1)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 2,
+        "Line": "Warbound",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line helmet armor, tier 1."
     },
     {
-      "Id": "ranger_tunic", "Name": "Ranger Tunic", "Slot": "Body",
-      "Modifiers": { "StabDefence": 12, "SlashDefence": 12, "CrushDefence": 12, "RangedDefence": 15, "MagicDefence": 8 },
-      "ExamineText": "Hardened leather over a wool tunic.", "DefenceLevelRequired": 1
+      "Id": "arm_warbound_helmet_t2",
+      "Name": "Warbound Helmet (T2)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 4,
+        "Line": "Warbound",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line helmet armor, tier 2."
     },
     {
-      "Id": "ranger_trousers", "Name": "Ranger Trousers", "Slot": "Legs",
-      "Modifiers": { "StabDefence": 8, "SlashDefence": 8, "CrushDefence": 8, "RangedDefence": 10, "MagicDefence": 5 },
-      "ExamineText": "Reinforced woodland trousers.", "DefenceLevelRequired": 1
+      "Id": "arm_warbound_body_t1",
+      "Name": "Warbound Body (T1)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Warbound",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line body armor, tier 1."
     },
     {
-      "Id": "ranger_boots", "Name": "Ranger Boots", "Slot": "Boots",
-      "Modifiers": { "StabDefence": 3, "SlashDefence": 3, "CrushDefence": 3, "RangedDefence": 4, "MagicDefence": 2 },
-      "ExamineText": "Soft-soled tracking boots.", "DefenceLevelRequired": 1
+      "Id": "arm_warbound_body_t2",
+      "Name": "Warbound Body (T2)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 6,
+        "Line": "Warbound",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line body armor, tier 2."
     },
     {
-      "Id": "ranger_bracers", "Name": "Ranger Bracers", "Slot": "Gloves",
-      "Modifiers": { "StabDefence": 3, "SlashDefence": 3, "CrushDefence": 3, "RangedDefence": 4, "MagicDefence": 2 },
-      "ExamineText": "Leather arm guards.", "DefenceLevelRequired": 1
+      "Id": "arm_warbound_legs_t1",
+      "Name": "Warbound Legs (T1)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 2.5,
+        "Line": "Warbound",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line legs armor, tier 1."
     },
     {
-      "Id": "ranger_pauldrons", "Name": "Ranger Pauldrons", "Slot": "Cape",
-      "Modifiers": { "StabDefence": 5, "SlashDefence": 5, "CrushDefence": 5, "RangedDefence": 5, "MagicDefence": 3 },
-      "ExamineText": "Layered shoulder plates.", "DefenceLevelRequired": 1
+      "Id": "arm_warbound_legs_t2",
+      "Name": "Warbound Legs (T2)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Warbound",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line legs armor, tier 2."
     },
     {
-      "Id": "rune_full_helm", "Name": "Rune Full Helm", "Slot": "Helmet",
-      "Modifiers": { "StabDefence": 30, "SlashDefence": 30, "CrushDefence": 30, "RangedDefence": 30, "MagicDefence": -5 },
-      "ExamineText": "Sturdy rune headgear.", "DefenceLevelRequired": 60
+      "Id": "arm_warbound_boots_t1",
+      "Name": "Warbound Boots (T1)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 1.5,
+        "Line": "Warbound",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line boots armor, tier 1."
     },
     {
-      "Id": "rune_kiteshield", "Name": "Rune Kiteshield", "Slot": "Shield",
-      "Modifiers": { "StabDefence": 40, "SlashDefence": 40, "CrushDefence": 40, "RangedDefence": 40, "MagicDefence": -5 },
-      "ExamineText": "A broad rune shield.", "DefenceLevelRequired": 60
+      "Id": "arm_warbound_boots_t2",
+      "Name": "Warbound Boots (T2)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Warbound",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line boots armor, tier 2."
     },
     {
-      "Id": "rune_platelegs", "Name": "Rune Platelegs", "Slot": "Legs",
-      "Modifiers": { "StabDefence": 50, "SlashDefence": 50, "CrushDefence": 50, "RangedDefence": 45, "MagicDefence": -10 },
-      "ExamineText": "Heavy rune leg plates.", "DefenceLevelRequired": 60
+      "Id": "arm_warbound_gloves_t1",
+      "Name": "Warbound Gloves (T1)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 1.5,
+        "Line": "Warbound",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line gloves armor, tier 1."
     },
     {
-      "Id": "rune_platebody", "Name": "Rune Platebody", "Slot": "Body",
-      "Modifiers": { "StabDefence": 80, "SlashDefence": 80, "CrushDefence": 80, "RangedDefence": 75, "MagicDefence": -20 },
-      "ExamineText": "A full rune chestplate.", "DefenceLevelRequired": 60
+      "Id": "arm_warbound_gloves_t2",
+      "Name": "Warbound Gloves (T2)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Warbound",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line gloves armor, tier 2."
     },
     {
-      "Id": "dragon_med_helm", "Name": "Dragon Med Helm", "Slot": "Helmet",
-      "Modifiers": { "StabDefence": 45, "SlashDefence": 45, "CrushDefence": 45, "RangedDefence": 45, "MagicDefence": 0 },
-      "ExamineText": "A fearsome dragon-forged helm.", "DefenceLevelRequired": 70
+      "Id": "arm_warbound_cape_t1",
+      "Name": "Warbound Cape (T1)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 1.5,
+        "Line": "Warbound",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line cape armor, tier 1."
     },
     {
-      "Id": "dragon_sq_shield", "Name": "Dragon Sq Shield", "Slot": "Shield",
-      "Modifiers": { "StabDefence": 55, "SlashDefence": 55, "CrushDefence": 55, "RangedDefence": 55, "MagicDefence": 0 },
-      "ExamineText": "A dragon-forged square shield.", "DefenceLevelRequired": 70
+      "Id": "arm_warbound_cape_t2",
+      "Name": "Warbound Cape (T2)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Warbound",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line cape armor, tier 2."
     },
     {
-      "Id": "dragon_platelegs", "Name": "Dragon Platelegs", "Slot": "Legs",
-      "Modifiers": { "StabDefence": 70, "SlashDefence": 70, "CrushDefence": 70, "RangedDefence": 65, "MagicDefence": -10 },
-      "ExamineText": "Dragon-forged leg plates.", "DefenceLevelRequired": 70
+      "Id": "arm_stalker_helmet_t1",
+      "Name": "Stalker Helmet (T1)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 2,
+        "Line": "Stalker",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line helmet armor, tier 1."
     },
     {
-      "Id": "dragon_platebody", "Name": "Dragon Platebody", "Slot": "Body",
-      "Modifiers": { "StabDefence": 110, "SlashDefence": 110, "CrushDefence": 110, "RangedDefence": 100, "MagicDefence": -15 },
-      "ExamineText": "A dragon-forged chestplate.", "DefenceLevelRequired": 70
+      "Id": "arm_stalker_helmet_t2",
+      "Name": "Stalker Helmet (T2)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 4,
+        "Line": "Stalker",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line helmet armor, tier 2."
     },
     {
-      "Id": "justiciar_faceguard", "Name": "Justiciar Faceguard", "Slot": "Helmet",
-      "Modifiers": { "StabDefence": 70, "SlashDefence": 70, "CrushDefence": 70, "RangedDefence": 65, "MagicDefence": 10, "PrayerBonus": 2 },
-      "ExamineText": "Blessed plate that shrugs off magic.", "DefenceLevelRequired": 82
+      "Id": "arm_stalker_body_t1",
+      "Name": "Stalker Body (T1)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Stalker",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line body armor, tier 1."
     },
     {
-      "Id": "dragonfire_shield", "Name": "Dragonfire Shield", "Slot": "Shield",
-      "Modifiers": { "StabDefence": 90, "SlashDefence": 90, "CrushDefence": 90, "RangedDefence": 85, "MagicDefence": 25 },
-      "ExamineText": "Forged in dragonfire. Excellent all-round defence.", "DefenceLevelRequired": 82
+      "Id": "arm_stalker_body_t2",
+      "Name": "Stalker Body (T2)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 6,
+        "Line": "Stalker",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line body armor, tier 2."
     },
     {
-      "Id": "bandos_tassets", "Name": "Bandos Tassets", "Slot": "Legs",
-      "Modifiers": { "StabDefence": 100, "SlashDefence": 100, "CrushDefence": 100, "RangedDefence": 95, "MagicDefence": 10, "StrengthBonus": 2 },
-      "ExamineText": "War-god plate leg armor.", "DefenceLevelRequired": 82
+      "Id": "arm_stalker_legs_t1",
+      "Name": "Stalker Legs (T1)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 2.5,
+        "Line": "Stalker",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line legs armor, tier 1."
     },
     {
-      "Id": "bandos_chestplate", "Name": "Bandos Chestplate", "Slot": "Body",
-      "Modifiers": { "StabDefence": 140, "SlashDefence": 140, "CrushDefence": 140, "RangedDefence": 130, "MagicDefence": 15, "StrengthBonus": 4 },
-      "ExamineText": "The chestplate of the Big High War God.", "DefenceLevelRequired": 82
+      "Id": "arm_stalker_legs_t2",
+      "Name": "Stalker Legs (T2)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Stalker",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line legs armor, tier 2."
     },
     {
-      "Id": "dragon_boots", "Name": "Dragon Boots", "Slot": "Boots",
-      "Modifiers": { "StabDefence": 12, "SlashDefence": 12, "CrushDefence": 12, "RangedDefence": 12, "MagicDefence": 0, "StrengthBonus": 4 },
-      "ExamineText": "Dragon-hide boots.", "DefenceLevelRequired": 65
+      "Id": "arm_stalker_boots_t1",
+      "Name": "Stalker Boots (T1)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 1.5,
+        "Line": "Stalker",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line boots armor, tier 1."
     },
     {
-      "Id": "barrows_gloves", "Name": "Barrows Gloves", "Slot": "Gloves",
-      "Modifiers": { "StabDefence": 12, "SlashDefence": 12, "CrushDefence": 12, "RangedDefence": 12, "MagicDefence": 12, "StrengthBonus": 8 },
-      "ExamineText": "Gloves worn by the Barrows brothers.", "DefenceLevelRequired": 70
+      "Id": "arm_stalker_boots_t2",
+      "Name": "Stalker Boots (T2)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Stalker",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line boots armor, tier 2."
     },
     {
-      "Id": "amulet_of_fury", "Name": "Amulet of Fury", "Slot": "Amulet",
-      "Modifiers": { "StabDefence": 10, "SlashDefence": 10, "CrushDefence": 10, "RangedDefence": 10, "MagicDefence": 10, "StrengthBonus": 8 },
-      "ExamineText": "A cursed amulet radiating dark power.", "DefenceLevelRequired": 70
+      "Id": "arm_stalker_gloves_t1",
+      "Name": "Stalker Gloves (T1)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 1.5,
+        "Line": "Stalker",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line gloves armor, tier 1."
     },
     {
-      "Id": "lucky_doubloon", "Name": "Lucky Doubloon", "Slot": "Ring",
-      "Modifiers": {},
-      "ExamineText": "A pirate's lucky coin. Boosts bounty gold by 5%.", "DefenceLevelRequired": 1
+      "Id": "arm_stalker_gloves_t2",
+      "Name": "Stalker Gloves (T2)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Stalker",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line gloves armor, tier 2."
     },
     {
-      "Id": "amulet_of_strength", "Name": "Amulet of Strength", "Slot": "Amulet",
-      "Modifiers": { "StrengthBonus": 10 },
-      "ExamineText": "A barbarian talisman.", "DefenceLevelRequired": 1
+      "Id": "arm_stalker_cape_t1",
+      "Name": "Stalker Cape (T1)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 1.5,
+        "Line": "Stalker",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line cape armor, tier 1."
     },
     {
-      "Id": "arena_defender", "Name": "Arena Defender", "Slot": "Shield",
-      "Modifiers": { "StabDefence": 25, "SlashDefence": 25, "CrushDefence": 25, "RangedDefence": 20, "MagicDefence": 0, "StrengthBonus": 6 },
-      "ExamineText": "A gladiator's offensive buckler.", "DefenceLevelRequired": 60
+      "Id": "arm_stalker_cape_t2",
+      "Name": "Stalker Cape (T2)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Stalker",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line cape armor, tier 2."
     },
     {
-      "Id": "pirates_hook", "Name": "Pirate's Hook", "Slot": "Gloves",
-      "Modifiers": { "StabDefence": 10, "SlashDefence": 10, "CrushDefence": 10, "RangedDefence": 10, "MagicDefence": 10, "StrengthBonus": 10 },
-      "ExamineText": "A corsair's cruel prosthetic.", "DefenceLevelRequired": 65
+      "Id": "arm_occult_helmet_t1",
+      "Name": "Occult Helmet (T1)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 2,
+        "Line": "Occult",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Occult-line helmet armor, tier 1."
     },
     {
-      "Id": "berserker_ring", "Name": "Berserker Ring", "Slot": "Ring",
-      "Modifiers": { "StrengthBonus": 8 },
-      "ExamineText": "Worn by the frenzied.", "DefenceLevelRequired": 75
+      "Id": "arm_occult_helmet_t2",
+      "Name": "Occult Helmet (T2)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 4,
+        "Line": "Occult",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Occult-line helmet armor, tier 2."
     },
     {
-      "Id": "warlords_bulwark", "Name": "Warlord's Bulwark", "Slot": "Shield",
-      "Modifiers": { "StabDefence": 110, "SlashDefence": 110, "CrushDefence": 110, "RangedDefence": 100, "MagicDefence": 40, "PrayerBonus": 3 },
-      "ExamineText": "A veteran's battle-scarred shield. Best in slot.", "DefenceLevelRequired": 85
+      "Id": "arm_occult_body_t1",
+      "Name": "Occult Body (T1)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Occult",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Occult-line body armor, tier 1."
     },
     {
-      "Id": "champions_cape", "Name": "Champion's Cape", "Slot": "Cape",
-      "Modifiers": { "StabDefence": 40, "SlashDefence": 40, "CrushDefence": 40, "RangedDefence": 40, "MagicDefence": 40, "StrengthBonus": 8, "PrayerBonus": 4 },
-      "ExamineText": "Worn only by the undefeated.", "DefenceLevelRequired": 90
+      "Id": "arm_occult_body_t2",
+      "Name": "Occult Body (T2)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 6,
+        "Line": "Occult",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Occult-line body armor, tier 2."
     },
     {
-      "Id": "maggot_crown", "Name": "Maggot Crown", "Slot": "Helmet",
-      "Modifiers": { "StabDefence": 20, "SlashDefence": 20, "CrushDefence": 20, "RangedDefence": 20, "MagicDefence": 20, "StrengthBonus": 4, "PrayerBonus": 5 },
-      "ExamineText": "The Maggot King's chitinous crown. Proof you danced the dance.", "DefenceLevelRequired": 70
+      "Id": "arm_occult_legs_t1",
+      "Name": "Occult Legs (T1)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 2.5,
+        "Line": "Occult",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Occult-line legs armor, tier 1."
+    },
+    {
+      "Id": "arm_occult_legs_t2",
+      "Name": "Occult Legs (T2)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Occult",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Occult-line legs armor, tier 2."
+    },
+    {
+      "Id": "arm_occult_boots_t1",
+      "Name": "Occult Boots (T1)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 1.5,
+        "Line": "Occult",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Occult-line boots armor, tier 1."
+    },
+    {
+      "Id": "arm_occult_boots_t2",
+      "Name": "Occult Boots (T2)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Occult",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Occult-line boots armor, tier 2."
+    },
+    {
+      "Id": "arm_occult_gloves_t1",
+      "Name": "Occult Gloves (T1)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 1.5,
+        "Line": "Occult",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Occult-line gloves armor, tier 1."
+    },
+    {
+      "Id": "arm_occult_gloves_t2",
+      "Name": "Occult Gloves (T2)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Occult",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Occult-line gloves armor, tier 2."
+    },
+    {
+      "Id": "arm_occult_cape_t1",
+      "Name": "Occult Cape (T1)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 1.5,
+        "Line": "Occult",
+        "Tier": 1,
+        "Special": null
+      },
+      "ExamineText": "Occult-line cape armor, tier 1."
+    },
+    {
+      "Id": "arm_occult_cape_t2",
+      "Name": "Occult Cape (T2)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 3,
+        "Line": "Occult",
+        "Tier": 2,
+        "Special": null
+      },
+      "ExamineText": "Occult-line cape armor, tier 2."
     }
   ],
   "consumables": [
-    { "Id": "shark", "Name": "Shark" },
-    { "Id": "karambwan", "Name": "Karambwan" },
-    { "Id": "anglerfish", "Name": "Anglerfish" },
-    { "Id": "super_combat_potion", "Name": "Super Combat Potion" },
-    { "Id": "antidote", "Name": "Antidote" },
-    { "Id": "red_partyhat", "Name": "Red Partyhat" },
-    { "Id": "blue_partyhat", "Name": "Blue Partyhat" },
-    { "Id": "white_partyhat", "Name": "White Partyhat" }
+    {
+      "Id": "flask_health",
+      "Name": "Health Flask"
+    },
+    {
+      "Id": "flask_prayer",
+      "Name": "Prayer Flask"
+    }
   ],
-  "shopPrices": {
-    "karambwan": 200,
-    "rune_scimitar": 200,
-    "shark": 500,
-    "dragon_scimitar": 600,
-    "anglerfish": 700,
-    "dragon_dagger": 800,
-    "super_combat_potion": 1000,
-    "antidote": 300,
-    "granite_maul": 1800,
-    "abyssal_whip": 2500,
-    "zamorakian_hasta": 3500,
-    "armadyl_sword": 5000,
-    "dragon_claws": 15000,
-    "abyssal_bludgeon": 28000,
-    "bandos_godsword": 30000,
-    "zamorak_godsword": 40000,
-    "ghrazi_rapier": 45000,
-    "saradomin_godsword": 50000,
-    "armadyl_godsword": 65000,
-    "elder_maul": 90000,
-    "scythe_of_vitur": 150000,
-    "ranger_hood": 60,
-    "ranger_boots": 60,
-    "ranger_bracers": 60,
-    "ranger_pauldrons": 80,
-    "steel_sword": 100,
-    "ranger_trousers": 100,
-    "ranger_tunic": 150,
-    "rune_full_helm": 500,
-    "rune_kiteshield": 800,
-    "rune_platelegs": 1200,
-    "rune_platebody": 2000,
-    "dragon_boots": 4000,
-    "dragon_med_helm": 3000,
-    "dragon_sq_shield": 4000,
-    "dragon_platelegs": 6000,
-    "barrows_gloves": 6000,
-    "dragon_platebody": 9000,
-    "amulet_of_fury": 15000,
-    "justiciar_faceguard": 30000,
-    "dragonfire_shield": 35000,
-    "bandos_tassets": 45000,
-    "bandos_chestplate": 60000
-  },
-  "fenceValues": {
-    "lucky_doubloon": 500,
-    "amulet_of_strength": 2000,
-    "venomous_fang": 3000,
-    "arena_defender": 5000,
-    "pirates_hook": 10000,
-    "berserker_ring": 15000,
-    "warlords_bulwark": 40000,
-    "champions_cape": 100000,
-    "corrupted_whip": 30000,
-    "maggot_crown": 50000
-  }
+  "shopPrices": {},
+  "fenceValues": {}
 }

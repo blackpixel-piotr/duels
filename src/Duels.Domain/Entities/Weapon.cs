@@ -7,48 +7,39 @@ public sealed class Weapon
     public string Id { get; }
     public string Name { get; }
     public AttackType AttackType { get; }
-    public ItemModifiers Modifiers { get; }
     public int AttackSpeed { get; }
     public string ExamineText { get; }
-    public SpecialAttack? Special { get; }
     public int AttackLevelRequired { get; }
 
+    /// <summary>Combat-math-v2 stats (Power/Precision/Special) — the items doc
+    /// tables verbatim. Every M1 weapon carries this; never null in content
+    /// shipped after the M1 ladder-retirement sweep.</summary>
+    public DocStats Doc { get; }
+
     /// <summary>Attack range in arena tiles (Chebyshev). 1 = melee adjacency;
-    /// future bows/halberds set it higher.</summary>
+    /// ranged/magic weapons set it to AttackRange.Distant.</summary>
     public int Range { get; }
 
     public Weapon(
         string id,
         string name,
         AttackType attackType,
-        ItemModifiers modifiers,
+        DocStats doc,
         int attackSpeed = 4,
         string examineText = "",
-        SpecialAttack? special = null,
-        int attackLevelRequired = 60,
+        int attackLevelRequired = 1,
         int range = 1)
     {
         Id = id;
         Name = name;
         AttackType = attackType;
-        Modifiers = modifiers;
+        Doc = doc;
         AttackSpeed = attackSpeed;
         ExamineText = examineText;
-        Special = special;
         AttackLevelRequired = attackLevelRequired;
         Range = range;
     }
 
     public GearPiece AsGearPiece() =>
-        new(Id, Name, EquipmentSlot.Weapon, Modifiers, ExamineText);
+        new(Id, Name, EquipmentSlot.Weapon, Doc, ExamineText);
 }
-
-public sealed record SpecialAttack(
-    string CommandAlias,
-    int EnergyRequired,
-    double DamageMultiplier,
-    string Description,
-    int Hits = 1,
-    double AccuracyMultiplier = 1.0,
-    bool SecondHitGuaranteed = false,
-    bool HealOnHit = false);

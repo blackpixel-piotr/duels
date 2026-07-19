@@ -5,7 +5,6 @@
     {
         <div class="strip-row strip-top">
             <span class="strip-name glow-amber">@p.Name</span>
-            <span class="strip-levels">A@(p.AttackLevel) S@(p.StrengthLevel) D@(p.DefenceLevel)</span>
             <span class="strip-gold glow-yellow">@p.Gold.ToString("N0")g</span>
         </div>
         <div class="strip-row strip-hp">
@@ -48,9 +47,6 @@
             if (State is not { } s) return chips;
             if (s.BleedTicksLeft > 0) chips.Add(new($"BLEED {s.BleedTicksLeft}", "status-chip-bleed"));
             if (s.PlayerPoisoned) chips.Add(new("POISON", "status-chip-poison"));
-            if (s.VengActive) chips.Add(new("VENG READY", "status-chip-veng"));
-            if (s.WinStreak > 1) chips.Add(new($"STREAK {s.WinStreak}×{s.WinStreakMultiplier:F1}", "status-chip-streak"));
-            if (s.InEndlessMode) chips.Add(new($"WAVE {s.EndlessWave}", "status-chip-streak"));
             return chips;
         }
     }

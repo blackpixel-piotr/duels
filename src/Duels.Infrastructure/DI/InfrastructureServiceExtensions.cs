@@ -17,7 +17,7 @@ public static class InfrastructureServiceExtensions
     {
         // Domain services
         services.AddSingleton<IRandomProvider, Random.SystemRandomProvider>();
-        services.AddSingleton<ICombatCalculator, CombatCalculator>();
+        services.AddSingleton<IDamageModel, DamageModel>();
 
         // Infrastructure — repositories (singleton so state lives for the browser session)
         services.AddSingleton<IGameStateRepository, InMemoryGameStateRepository>();
@@ -38,30 +38,20 @@ public static class InfrastructureServiceExtensions
         // Command handlers
         services.AddSingleton<ICommandHandler<StartGameCommand>, StartGameHandler>();
         services.AddSingleton<ICommandHandler<StartDuelCommand>, StartDuelHandler>();
-        services.AddSingleton<ICommandHandler<StartEndlessCommand>, StartEndlessHandler>();
         services.AddSingleton<ICommandHandler<AttackCommand>, AttackHandler>();
         services.AddSingleton<ICommandHandler<EquipItemCommand>, EquipItemHandler>();
         services.AddSingleton<ICommandHandler<UnequipItemCommand>, UnequipItemHandler>();
-        services.AddSingleton<ICommandHandler<InspectCommand>, InspectHandler>();
-        services.AddSingleton<ICommandHandler<ListNpcsCommand>, ListNpcsHandler>();
-        services.AddSingleton<ICommandHandler<HelpCommand>, HelpHandler>();
-        services.AddSingleton<ICommandHandler<ShopCommand>, ShopHandler>();
-        services.AddSingleton<ICommandHandler<BuyItemCommand>, BuyItemHandler>();
         services.AddSingleton<ICommandHandler<WeaponShortcutCommand>, WeaponShortcutHandler>();
-        services.AddSingleton<ICommandHandler<EatItemCommand>, EatItemHandler>();
-        services.AddSingleton<ICommandHandler<DrinkPotionCommand>, DrinkPotionHandler>();
-        services.AddSingleton<ICommandHandler<VengeanceCommand>, VengeanceHandler>();
         services.AddSingleton<ICommandHandler<PrayerCommand>, PrayerHandler>();
         services.AddSingleton<ICommandHandler<SetStyleCommand>, SetStyleHandler>();
-        services.AddSingleton<ICommandHandler<BegCommand>, BegHandler>();
-        services.AddSingleton<ICommandHandler<PrestigeCommand>, PrestigeHandler>();
-        services.AddSingleton<ICommandHandler<SellItemCommand>, SellItemHandler>();
-        services.AddSingleton<ICommandHandler<DepositItemCommand>, DepositItemHandler>();
-        services.AddSingleton<ICommandHandler<WithdrawItemCommand>, WithdrawItemHandler>();
-        services.AddSingleton<ICommandHandler<StartTestFightCommand>, StartTestFightHandler>();
         services.AddSingleton<ICommandHandler<MoveToCommand>, MoveToHandler>();
         services.AddSingleton<ICommandHandler<EngageCommand>, EngageHandler>();
         services.AddSingleton<ICommandHandler<FreezeEnemyCommand>, FreezeEnemyHandler>();
+        services.AddSingleton<ICommandHandler<SipFlaskCommand>, SipFlaskHandler>();
+        services.AddSingleton<ICommandHandler<SetTargetCommand>, SetTargetHandler>();
+        services.AddSingleton<ICommandHandler<BindWeaponSlotCommand>, BindWeaponSlotHandler>();
+        services.AddSingleton<ICommandHandler<BindFlaskSlotCommand>, BindFlaskSlotHandler>();
+        services.AddSingleton<ICommandHandler<GrantDevLoadoutCommand>, GrantDevLoadoutHandler>();
 
         return services;
     }

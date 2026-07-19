@@ -3,7 +3,6 @@ using Duels.Application.Abstractions;
 using Duels.Application.Commands;
 using Duels.Application.GameSession;
 using Duels.Domain.Entities;
-using Duels.Domain.Services;
 using Duels.Domain.ValueObjects;
 using Duels.Web.Models;
 using Microsoft.JSInterop;
@@ -13,7 +12,7 @@ namespace Duels.Web.Services;
 public sealed class GameService
 {
     private const string SaveKey = "duels_save";
-    private const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
 
     private readonly ICommandDispatcher _dispatcher;
     private readonly IGameStateRepository _stateRepo;
@@ -54,33 +53,22 @@ public sealed class GameService
         return result;
     }
 
-    /// <summary>Explicit persistence trigger for moments the command cadence
-    /// above doesn't cover on its own — a duel just ended, or a periodic
-    /// safety interval while one is still running (see Game.razor's
-    /// OnTickNotify, which drives both).</summary>
     public Task PersistNowAsync() => PersistAsync();
 
-    // Reduced save cadence (M0): these are the high-frequency in-duel inputs
-    // (an attack tap, a prayer flick, a weapon swap...) — the tick loop
-    // already keeps in-memory state current, and Game.razor's OnTickNotify
-    // covers duel-end and a periodic in-duel safety write. Persisting on
-    // every one of these was a write per tap; everything else (bank, shop,
-    // equip, prestige, starting/ending a session) is comparatively rare and
-    // still persists immediately.
+    // Reduced save cadence (M0): the tick loop keeps in-memory state current;
+    // Game.razor's OnTickNotify covers duel-end and a periodic in-duel safety
+    // write. Everything else (equip, loadout binds, starting/ending a
+    // session) persists immediately.
     private static bool ShouldPersistAfter<TCommand>(TCommand command) where TCommand : IGameCommand =>
         command is not (AttackCommand or PrayerCommand or WeaponShortcutCommand or SetStyleCommand
-            or MoveToCommand or EngageCommand or DrinkPotionCommand or EatItemCommand or FreezeEnemyCommand);
+            or MoveToCommand or EngageCommand or FreezeEnemyCommand or SipFlaskCommand or SetTargetCommand);
 
     public async Task<GameState?> GetStateAsync() =>
         PlayerId is null ? null : await _stateRepo.GetAsync(PlayerId);
 
     public async Task<bool> HasSaveAsync()
     {
-        try
-        {
-            var json = await LoadRawSaveWithMigrationAsync();
-            return json is not null;
-        }
+        try { return await LoadRawSaveWithMigrationAsync() is not null; }
         catch { return false; }
     }
 
@@ -115,18 +103,13 @@ public sealed class GameService
                 .Where(t => t.Item1)
                 .Select(t => new KeyValuePair<EquipmentSlot, string>(t.slot, t.Value));
 
-            // Legacy saves (pre-xp) carry -1 sentinels: grandfather them to max level (they were 99s)
-            int MigrateXp(int xp) => xp < 0 ? ExperienceTable.MaxLevelXp : xp;
             var style = Enum.TryParse<AttackStyle>(data.ChosenStyle, out var s) ? s : AttackStyle.Accurate;
 
-            player.RestoreFromSave(data.Gold, data.CurrentHp, data.SpecialEnergy, data.PrestigeLevel,
-                data.Inventory, equippedKvps,
-                MigrateXp(data.AttackXp), MigrateXp(data.StrengthXp),
-                MigrateXp(data.DefenceXp), MigrateXp(data.HitpointsXp), style);
+            player.RestoreFromSave(data.Gold, data.CurrentHp, data.SpecialEnergy,
+                data.Inventory, equippedKvps, style, data.PersonalBestKillTicks);
+            player.Loadout.RestoreFromSave(data.LoadoutWeaponSlots ?? [], data.LoadoutFlaskSlots ?? []);
 
             var state = new GameState(data.PlayerId, player);
-            state.RestoreFromSave(data.WinStreak, data.BestEndlessWave, data.UnlockedOpponents,
-                data.CollectionLog, data.DefeatedNpcs, data.Bank);
 
             await _playerRepo.SaveAsync(player);
             await _stateRepo.SaveAsync(state);
@@ -179,20 +162,12 @@ public sealed class GameService
                 Gold: p.Gold,
                 CurrentHp: p.CurrentHp,
                 SpecialEnergy: p.SpecialEnergy,
-                PrestigeLevel: p.PrestigeLevel,
-                WinStreak: state.WinStreak,
-                BestEndlessWave: state.BestEndlessWave,
                 Inventory: p.Inventory.ToList(),
                 Equipped: p.Equipped.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value),
-                UnlockedOpponents: state.UnlockedOpponents.ToList(),
-                AttackXp: p.AttackXp,
-                StrengthXp: p.StrengthXp,
-                DefenceXp: p.DefenceXp,
-                HitpointsXp: p.HitpointsXp,
                 ChosenStyle: p.ChosenStyle.ToString(),
-                CollectionLog: state.CollectionLog.ToList(),
-                DefeatedNpcs: state.DefeatedNpcs.ToList(),
-                Bank: state.Bank.ToList()
+                PersonalBestKillTicks: p.PersonalBestKillTicks,
+                LoadoutWeaponSlots: p.Loadout.WeaponSlots.ToList(),
+                LoadoutFlaskSlots: p.Loadout.FlaskSlots.ToList()
             );
 
             var json = JsonSerializer.Serialize(new SaveEnvelope(CurrentSchemaVersion, data));

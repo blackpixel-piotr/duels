@@ -6,35 +6,23 @@ using Duels.Domain.Events;
 using Duels.Domain.Interfaces;
 using Duels.Domain.Services;
 using Duels.Domain.ValueObjects;
+using Duels.Infrastructure.Persistence;
 using System.Reflection;
 using Xunit;
 
 namespace Duels.Application.Tests;
 
-// Tile-hazard boss mechanics (HazardProfile): telegraphed eruptions that
-// ignore protection prayers, lingering poison pools, and the phase-2 frenzy.
+// Choreography tests for the M1 boss (m1-plan Workstream D): rotation
+// timeline, eruption cadence, pool->scorch conversion, Rot Burst safe-tile
+// negation + punish window, swarm spawn thresholds + contact bleed, and
+// Perfect Dodge. Runs against the REAL embedded npcs.json/items.json content,
+// not a synthetic stand-in, so it breaks if the shipped choreography drifts.
 public sealed class MaggotKingTests
 {
-    private sealed class AlwaysHitMaxRandom : IRandomProvider
+    private sealed class AlwaysHitRandom : IRandomProvider
     {
         public int Next(int min, int max) => max > min ? max - 1 : min;
         public double NextDouble() => 0.0;
-    }
-
-    private sealed class StubItemRepo : IItemRepository
-    {
-        public GearPiece? GetGear(string id) => null;
-        public Weapon? GetWeapon(string id) => null;
-        public string? GetItemName(string id) => id;
-        public bool IsWeapon(string id) => false;
-        public IReadOnlyList<(string Id, string Name, int Price)> GetShopItems() => [];
-        public int GetFenceValue(string id) => 0;
-    }
-
-    private sealed class StubNpcRepo : INpcRepository
-    {
-        public NpcTemplate? GetTemplate(string id) => null;
-        public IReadOnlyList<NpcTemplate> GetAll() => [];
     }
 
     private sealed class StubEventBus : IEventBus
@@ -58,27 +46,23 @@ public sealed class MaggotKingTests
         public Task WaitForNextTickAsync(CancellationToken ct) => Task.CompletedTask;
     }
 
-    // Feeble melee hazard boss: waves every 2 ticks after a 2-tick warning,
-    // spawned far enough away (and hitting for at most 1) that hazard damage
-    // dominates every assertion. Big HP so nobody dies mid-test.
-    private static NpcTemplate HazardBoss(int cooldown = 2, int warning = 2, int tilesPerWave = 3) =>
-        new("hazard_boss", "Hazard Boss", "", new CombatStats(1, 1, 99, 500), ItemModifiers.Zero,
-            AttackType.Crush, [], attackSpeedTicks: 50,
-            hazards: new HazardProfile("The ground churns!", cooldown, warning, tilesPerWave,
-                EruptDamage: 22, PoolTicks: 4, PoolDamage: 4));
-
-    private static (GameTickService svc, GameState state) Build(NpcTemplate template)
+    private static (GameTickService svc, GameState state, NpcInstance npc) Build()
     {
+        var items = new DefinitionItemRepository();
+        var npcs = new DefinitionNpcRepository(items);
+        var template = npcs.GetTemplate("maggot_king")!;
+
         var player = new Player("p1", "Hero");
         var state = new GameState("p1", player);
-        state.StartDuel(new NpcInstance(template));
+        var npc = new NpcInstance(template);
+        state.StartDuel(npc);
         state.HoldPositionAtSpawn(); // stand still unless a test moves the player
 
-        var combat = new CombatCalculator(new AlwaysHitMaxRandom());
+        var damage = new DamageModel(new AlwaysHitRandom());
         var svc = new GameTickService(
-            new InMemoryStateRepo(state), combat, new AlwaysHitMaxRandom(),
-            new StubItemRepo(), new StubNpcRepo(), new StubEventBus(), new StubTickSource());
-        return (svc, state);
+            new InMemoryStateRepo(state), damage, new AlwaysHitRandom(),
+            items, new StubEventBus(), new StubTickSource());
+        return (svc, state, npc);
     }
 
     private static async Task Tick(GameTickService svc)
@@ -87,105 +71,170 @@ public sealed class MaggotKingTests
         await (Task)method.Invoke(svc, ["p1"])!;
     }
 
-    private static int Splats(GameState state, string splat) =>
-        state.CombatLog.Count(e => e.Kind == LogEntryKind.HitsplatNpc && e.Message == splat);
-
     [Fact]
-    public async Task Wave_SpawnsOnCooldown_AndMarksPlayerTile()
+    public async Task Phase1_FiresBileSpitAtRotationTick0()
     {
-        var (svc, state) = Build(HazardBoss(cooldown: 2));
+        var (svc, state, _) = Build();
+        int hpBefore = state.Player.CurrentHp;
 
-        await Tick(svc);
-        Assert.Empty(state.Hazards); // cooldown still running
+        await Tick(svc); // RotationTick 0 resolves before advancing
 
-        await Tick(svc); // cooldown hits 0 → wave
-        Assert.NotEmpty(state.Hazards);
-        Assert.All(state.Hazards, h => Assert.False(h.Pool));
-        Assert.Contains(state.Hazards, h => (h.X, h.Z) == state.PlayerTile);
-        Assert.Equal(3, state.Hazards.Count);
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.NpcHit && e.Message.Contains("Bile Spit"));
+        Assert.Equal(hpBefore - 18, state.Player.CurrentHp); // Medium band, no prayer/gear mitigation
     }
 
     [Fact]
-    public async Task Eruption_IgnoresProtectionPrayer_WhenStandingOnTile()
+    public async Task Phase1_StyleTelegraphAtTick8_SetsForecast()
     {
-        var (svc, state) = Build(HazardBoss(cooldown: 2, warning: 2));
-        // Praying against the boss's own style must NOT reduce eruption damage.
-        state.Player.ToggleProtection(ProtectionPrayer.Melee);
+        var (svc, state, npc) = Build();
 
-        await Tick(svc); await Tick(svc); // wave spawns (warning 2)
+        for (int i = 0; i < 9; i++) await Tick(svc); // ticks resolve T0..T8 inclusive
+
+        Assert.NotNull(npc.ForecastAttackId);
+        Assert.Equal(2, npc.ForecastTicksLeft);
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.BossSpecial && e.Message.Contains("mandibles glow"));
+    }
+
+    [Fact]
+    public async Task Eruption_FiresOnCooldown_MarkingPlayerTilePlusExtras()
+    {
+        var (svc, state, npc) = Build();
+        npc.ResetEruptionCooldown(1);
+
+        await Tick(svc);
+
+        Assert.Equal(3, state.Hazards.Count); // Phase 1 TilesPerWave = 3 (player tile + 2 random)
+        Assert.Contains(state.Hazards, h => (h.X, h.Z) == state.PlayerTile);
+        Assert.All(state.Hazards, h => Assert.Equal(HazardState.Warning, h.State));
+    }
+
+    [Fact]
+    public async Task Eruption_DealsUnprayableDamage_AndPoisonsOnLandedTile()
+    {
+        var (svc, state, _) = Build();
+        state.Player.ToggleProtection(ProtectionPrayer.Magic); // must not matter — unprayable
+        state.AddHazardWave([state.PlayerTile], warningTicks: 1, poolTicks: 20);
         int hpBefore = state.Player.CurrentHp;
-        await Tick(svc);                  // warning 2 → 1
-        await Tick(svc);                  // 1 → 0: eruption under our feet
-        Assert.Equal(22, hpBefore - state.Player.CurrentHp);
-        Assert.Equal(1, Splats(state, "22:hazard"));
+
+        await Tick(svc);
+
+        Assert.Equal(hpBefore - 35, state.Player.CurrentHp); // Heavy band
         Assert.True(state.PlayerPoisoned);
     }
 
     [Fact]
-    public async Task Eruption_MissesPlayerWhoMovedOff()
+    public void HazardTile_Lifecycle_WarningToPoolToScorch()
     {
-        // Long cooldown (kicked once manually) so no second wave muddies the
-        // "everything is a pool now" assertion at the end.
-        var (svc, state) = Build(HazardBoss(cooldown: 20, warning: 2));
-        state.ActiveNpc!.ResetHazardCooldown(2);
+        var items = new DefinitionItemRepository();
+        var npcs = new DefinitionNpcRepository(items);
+        var state = new GameState("p1", new Player("p1", "Hero"));
+        state.StartDuel(new NpcInstance(npcs.GetTemplate("maggot_king")!));
 
-        await Tick(svc); await Tick(svc); // wave spawns on our tile
-        // Step well clear of the whole wave footprint (Chebyshev 2 of spawn).
-        state.SetPlayerTile(-3, 0);
-        await Tick(svc); await Tick(svc); // eruption fires on empty ground
-        Assert.Equal(0, Splats(state, "22:hazard"));
-        Assert.False(state.PlayerPoisoned);
-        // The blast zone is now pools.
-        Assert.NotEmpty(state.Hazards);
-        Assert.All(state.Hazards, h => Assert.True(h.Pool));
+        state.AddHazardWave([(2, 2)], warningTicks: 2, poolTicks: 2);
+        Assert.Empty(state.TickHazards());          // fuse 2 -> 1
+        var erupted = state.TickHazards();           // fuse 1 -> 0: erupts
+        Assert.Contains((2, 2), erupted);
+        Assert.True(state.IsPool((2, 2)));
+
+        state.TickHazards();                          // pool 2 -> 1
+        Assert.True(state.IsPool((2, 2)));
+        state.TickHazards();                          // pool 1 -> 0: dries to scorch
+        Assert.True(state.IsScorch((2, 2)));
+        Assert.False(state.IsPool((2, 2)));
     }
 
     [Fact]
-    public async Task Pools_BurnWhileStoodIn_NotAfterLeaving_AndExpire()
+    public async Task PerfectDodge_GrantsSpecialEnergy_WhenVacatingFinalFuseTileInTime()
     {
-        var (svc, state) = Build(HazardBoss(cooldown: 20, warning: 2));
-        state.ActiveNpc!.ResetHazardCooldown(2);
+        var (svc, state, _) = Build();
+        state.Player.DrainSpecialEnergy(100);
+        var standingTile = state.PlayerTile;
+        state.AddHazardWave([standingTile], warningTicks: 1, poolTicks: 5);
+        state.OrderMove(standingTile.X + 3, standingTile.Z); // moves 2 tiles this tick — clears the tile
 
-        await Tick(svc); await Tick(svc);  // wave
-        state.SetPlayerTile(-3, 0);        // dodge the eruption
-        await Tick(svc); await Tick(svc);  // tiles erupt → pools (4 ticks left)
-        var pool = state.Hazards.First(h => h.Pool);
-
-        state.SetPlayerTile(pool.X, pool.Z); // wade in
         await Tick(svc);
-        Assert.Equal(1, Splats(state, "4:poison"));
 
-        state.SetPlayerTile(-3, 0);          // step out
-        await Tick(svc);
-        Assert.Equal(1, Splats(state, "4:poison")); // no new burn
-
-        await Tick(svc); await Tick(svc);    // pools dry up (PoolTicks 4)
-        Assert.Empty(state.Hazards);
+        Assert.Equal(15, state.Player.SpecialEnergy);
+        Assert.NotEqual(standingTile, state.PlayerTile);
     }
 
     [Fact]
-    public async Task Phase2_AtHalfHp_QuickensRotation_AndWidensWaves()
+    public async Task Phase2_TriggersAtHalfHp_AndCompressesLoop()
     {
-        var (svc, state) = Build(HazardBoss(cooldown: 4, warning: 2, tilesPerWave: 3));
-        var npc = state.ActiveNpc!;
-        npc.TakeDamage(npc.MaxHp / 2 + 10);
-        npc.ResetHazardCooldown(1); // next tick both flips phase and fires a wave
+        var (svc, state, npc) = Build();
+        npc.TakeDamage(npc.MaxHp / 2);
 
-        await Tick(svc);
-        Assert.True(npc.PhaseShiftUsed);
-        Assert.Equal(2, npc.AttacksPerStyleOverride);
-        // Enraged wave is one tile wider.
-        Assert.Equal(4, state.Hazards.Count(h => !h.Pool));
+        await Tick(svc); // detects the threshold, flips phase, resets the cursor
+
+        Assert.Equal(2, npc.Phase);
+        Assert.Equal(0, npc.RotationTick);
+        Assert.Equal(14, npc.ActivePhaseDef.LoopLength);
     }
 
     [Fact]
-    public async Task HazardsClear_WhenDuelEnds()
+    public async Task Swarms_SpawnOncePhase2Begins_AndContactAppliesBleed()
     {
-        var (svc, state) = Build(HazardBoss(cooldown: 2));
-        await Tick(svc); await Tick(svc);
-        Assert.NotEmpty(state.Hazards);
+        var (svc, state, npc) = Build();
+        npc.TakeDamage(npc.MaxHp / 2); // exactly the 50% swarm threshold
 
-        state.EndDuel();
-        Assert.Empty(state.Hazards);
+        await Tick(svc);
+
+        Assert.Equal(2, state.Adds.Count);
+        Assert.All(state.Adds, a => Assert.Equal(2, a.MaxHp));
+
+        for (int i = 0; i < 20 && state.BleedTicksLeft == 0; i++) await Tick(svc);
+        Assert.True(state.BleedTicksLeft > 0);
+    }
+
+    [Fact]
+    public async Task RotBurst_DealsSevereUnprayableDamage_AndOpensPunishWindow()
+    {
+        var (svc, state, npc) = Build();
+        npc.TakeDamage(npc.MaxHp / 2);
+        await Tick(svc); // enter Phase 2 (Rot Burst only exists there)
+        Assert.Equal(2, npc.Phase);
+
+        npc.StartRotBurstInhale(1); // resolves on the very next tick
+        int hpBefore = state.Player.CurrentHp;
+
+        await Tick(svc);
+
+        Assert.False(npc.RotBurstInhaling);
+        Assert.Equal(hpBefore - 55, state.Player.CurrentHp); // Severe band, unprayable
+        Assert.True(npc.InPunishWindow);
+    }
+
+    [Fact]
+    public async Task RotBurst_NegatedForPlayerStandingOnScorch()
+    {
+        var (svc, state, npc) = Build();
+        npc.TakeDamage(npc.MaxHp / 2);
+        await Tick(svc);
+
+        state.AddHazardWave([state.PlayerTile], warningTicks: 1, poolTicks: 1);
+        await Tick(svc); // warning -> pool
+        await Tick(svc); // pool -> scorch
+        Assert.True(state.IsScorch(state.PlayerTile));
+
+        npc.StartRotBurstInhale(1);
+        int hpBefore = state.Player.CurrentHp;
+
+        await Tick(svc);
+
+        Assert.Equal(hpBefore, state.Player.CurrentHp); // sheltered
+        Assert.True(npc.InPunishWindow); // the boss still slumps regardless
+    }
+
+    [Fact]
+    public async Task PunishWindow_BossCannotAct_TakesExtraDamageFromPlayer()
+    {
+        var (svc, state, npc) = Build();
+        npc.StartSlump(3);
+        int hpBefore = state.Player.CurrentHp;
+
+        await Tick(svc); // boss skips its rotation entirely while slumped
+
+        Assert.Equal(hpBefore, state.Player.CurrentHp); // no boss attack landed
+        Assert.True(npc.InPunishWindow);
     }
 }

@@ -7,18 +7,15 @@ public sealed class GearPiece
     public string Id { get; }
     public string Name { get; }
     public EquipmentSlot Slot { get; }
-    public ItemModifiers Modifiers { get; }
+    public DocStats Doc { get; }
     public string ExamineText { get; }
-    public int DefenceLevelRequired { get; }
 
-    public GearPiece(string id, string name, EquipmentSlot slot, ItemModifiers modifiers, string examineText = "",
-        int defenceLevelRequired = 60)
+    public GearPiece(string id, string name, EquipmentSlot slot, DocStats doc, string examineText = "")
     {
         Id = id;
         Name = name;
         Slot = slot;
-        Modifiers = modifiers;
+        Doc = doc;
         ExamineText = examineText;
-        DefenceLevelRequired = defenceLevelRequired;
     }
 }

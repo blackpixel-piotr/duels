@@ -39,7 +39,7 @@
             // With the terminal log gone these kinds surface only as toasts;
             // decorative ═══ banner lines stay internal.
             var newEntries = LogEntries.Skip(_lastCount)
-                .Where(e => e.Kind is LogEntryKind.LevelUp or LogEntryKind.Loot or LogEntryKind.System
+                .Where(e => e.Kind is LogEntryKind.Loot or LogEntryKind.System
                             && !e.Message.StartsWith("═══"));
             foreach (var entry in newEntries)
                 _toasts.Add(new Toast(_nextId++, entry, DateTimeOffset.UtcNow));
