@@ -241,6 +241,50 @@ NPC-template builders for the new signatures. **Not run** for the same
 SDK-availability reason as the rest of this milestone — this is the single
 biggest verification gap and the first thing to do once a build is possible.
 
+## Third pass: first playtest feedback (real bugs, not "per plan")
+
+First live playtest (human, in a browser — this session still has none)
+surfaced two real gaps, both fixed:
+
+- **No weapon/armour ever rendered.** Confirmed: `asset-manifest.json` only
+  ever had entries for the old PoC assets (`steel_sword` + the 6-piece
+  ranger set); every M1 doc item (`wpn_*`, `arm_*`) had zero entry, and
+  `toon.js` explicitly no-ops unmapped ids ("ids without an entry render
+  nothing"). This was flagged in passing in `ARCHITECTURE.md` but under-
+  communicated as a playtest blocker. Fixed by mapping all 6 doc weapons to
+  reuse the one available sword model, and all 36 doc armour pieces to
+  reuse the 6 ranger outfit pieces **by slot** (ignoring line/tier) — this
+  sandbox has no internet access to fetch the actual Quaternius packs the
+  items doc names, so a re-skinned placeholder beats invisible gear.
+  `asset-map.md` regenerated to match (`AssetMapSyncTests`' row format
+  verified by simulating its check in Node, since no SDK to run it for
+  real). Every doc item now renders *something* when equipped; it just
+  won't look thematically distinct (a Poacher's Bow currently renders as a
+  sword) until real models are sourced.
+- **The fight's opening attack was a blind read.** Maggot King's style-shift
+  telegraph only fires mid-loop (T8/T16 in the rotation table) — the very
+  first attack (T0 Bile Spit, Magic) had no lead-in warning at all, so
+  praying anything other than Magic from a cold start guaranteed getting
+  hit "through" prayer on the opener with no way to have known better. This
+  reads exactly like a broken prayer system even though the mitigation math
+  itself was correct. Fixed: `NpcInstance`'s constructor now seeds the
+  forecast with the T0 action so the style icon is visible from the moment
+  the duel starts, before the first tick even runs.
+- **Not a bug, flagged for the user**: eruptions, pools, and Rot Burst are
+  *correctly* unprayable per the Boss Bible ("erupt for Heavy (unprayable)",
+  "Rot Burst... ignores prayer") — dodging them is positional, not a prayer
+  problem. Also, Lash vs. Grub Volley (melee vs. ranged) is chosen by the
+  *player's own position* at cast time, per the bible's explicit teaching
+  goal — praying the wrong one because you didn't realize your spacing
+  picked the attack is working as designed, not a bug.
+- **Boss HP (450) is still a placeholder** the plan itself flagged as
+  "expressly provisional until the playtest." "Barely hitting" may partly be
+  this — T1 Power is only 10 against a 450 HP boss by design (≈1.6 dmg/tick
+  sustained per the plan's own math), which is a slow grind on purpose but
+  could read as "not working" without the gear-visibility fix above to
+  confirm damage is landing at all. Worth another look once the render fix
+  lets a playtester actually see hits connecting.
+
 ## Still open / explicitly out of scope this milestone
 
 Everything the plan's §13 already excludes (bank, shop, drops/loot tables,

@@ -168,6 +168,16 @@ public sealed class NpcInstance
         {
             EruptionCooldown = s.Phase1.Eruption.CooldownTicks;
             RotBurstCooldown = s.Phase1.RotBurst?.CadenceTicks ?? 0;
+
+            // Seed the forecast with the fight's opening move. The rotation's
+            // own style-shift telegraphs only fire mid-loop (T8/T16) — without
+            // this, the very first attack (T0, no lead-in) is a completely
+            // blind read with no way to know which prayer to bring up before
+            // it lands. Every other attack in the fight is telegraphed one way
+            // or another; the opener shouldn't be the one exception.
+            var opening = s.Phase1.Rotation.FirstOrDefault(r => r.Tick == 0);
+            if (opening is not null && opening.Action is not ("idle" or "style_telegraph"))
+                SetForecast(opening.Action, 2);
         }
     }
 
