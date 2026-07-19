@@ -731,7 +731,7 @@ async function initBattle(canvasId, opts) {
         viewRot: 0, // 0 or 90: CSS view rotation of the portrait fight
         player: null, enemy: null, dotnet: opts.dotnetRef ?? null,
         splats: [], hazardQuads: new Map(), marker: null, targetTile: null,
-        obstacles: [], flags: {}, projectiles: [],
+        obstacles: [], flags: {}, projectiles: [], addMeshes: new Map(),
         clock: new THREE.Clock(), raf: 0, drag: null,
         enemyId: opts.enemyId,
     };
@@ -777,6 +777,10 @@ async function initBattle(canvasId, opts) {
     };
     st.targetTile = mkTileOutline('#ff4444');
     st.marker = mkTileOutline('#ffd166'); st.marker.visible = false;
+    // Punish window ring (m1-plan Workstream C.6): pulses gold under the
+    // boss while it can't act and takes +25% damage.
+    st.punishRing = mkTileOutline('#ffcc33'); st.punishRing.visible = false;
+    st.punishRing.material.transparent = true;
 
     // Paper-grain atmosphere is applied via the CSS `.battle-scene::after`
     // overlay (SVG feTurbulence, browser-composited for free) — a second
@@ -848,6 +852,12 @@ async function initBattle(canvasId, opts) {
         // enemy first: hit test its meshes (recursive — glTF meshes are nested)
         const hitEnemy = ray.intersectObjects(st.enemy.ch.group.children, true).length > 0;
         if (hitEnemy && !st.enemy.crumbled) { st.dotnet?.invokeMethodAsync('OnEnemyClick'); return; }
+        // swarm adds next (m1-plan Workstream C.7 targeting)
+        if (st.addMeshes.size > 0) {
+            const addMeshList = [...st.addMeshes.values()];
+            const hit = ray.intersectObjects(addMeshList, false)[0];
+            if (hit) { st.dotnet?.invokeMethodAsync('OnAddClick', hit.object.userData.id); return; }
+        }
         const p = new THREE.Vector3();
         if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), p)) {
             let tx = Math.round(p.x / TILE), tz = Math.round(p.z / TILE);
@@ -934,11 +944,23 @@ async function initBattle(canvasId, opts) {
         st.targetTile.visible = !st.enemy.crumbled;
         if (st.marker.visible && now - st.markerT > 900) st.marker.visible = false;
 
-        // hazards pulse
+        // hazards pulse (scorch stays a steady safe glow, no urgency pulse)
         for (const [, q] of st.hazardQuads) {
-            const urgent = !q.userData.pool && q.userData.t <= 1;
-            q.material.opacity = 0.25 + 0.2 * Math.sin(now * (urgent ? 0.022 : q.userData.pool ? 0.004 : 0.009));
+            const d = q.userData;
+            q.material.opacity = d.scorch ? 0.22
+                : 0.25 + 0.2 * Math.sin(now * (!d.pool && d.t <= 1 ? 0.022 : d.pool ? 0.004 : 0.009));
         }
+
+        // punish window ring: pulses under the boss while it can't act
+        st.punishRing.visible = !!st.flags.punished && !st.enemy.crumbled;
+        if (st.punishRing.visible) {
+            st.punishRing.position.set(st.enemy.pos.wx, 0, st.enemy.pos.wz);
+            st.punishRing.material.opacity = 0.5 + 0.35 * Math.sin(now * 0.012);
+        }
+
+        // swarm adds: small bob so they read as alive
+        for (const [id, m] of st.addMeshes)
+            m.position.y = 0.3 + Math.sin(now * 0.006 + id.length) * 0.05;
 
         // splats rise & fade
         for (let i = st.splats.length - 1; i >= 0; i--) {
@@ -1059,11 +1081,15 @@ const api = {
         }
     },
     setBattleHazards(canvasId, hz) {
+        // Tile hazards v2 (m1-plan Workstream C.4): warning fuse (red, urgent
+        // at the final tick) -> pool (poison-green) -> scorch (permanent,
+        // gold-safe — also the Rot Burst shelter tile).
         const st = battles.get(canvasId);
         if (!st) return;
         const want = new Map();
-        for (const t of hz?.pending ?? []) want.set(`${t.x},${t.z}`, { pool: false, t: t.t });
-        for (const t of hz?.pools ?? []) want.set(`${t.x},${t.z}`, { pool: true, t: 0 });
+        for (const t of hz?.pending ?? []) want.set(`${t.x},${t.z}`, { pool: false, scorch: false, t: t.t });
+        for (const t of hz?.pools ?? []) want.set(`${t.x},${t.z}`, { pool: true, scorch: false, t: 0 });
+        for (const t of hz?.scorch ?? []) want.set(`${t.x},${t.z}`, { pool: false, scorch: true, t: 0 });
         for (const [key, q] of st.hazardQuads)
             if (!want.has(key)) { st.scene.remove(q); st.hazardQuads.delete(key); }
         for (const [key, info] of want) {
@@ -1077,8 +1103,29 @@ const api = {
                 st.scene.add(q); st.hazardQuads.set(key, q);
             }
             q.userData = info;
-            q.material.color.set(info.pool ? '#5a7a1e' : info.t <= 1 ? '#ff5555' : '#ffd166');
+            q.material.color.set(info.scorch ? '#e8c23d' : info.pool ? '#5a7a1e' : info.t <= 1 ? '#ff5555' : '#ffd166');
         }
+    },
+    setBattleAdds(canvasId, adds) {
+        // Swarm adds (m1-plan Workstream C.7): small placeholder blobs at
+        // their tile positions, tinted by remaining HP.
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const seen = new Set();
+        for (const a of adds ?? []) {
+            seen.add(a.id);
+            let m = st.addMeshes.get(a.id);
+            if (!m) {
+                m = new THREE.Mesh(new THREE.SphereGeometry(TILE * 0.22, 8, 8), toonMat('#7a9e3a'));
+                m.userData = { id: a.id };
+                st.scene.add(m); st.addMeshes.set(a.id, m);
+            }
+            m.position.x = a.x * TILE; m.position.z = a.z * TILE;
+            const hpPct = Math.max(0, Math.min(100, a.hpPct ?? 100));
+            m.material.color.set(hpPct <= 50 ? '#b23a3a' : '#7a9e3a');
+        }
+        for (const [id, m] of st.addMeshes)
+            if (!seen.has(id)) { st.scene.remove(m); st.addMeshes.delete(id); }
     },
     battleEvent(canvasId, evt) {
         const st = battles.get(canvasId);
@@ -1126,7 +1173,7 @@ const api = {
                 break;
             }
             case 'enemyAttack': {
-                const style = st.flags.windup?.style ?? evt.style ?? 'melee';
+                const style = evt.style ?? 'melee';
                 playOverlay(st.enemy, attackRole(st.enemy, style, true, evt.tier), { ts: 1.1 });
                 break;
             }
@@ -1138,9 +1185,23 @@ const api = {
                 splatOn(st.player, evt.dmg | 0, evt.tier ?? 'normal');
                 flinch(st.player, evt.tier, evt.dmg | 0);
                 break;
-            case 'playerEat':
+            case 'playerSip':
+                // Flask belt (m1-plan Workstream E) reuses the raise-to-mouth clip.
                 playOverlay(st.player, 'eat', { ts: 1.3 });
                 break;
+            case 'perfectDodge': {
+                // Perfect Dodge (m1-plan Workstream C.8): gold glint at the
+                // player's feet — always a reward, never required. Reuses the
+                // splat fade/rise/remove lifecycle (st.splats) for a gentle
+                // sparkle-up-and-fade instead of a thrown-projectile arc.
+                const ring = new THREE.Mesh(new THREE.RingGeometry(TILE * 0.1, TILE * 0.5, 16),
+                    new THREE.MeshBasicMaterial({ color: '#ffd700', transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
+                ring.rotation.x = -Math.PI / 2;
+                ring.position.set(st.player.pos.wx, 0.03, st.player.pos.wz);
+                st.scene.add(ring);
+                st.splats.push({ sprite: ring, t0: now });
+                break;
+            }
             case 'enemyDeath': case 'playerDeath': {
                 const dying = evt.type === 'enemyDeath' ? st.enemy : st.player;
                 dying.crumbled = true;
