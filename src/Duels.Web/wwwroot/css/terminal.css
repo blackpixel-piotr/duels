@@ -1586,11 +1586,17 @@ html, body {
     display: flex; flex-direction: column; gap: 4px;
     border: 2px dashed var(--border); padding: 8px; background: var(--bg-panel);
 }
+/* Combat-math-v2 (items doc §1): Power = average damage, max hit = 2×Power.
+   The closest thing M1 has to an item card until a dedicated stat panel. */
+.loadout-slot-stats { font-size: 9px; color: var(--text-dim); flex: 0 0 auto; letter-spacing: 0.3px; white-space: nowrap; }
 .loadout-pick-item {
+    display: flex; flex-direction: column; gap: 2px;
     background: var(--bg-input); border: 2px solid var(--border); color: var(--text);
     padding: 6px 10px; text-align: left; cursor: pointer; font-family: var(--font); font-size: 12px;
 }
 .loadout-pick-item:hover { border-color: var(--amber); color: var(--amber); }
+.loadout-pick-name { font-size: 12px; }
+.loadout-pick-stats { font-size: 9px; color: var(--text-dim); letter-spacing: 0.3px; }
 .loadout-pick-empty { color: var(--text-dim); font-size: 11px; padding: 4px; }
 
 /* ─── M1: hub cards ─── */

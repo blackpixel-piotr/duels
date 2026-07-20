@@ -28,6 +28,9 @@ Big attacks that miss or end in a landing/recovery leave the boss vulnerable: **
 **Damage bands** (relative to an appropriately geared player's HP)
 - Light ≈ 5–10% · Medium ≈ 15–20% · Heavy ≈ 30–40% · Severe ≈ 50–60% (checks, never one-shots) · Lethal = reserved for fully ignored mechanics.
 
+**Damage rolls**
+Player damage: an accuracy roll (Precision + style mod vs the target's per-style Evasion, ~80% at-tier) gates each hit; on a hit, damage is a uniform 0..2×Power — Power is the mean, 2×Power the max hit (its own distinct splat). Boss standard attacks (autos) roll 60–100% of their listed band each cast, so a "Medium" auto reads as a band, not a fixed number. Mechanic and hazard damage (eruptions, beams, boulders, dives) and DoTs are deterministic — dodge-checks that always land for exactly their listed value, never rolled. Each boss carries a per-style Evasion (melee/ranged/magic): neutral by default, raised on one style to make the boss "favor" being fought another way — the accuracy tuning lever, no mechanic changes required.
+
 **Prayer grammar**
 A protection prayer matching the incoming attack's style **fully negates that hit (100% block)** — full negation, not mitigation, is what makes flicking the correct-color prayer feel decisive rather than just a damage slider. This is the baseline every boss's attacks assume unless explicitly marked **Unprayable** (ground hazards, channeled arena-wide blasts, and similar mechanics that ignore prayer outright and must be dodged positionally instead). The *Doubt* invocation (see Invocations doc) is the only thing that weakens this to a 75% block — it's a curse precisely because it breaks the base rule.
 

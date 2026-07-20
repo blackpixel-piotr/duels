@@ -13,9 +13,11 @@ Companion to the Economy doc. All names are placeholders that bind to nothing: s
 
 ## 1. Combat Math Baseline (tunable, but consistent everywhere below)
 
-- Player max HP: **100**. Base hit chance: **80%**.
+- Player max HP: **100**. Base hit chance: **~80% at-tier** — an accuracy roll of **Precision + style mod vs the target's per-style Evasion**; at matched tier (neutral Evasion) it lands ~80%.
 - Attack styles: Accurate +10% hit · Aggressive +20% damage, −10% hit · Defensive +20% defense value, −10% damage.
-- Weapon **Power** = damage per hit. Weapon **Precision** = flat hit-chance bonus.
+- Weapon **Power** = **average** damage. A landed hit rolls a **uniform 0..2×Power**, so Power is the mean and **2×Power is the max hit** (shown on item cards; a max roll gets a distinct visual). Weapon **Precision** = flat hit-chance bonus.
+- **Boss standard attacks (autos)** roll **60–100% of their listed band** each cast. **Mechanic/hazard damage** (eruptions, beams, boulders, dives) **and DoTs are deterministic** — dodge-checks that always land for exactly their listed value, never rolled.
+- **Per-style Evasion** (melee/ranged/magic) is each boss's accuracy lever: neutral (0) leaves the ~80% at-tier baseline; a positive value on one style makes the boss "favor" being fought another way, with no mechanic changes.
 - Armour **Def** points: each point reduces incoming damage of its matching style by **0.4%** (cap 40% from gear). Spread differs per armour line (§5).
 - Special energy: max 100 base; regen ~2/tick out of danger, 1/tick in combat (tunable).
 - **Protection prayer** (matching style) **fully negates** boss basic-attack damage — 100% block, not a percentage reduction — unless the attack is marked Unprayable (ground hazards, arena-wide channeled blasts). Checked on the **impact tick**, not the cast tick — a ranged/magic attack's 2-tick projectile flight (doctrine-colored) means a prayer raised any time before it lands still blocks it. See boss bible's "Prayer grammar" and the Doubt invocation (75% block) for the one thing that weakens this.
