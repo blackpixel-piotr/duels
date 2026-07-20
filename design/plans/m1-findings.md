@@ -880,3 +880,71 @@ going in, this file is what changed after).
   — toggles Magic protection, confirms no drain on ticks 1-2, confirms the
   full 2-point drain lands on tick 3. 67/67 tests pass (was 66 + 1 new); no
   existing test referenced the drain rate, so nothing else needed updating.
+  (Superseded one pass later — see below; the test itself was renamed and
+  retimed there, this entry is left as the historical record of what was
+  true at the time.)
+
+## Fourteenth pass: prayer drain doubled down, Eruption/rotation-script stagger (M1 revision)
+
+Same session, immediate follow-up feedback after the thirteenth pass
+shipped: prayer drain still felt too aggressive, and separately, a report
+that the boss sometimes demands a prayer flick and a tile relocation on
+the *same single tick* — asked whether that's intended and floated wanting
+it delayed.
+
+**Prayer drain, cut again.** Literal reading of "make it 3 times less" a
+second time, on top of the pass-13 cut: rather than assume it meant the
+same single request repeated, applied another 3× on top (matching what was
+actually asked), taking the cadence from every 3rd tick to every 9th —
+a ninth of the *original* rate overall, same 2/1-point lump amounts
+throughout. `GameState.PrayerDrainCadenceTicks` extracted as a named
+constant (3 → 9) rather than a second magic number. Test renamed
+`ProtectionPrayerDrain_FiresOnceEveryNineTicks_NotEveryTick` and retimed
+(8 no-drain ticks, then the drain on tick 9). If this overshot and drain is
+now too *slow*, the fix is one constant, not a redesign.
+
+**Eruption/rotation-script collision — confirmed real via the actual tick
+math, not just "sounds plausible."** Traced it by hand: Eruption's
+16-tick cooldown (Phase 1) and the rotation's 20-tick loop length share a
+gcd of 4, not 1, so Eruption's position within the rotation drifts by a
+fixed 16-tick step each time it fires (mod 20) rather than randomizing —
+and that drift provably lands it on RotationTick 7 (the style telegraph,
+after last pass's T8→T7 move) once every 5 eruptions (every 80 ticks, ~48s)
+while staying in Phase 1. Confirmed this is real, not a corner case that
+might never come up in an actual playthrough.
+
+Asked which fix shape before touching boss behavior (this affects the
+fight's core identity, not just a tunable number) — user picked the
+minimal 1-tick nudge over a wider buffer or leaving it alone.
+
+- **Detection, not re-derivation**: rather than re-computing "is this tick
+  a rotation event" from the rotation table (which would need to special-
+  case every early-return in `ProcessBossScript` — punish window, Rot Burst
+  inhaling, Pin Shot delay — to avoid false positives), `ProcessTick`
+  snapshots the combat log length before the pending-attack-impact loop and
+  `ProcessBossScript`, then checks what actually got logged: any
+  `HitsplatNpc` (covers melee's instant impact, a delayed ranged/magic
+  impact, and a Rot Burst impact — all three route through the same kind),
+  or a `BossSpecial` entry containing "mandibles glow" (style telegraph) or
+  "ROT BURST incoming" (channel warning). This is robust by construction —
+  an early return that logs nothing can't trigger a false stagger.
+- **`ProcessEruptionTimer`** gained a `rotationEventThisTick` parameter:
+  when true and the cooldown has hit zero, it calls
+  `npc.ResetEruptionCooldown(1)` (delay exactly one tick, re-check next
+  tick — a repeat collision is essentially impossible given the two
+  timers' periods, but the retry costs nothing) instead of spawning the
+  wave immediately.
+- **New test**:
+  `Eruption_StaggersByOneTick_WhenItWouldCoincideWithStyleTelegraph` —
+  ticks to T7, primes Eruption to be due that same tick via
+  `ResetEruptionCooldown(1)`, confirms the telegraph fires but the hazard
+  wave doesn't, then confirms the wave fires cleanly one tick later.
+- **Bible updated**: Global Combat Grammar gained a new
+  "Independent-timer stagger" rule (general — applies to any future boss's
+  hazard/channel timer, not just Maggot King's Eruption) stating the floor
+  clearly: independent timers may still demand hazard-and-prayer awareness
+  across a *stretch* of ticks (that's the point), they just can't compress
+  both into the exact same *single* tick. Maggot King's Eruption line
+  cross-references it.
+- 68/68 tests pass (67 + 1 new; the drain test rename doesn't change the
+  total, it replaces its own prior version in place).

@@ -33,6 +33,9 @@ A protection prayer matching the incoming attack's style **fully negates that hi
 
 Protection prayers are evaluated on the impact tick, never the cast tick. Ranged/magic boss attacks travel as doctrine-colored projectiles with 2 ticks of flight; the projectile is the primary flick cue. Tier-1 bosses telegraph style changes 3 ticks ahead; 2 is standard; 1 is invocation-tier.
 
+**Independent-timer stagger**
+A boss's own hazard/channel timers (Eruption, Rot Burst, and their like) run independently of its rotation script by design — that's what layers hazard pressure on top of prayer pressure instead of the two taking turns. But an independent timer is still free to land on the *exact same tick* as a style telegraph, a channel warning, or an attack/channel impact purely by arithmetic coincidence, forcing two separate reactions (a prayer flick and a tile relocation) into one single reaction window with no stagger between them. When that would happen, nudge the independent timer's event by exactly one tick rather than letting it pile on — re-check the following tick rather than assuming one nudge is always enough. This is a floor, not a ceiling: the fight is still allowed (expected, even) to demand hazard awareness and prayer discipline in the same *stretch* of ticks — it just shouldn't compress both into the same *single* tick with zero gap.
+
 **Anti-camping rule**
 Every boss has at least one tool that punishes max-range passivity and one that punishes brainless face-tanking. No corner is ever free.
 
@@ -80,7 +83,7 @@ telegraph happens to precede them:
 | T17 | *Style shift telegraph* | Glow blue → 3 ticks warning (lands T0 of the next loop, idle ticks included). |
 | T18–19 | idle | Free damage window. Loop restarts. |
 
-**Eruption** (independent timer, every 16 ticks): marks 3 random tiles **plus the player's current tile**. Standard 3-tick fuse → erupt for Heavy (unprayable). Erupted tiles leave **poison pools** for 20 ticks (Light/tick standing in them, applies poison stack).
+**Eruption** (independent timer, every 16 ticks, staggered off any same-tick rotation-script event per the Global Combat Grammar's "Independent-timer stagger"): marks 3 random tiles **plus the player's current tile**. Standard 3-tick fuse → erupt for Heavy (unprayable). Erupted tiles leave **poison pools** for 20 ticks (Light/tick standing in them, applies poison stack).
 
 ### Phase 2 (<50%)
 - Rotation compresses to a 14-tick loop; style telegraphs tighten to the 2-tick standard (down from Phase 1's 3-tick Tier-1 baseline) — an intentional escalation, not a bug.

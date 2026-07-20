@@ -19,25 +19,28 @@ public sealed class GameState
     public string? RevertWeaponId { get; private set; }
     public ProtectionPrayer TickStartProtection { get; set; }
 
-    // Prayer drain cadence (playtest revision: cut to a third of the
-    // original rate). Same per-event amounts as before (2 for a
-    // protection, 1 for boost) but delivered once every 3 ticks instead of
-    // every tick, so the total drained over any 3-tick window is exactly a
-    // third of what it was — no fractional points, no drift. Independent
+    // Prayer drain cadence (playtest revision, twice now: original was
+    // 2 pts/tick protection, 1 pt/tick boost, drained every tick. First cut
+    // moved that to every 3rd tick — a third of the original rate. Second
+    // cut ("3 times less" again, on top of the first) moved it to every 9th
+    // tick — a ninth of the original rate overall. Same per-event amounts
+    // throughout (2 / 1); only the cadence changes, so every drain event is
+    // still a whole number of points, no fractional drift. Independent
     // counters since protection and boost can be toggled independently.
+    private const int PrayerDrainCadenceTicks = 9;
     public int ProtectionDrainTickCounter { get; private set; }
     public int BoostDrainTickCounter { get; private set; }
     public bool TickProtectionDrainDue()
     {
         ProtectionDrainTickCounter++;
-        if (ProtectionDrainTickCounter < 3) return false;
+        if (ProtectionDrainTickCounter < PrayerDrainCadenceTicks) return false;
         ProtectionDrainTickCounter = 0;
         return true;
     }
     public bool TickBoostDrainDue()
     {
         BoostDrainTickCounter++;
-        if (BoostDrainTickCounter < 3) return false;
+        if (BoostDrainTickCounter < PrayerDrainCadenceTicks) return false;
         BoostDrainTickCounter = 0;
         return true;
     }

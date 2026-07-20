@@ -125,22 +125,23 @@ public sealed class MaggotKingTests
     }
 
     [Fact]
-    public async Task ProtectionPrayerDrain_FiresOnceEveryThreeTicks_NotEveryTick()
+    public async Task ProtectionPrayerDrain_FiresOnceEveryNineTicks_NotEveryTick()
     {
-        // Playtest revision: drain rate cut to a third of the original (2
-        // points per protection-drain event, unchanged) by only firing
-        // every 3rd tick instead of every tick.
+        // Playtest revision, twice now: drain rate cut to a ninth of the
+        // original (2 points per protection-drain event, unchanged
+        // throughout) by only firing every 9th tick instead of every tick
+        // (first cut was every 3rd; this doubles down on the same feedback).
         var (svc, state, _) = Build();
         state.Player.ToggleProtection(ProtectionPrayer.Magic);
         int startPoints = state.Player.PrayerPoints;
 
-        await Tick(svc); // tick 1 of the cadence — no drain yet
-        Assert.Equal(startPoints, state.Player.PrayerPoints);
+        for (int i = 0; i < 8; i++)
+        {
+            await Tick(svc); // ticks 1..8 of the cadence — no drain yet
+            Assert.Equal(startPoints, state.Player.PrayerPoints);
+        }
 
-        await Tick(svc); // tick 2 — still no drain
-        Assert.Equal(startPoints, state.Player.PrayerPoints);
-
-        await Tick(svc); // tick 3 — drains now
+        await Tick(svc); // tick 9 — drains now
         Assert.Equal(startPoints - 2, state.Player.PrayerPoints);
     }
 
@@ -190,6 +191,29 @@ public sealed class MaggotKingTests
         Assert.Equal(3, state.Hazards.Count); // Phase 1 TilesPerWave = 3 (player tile + 2 random)
         Assert.Contains(state.Hazards, h => (h.X, h.Z) == state.PlayerTile);
         Assert.All(state.Hazards, h => Assert.Equal(HazardState.Warning, h.State));
+    }
+
+    [Fact]
+    public async Task Eruption_StaggersByOneTick_WhenItWouldCoincideWithStyleTelegraph()
+    {
+        // Playtest revision: Eruption's cooldown is independent of the
+        // rotation script by design, but nothing used to stop it from
+        // landing on the exact same tick as a style-shift telegraph —
+        // forcing a prayer flick and a tile relocation in the same single
+        // reaction window. Prime it to be due on T7, the telegraph tick.
+        var (svc, state, npc) = Build();
+        for (int i = 0; i < 7; i++) await Tick(svc); // ticks 0..6 resolve; T7 is next
+
+        npc.ResetEruptionCooldown(1); // due on the SAME tick as the T7 telegraph, absent the stagger
+
+        await Tick(svc); // T7: telegraph fires; eruption must be nudged, not pile on
+
+        Assert.NotNull(npc.ForecastAttackId); // the telegraph itself still fired on schedule
+        Assert.Empty(state.Hazards); // eruption did not
+
+        await Tick(svc); // T8: eruption fires on its own, exactly one tick later
+
+        Assert.Equal(3, state.Hazards.Count);
     }
 
     [Fact]

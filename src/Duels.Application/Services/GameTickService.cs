@@ -159,6 +159,7 @@ public sealed class GameTickService : IDisposable
             // brand new one this same tick, same reasoning as TickForecast
             // below (a freshly-cast 2-tick attack must not immediately
             // decrement on its own casting tick).
+            int logCountBeforeRotation = state.CombatLog.Count;
             foreach (var impact in state.TickPendingAttacks())
                 ResolveBossAttack(state, player, npc, impact);
 
@@ -167,7 +168,21 @@ public sealed class GameTickService : IDisposable
             // is immediately decremented on its own setup tick.
             npc.TickForecast();
             ProcessBossScript(state, player, npc);
-            ProcessEruptionTimer(state, npc);
+
+            // Eruption stagger (M1 playtest revision): Eruption's cooldown
+            // is independent of the rotation script by design, but nothing
+            // stopped it from landing on the exact same tick as a
+            // style-shift telegraph, a Rot Burst warning, or an attack/Rot
+            // Burst impact — forcing a prayer flick AND a tile relocation
+            // in the same single reaction window. Detected from what
+            // actually got logged this tick (robust to punish-window/Pin
+            // Shot/Rot-Burst-inhale early returns in ProcessBossScript,
+            // which never log any of this) rather than re-deriving it from
+            // the rotation table.
+            bool rotationEventThisTick = state.CombatLog.Skip(logCountBeforeRotation).Any(e =>
+                e.Kind == LogEntryKind.HitsplatNpc ||
+                (e.Kind == LogEntryKind.BossSpecial && (e.Message.Contains("mandibles glow") || e.Message.Contains("ROT BURST incoming"))));
+            ProcessEruptionTimer(state, npc, rotationEventThisTick);
             ProcessSwarmSpawns(state, npc);
         }
 
@@ -182,10 +197,11 @@ public sealed class GameTickService : IDisposable
             ProcessHazardResolution(state, player, preTickPlayerTile, erupting);
 
         // Prayer drain at tick end (D7: 2 pts per drain event for a
-        // protection, 1 pt for boost — playtest revision: cut to a third of
-        // the original rate, delivered once every 3 ticks instead of every
-        // tick via TickProtectionDrainDue/TickBoostDrainDue) — only if
-        // still on at tick end, which is what makes flicking work.
+        // protection, 1 pt for boost — playtest revision, twice now: cut to
+        // a ninth of the original rate overall, delivered once every 9
+        // ticks instead of every tick via
+        // TickProtectionDrainDue/TickBoostDrainDue) — only if still on at
+        // tick end, which is what makes flicking work.
         if (player.ActiveProtection != ProtectionPrayer.None)
         {
             if (state.TickProtectionDrainDue())
@@ -539,11 +555,22 @@ public sealed class GameTickService : IDisposable
 
     // ── Eruption hazard timer (independent of the rotation loop) ───────
 
-    private void ProcessEruptionTimer(GameState state, NpcInstance npc)
+    private void ProcessEruptionTimer(GameState state, NpcInstance npc, bool rotationEventThisTick)
     {
         if (!npc.IsAlive || npc.Template.Script is null) return;
         npc.TickEruptionCooldown();
         if (npc.EruptionCooldown > 0) return;
+
+        // Minimal 1-tick nudge: don't pile a fresh hazard wave onto the same
+        // tick as a style telegraph, a Rot Burst warning, or an attack/Rot
+        // Burst impact. Re-checks next tick rather than assuming one nudge
+        // is always enough — astronomically rare in practice, but cheap to
+        // get right.
+        if (rotationEventThisTick)
+        {
+            npc.ResetEruptionCooldown(1);
+            return;
+        }
 
         var e = npc.ActivePhaseDef.Eruption;
         var tiles = PickHazardTiles(state, e.TilesPerWave);
