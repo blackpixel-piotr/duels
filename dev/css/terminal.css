@@ -1603,3 +1603,61 @@ html, body {
 /* ─── M1: victory/death result screen additions ─── */
 .result-killedby { color: var(--doctrine-bleed); font-size: 11px; }
 .result-btn-primary { border-color: var(--doctrine-safe); color: var(--doctrine-safe); }
+
+/* ─── M1 playtest revision: left-edge prayer strip (UI bible §3.2) ───
+   Replaces the three 64dp protection BUTTONS with a thin near-transparent
+   edge strip — mage/ranged/melee top→bottom. Visible width is 76px; the
+   strip itself is 100px wide and shifted 24px past the true edge so the
+   extra width "bleeds" off-canvas — the on-screen tap surface still ends
+   up exactly 76px, but there's no hairline dead zone right at the bezel.
+   Only the three zone buttons are interactive (pointer-events: auto);
+   the strip's own transparent container lets every other tap on the
+   battlefield fall straight through to the canvas beneath it. */
+.prayer-strip {
+    position: absolute;
+    left: calc(-24px + env(safe-area-inset-left));
+    top: 74px;                                            /* clear the boss plate / player orbs */
+    bottom: calc(max(10px, var(--safe-bottom)) + 112px);  /* clear the boost/style row + belt */
+    width: 100px;
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+    z-index: 6;
+}
+.prayer-zone {
+    flex: 1 1 0;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;   /* icon sits in the visible (right) 76px */
+    padding-right: 14px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background-color 90ms ease-out;
+}
+.prayer-zone-magic  { background: linear-gradient(to right, transparent, rgba(91, 168, 224, 0.16)); }
+.prayer-zone-ranged { background: linear-gradient(to right, transparent, rgba(57, 211, 57, 0.16)); }
+.prayer-zone-melee  { background: linear-gradient(to right, transparent, rgba(224, 86, 26, 0.16)); }
+.prayer-zone-icon {
+    font-size: 20px;
+    color: rgba(255, 255, 255, 0.55);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+.prayer-zone-magic  .prayer-zone-icon { color: var(--doctrine-magic); }
+.prayer-zone-ranged .prayer-zone-icon { color: var(--doctrine-ranged); }
+.prayer-zone-melee  .prayer-zone-icon { color: var(--doctrine-melee); }
+.prayer-zone-active {
+    animation: prayer-zone-flash 220ms ease-out;
+}
+.prayer-zone-magic.prayer-zone-active  { background: linear-gradient(to right, transparent, rgba(91, 168, 224, 0.42)); box-shadow: inset 0 0 0 1px var(--doctrine-magic); }
+.prayer-zone-ranged.prayer-zone-active { background: linear-gradient(to right, transparent, rgba(57, 211, 57, 0.42)); box-shadow: inset 0 0 0 1px var(--doctrine-ranged); }
+.prayer-zone-melee.prayer-zone-active  { background: linear-gradient(to right, transparent, rgba(224, 86, 26, 0.42)); box-shadow: inset 0 0 0 1px var(--doctrine-melee); }
+.prayer-zone-active .prayer-zone-icon { color: var(--west-cream); }
+.prayer-zone-depleted { opacity: 0.4; cursor: default; }
+.prayer-zone-depleted .prayer-zone-icon { color: rgba(255, 255, 255, 0.3); }
+@keyframes prayer-zone-flash {
+    0%   { filter: brightness(2.2); }
+    100% { filter: brightness(1); }
+}

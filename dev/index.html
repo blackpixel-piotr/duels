@@ -37,6 +37,15 @@
             el.classList.add('shake-active');
             setTimeout(() => el.classList.remove('shake-active'), ms || 180);
         };
+        // Prayer strip activation feedback (M1 playtest revision, UI bible
+        // §3): a distinct short vibration pattern per doctrine so a flick
+        // is felt as well as seen. Best-effort — the Vibration API is
+        // Android-Chrome-only (no-op elsewhere, e.g. iOS Safari); silently
+        // does nothing rather than erroring out on unsupported browsers.
+        const HAPTIC_PATTERNS = { melee: 25, ranged: [15, 30, 15], magic: 45 };
+        window.hapticPulse = style => {
+            try { navigator.vibrate?.(HAPTIC_PATTERNS[style] ?? 25); } catch { /* unsupported */ }
+        };
         // Tick metronome: pendulum toggle every 600ms game tick.
         // CSS transition smooths each toggle over 150ms; one full fill→empty
         // cycle spans two ticks (1200ms), giving a calm, readable beat.
