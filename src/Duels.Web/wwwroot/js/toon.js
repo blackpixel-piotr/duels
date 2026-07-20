@@ -479,9 +479,25 @@ const SPLAT_COLORS = {
     normal: '#b3281e', heavy: '#d8a018', max: '#d8a018', spec: '#d86a10',
     boss: '#9932cc', poison: '#3f8f3f', hazard: '#a8781e', miss: '#2f4d8a',
 };
-function splatSprite(dmg, tier) {
+function splatSprite(dmg, tier, styleHex) {
     const c = document.createElement('canvas'); c.width = c.height = 64;
     const g = c.getContext('2d');
+    // A prayer-negated hit ("blocked") is a distinct outcome from a plain
+    // 0-damage hitsplat — a slashed ring in the doctrine color that
+    // blocked it, not a numeral, so it reads as "prevented" rather than
+    // "weak hit" or a miss.
+    if (tier === 'blocked') {
+        const color = styleHex ?? '#ffffff';
+        g.strokeStyle = '#111'; g.lineWidth = 9;
+        g.beginPath(); g.arc(32, 32, 21, 0, Math.PI * 2); g.stroke(); // ink rim
+        g.strokeStyle = color; g.lineWidth = 5;
+        g.beginPath(); g.arc(32, 32, 21, 0, Math.PI * 2); g.stroke(); // doctrine ring
+        g.beginPath(); g.moveTo(32 - 14, 32 + 14); g.lineTo(32 + 14, 32 - 14); g.stroke(); // slash
+        const tex = new THREE.CanvasTexture(c);
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+        sp.scale.set(0.75, 0.75, 1); // a touch smaller than a real hit — a non-event, not damage
+        return sp;
+    }
     g.fillStyle = SPLAT_COLORS[tier] ?? SPLAT_COLORS.normal;
     g.beginPath();
     for (let i = 0; i < 12; i++) { // starburst
@@ -1284,8 +1300,8 @@ const api = {
         const st = battles.get(canvasId);
         if (!st) return;
         const now = performance.now();
-        const splatOn = (actor, dmg, tier) => {
-            const sp = splatSprite(dmg, tier);
+        const splatOn = (actor, dmg, tier, style) => {
+            const sp = splatSprite(dmg, tier, DOCTRINE_HEX[style]);
             sp.position.set(actor.pos.wx, actor.ch.height * 0.72, actor.pos.wz);
             st.scene.add(sp);
             st.splats.push({ sprite: sp, t0: now });
@@ -1304,7 +1320,7 @@ const api = {
         // Flinches never interrupt a swing — the hit still splats, and the
         // swing reads better than a mid-swing twitch.
         const flinch = (actor, tier, dmg) => {
-            if (actor.crumbled || tier === 'miss' || tier === 'poison') return;
+            if (actor.crumbled || tier === 'miss' || tier === 'poison' || tier === 'blocked') return;
             if (actor.overlay && actor.overlay.role !== 'hitA' && actor.overlay.role !== 'hitB') return;
             const big = tier === 'heavy' || tier === 'spec' || tier === 'boss';
             playOverlay(actor, big ? 'hitB' : 'hitA', { ts: 1.25, fade: 0.05 });
@@ -1347,11 +1363,11 @@ const api = {
                 break;
             }
             case 'enemyHit':
-                splatOn(st.enemy, evt.dmg | 0, evt.tier ?? 'normal');
+                splatOn(st.enemy, evt.dmg | 0, evt.tier ?? 'normal', evt.style);
                 flinch(st.enemy, evt.tier, evt.dmg | 0);
                 break;
             case 'playerHit':
-                splatOn(st.player, evt.dmg | 0, evt.tier ?? 'normal');
+                splatOn(st.player, evt.dmg | 0, evt.tier ?? 'normal', evt.style);
                 flinch(st.player, evt.tier, evt.dmg | 0);
                 break;
             case 'playerSip':

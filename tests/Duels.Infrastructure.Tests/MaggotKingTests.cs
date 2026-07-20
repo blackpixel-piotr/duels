@@ -87,6 +87,8 @@ public sealed class MaggotKingTests
 
         Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.NpcHit && e.Message.Contains("Bile Spit"));
         Assert.Equal(hpBefore - 18, state.Player.CurrentHp); // Medium band, no prayer/gear mitigation
+        // Unprayed hit: "normal" tier, not "blocked" — a real hitsplat.
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.HitsplatNpc && e.Message == "18:normal:magic");
     }
 
     [Fact]
@@ -102,6 +104,10 @@ public sealed class MaggotKingTests
 
         Assert.Equal(hpBefore, state.Player.CurrentHp);
         Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.NpcHit && e.Message.Contains("Bile Spit") && e.Message.Contains("(prayed)"));
+        // A prayer-negated hit gets its own "blocked" tier (renders as a
+        // doctrine-colored slashed ring, not a "0" numeral) — distinct from
+        // a real 0-damage hit or a miss.
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.HitsplatNpc && e.Message == "0:blocked:magic");
     }
 
     [Fact]

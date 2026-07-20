@@ -493,8 +493,11 @@
                         tier,   // 'spec' selects the weapon's special-attack flourish
                         weapon = onEnemy ? (specWeapon ?? WeaponId) : null, // spec weapon wins the revert race
                     });
+            // style rides along so a "blocked" splat (a prayer-negated hit)
+            // can render in the doctrine color that blocked it — confirms
+            // which prayer worked, not just that something was prevented.
             await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
-                new { type = onEnemy ? "enemyHit" : "playerHit", tier, dmg });
+                new { type = onEnemy ? "enemyHit" : "playerHit", tier, dmg, style = onEnemy ? PlayerStyle() : npcStyle });
         }
 
         if (newEntries.Any(e => e.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit or LogEntryKind.BossSpecial))

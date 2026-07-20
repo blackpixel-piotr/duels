@@ -103,6 +103,7 @@ resting position of the right thumb.)
 - Tap feedback: tapped tile flashes an ink ring; invalid tiles (rubble, walls) show a red X stamp.
 - **Telegraphs on tiles:** hazard tiles fill with hatched purple ink as the fuse burns, one hatch band per tick; the final fuse tick flashes the tile's outline white — that white flash is the universal "Perfect Dodge now" signal across every boss. Safe tiles (Rot Burst scorch, Downdraft corners) glow gold.
 - **Damage numbers:** comic pops. Player hits in white with style-colored outline; crits/specials 150% size with a starburst; DoT ticks small and muted; damage *taken* in red drifting down. Perfect Dodge triggers a gold "+15" glint at the player's feet.
+- **Blocked hits:** a hit fully negated by a matching protection prayer (per the Global Combat Grammar's 100%-block rule) never shows a "0" numeral — that reads as a weak hit, not a save. It shows a slashed ring instead, colored in the doctrine that blocked it (the same color already carrying that meaning on the prayer strip, the overhead icon, and the telegraph glow), slightly smaller than a real hitsplat and without the hit-flinch reaction, since nothing actually landed.
 
 ### 3.4 HUD states
 
