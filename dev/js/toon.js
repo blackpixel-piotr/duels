@@ -502,6 +502,27 @@ function splatSprite(dmg, tier, styleHex) {
         sp.scale.set(0.75, 0.75, 1); // a touch smaller than a real hit — a non-event, not damage
         return sp;
     }
+    // Max hit (items doc §1: rolled the weapon's 2×Power ceiling) — a bigger,
+    // spikier, gold double-rim burst so it reads as "you topped out," not just
+    // a big normal hit. The C# side also fires a screen shake for it.
+    if (tier === 'max') {
+        g.fillStyle = SPLAT_COLORS.max;
+        g.beginPath();
+        for (let i = 0; i < 16; i++) { // 16 spikes vs the normal 12 — visibly punchier
+            const a = i / 16 * Math.PI * 2, r = i % 2 ? 31 : 17;
+            g[i ? 'lineTo' : 'moveTo'](32 + Math.cos(a) * r, 32 + Math.sin(a) * r);
+        }
+        g.closePath(); g.fill();
+        g.strokeStyle = '#111'; g.lineWidth = 4; g.stroke();       // ink rim
+        g.strokeStyle = '#fff2b0'; g.lineWidth = 1.5; g.stroke();  // bright inner glint
+        g.fillStyle = '#fff'; g.font = 'bold 26px monospace';
+        g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.fillText(String(dmg), 32, 34);
+        const tex = new THREE.CanvasTexture(c);
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+        sp.scale.set(1.15, 1.15, 1); // larger than a normal 0.9 splat
+        return sp;
+    }
     g.fillStyle = SPLAT_COLORS[tier] ?? SPLAT_COLORS.normal;
     g.beginPath();
     for (let i = 0; i < 12; i++) { // starburst
@@ -1337,7 +1358,7 @@ const api = {
         const flinch = (actor, tier, dmg) => {
             if (actor.crumbled || tier === 'miss' || tier === 'poison' || tier === 'blocked') return;
             if (actor.overlay && actor.overlay.role !== 'hitA' && actor.overlay.role !== 'hitB') return;
-            const big = tier === 'heavy' || tier === 'spec' || tier === 'boss';
+            const big = tier === 'heavy' || tier === 'spec' || tier === 'boss' || tier === 'max';
             playOverlay(actor, big ? 'hitB' : 'hitA', { ts: 1.25, fade: 0.05 });
         };
         switch (evt.type) {
