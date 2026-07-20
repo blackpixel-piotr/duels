@@ -508,3 +508,32 @@ bible and the implementation to change together, in M1.
   `"(prayed)"` log tag. 64/64 tests pass (was 63; the other 63 were
   unaffected — none hard-coded the old 75% number, they either used no
   prayer or tested Unprayable mechanics that don't call this path).
+
+## Eighth pass: Playwright end-to-end verification of the dev loadouts
+
+Ran the real app (`dotnet run` + headless Chromium via Playwright, per
+`.claude/skills/verify`) all the way through: name entry → hub → grant
+DEV: T1 LOADOUT → FIGHT → battle scene, then repeated for T2. Confirmed by
+reading `window.voxelToon._battles.get('battle-canvas').player` directly
+(weaponMesh, armorMeshes, armorKey) and by screenshot.
+
+- **Both tiers work correctly end-to-end** — this was a genuine regression
+  test of the "invisible gear" fix from the third pass (41e86de), not a new
+  finding. T1 (Rustcleaver + Warbound) and T2 (Splitter + Warbound) both
+  show the weapon socketed in-hand and all 6 armor pieces (helmet/body/
+  legs/boots/gloves/cape, 9 skinned meshes total) on the player model.
+- **First run looked broken and wasn't** — a self-caught false alarm in the
+  verification script, not the app. The character GLTF, weapon, and armor
+  each resolve on separate async loads at different speeds (weapon lands
+  ~1-2s after battle mount, armor ~3s — matches the user's own "CPU
+  bottlenecked, takes some time to load" expectation). My first probe's
+  polling loop broke on the *first* of (weapon ready, armor ready) instead
+  of waiting for both, so it screenshotted mid-load and read `armorMeshCount:
+  0` — which briefly looked like the third-pass fix had regressed. Waiting
+  for both before asserting/screenshotting resolved it; no product code
+  changed this pass.
+- **Confirms for future verification passes**: `setActorArmor`/
+  `setActorWeapon` (toon.js) have no shared "fully equipped" signal — each
+  piece's promise resolves independently, so any script (or future manual
+  QA) checking gear render must poll until the full expected set is present,
+  not bail on the first truthy sign of *something* having loaded.
