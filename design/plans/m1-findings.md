@@ -992,3 +992,75 @@ a distinct icon (a slashed circle was the suggestion) instead.
 - **Bible updated**: UI bible §3.3 "Damage numbers" gained a "Blocked
   hits" bullet describing the rule and referencing the doctrine-color
   reuse.
+
+## Sixteenth pass: ambiguous telegraph misread as "ranged," projectiles not tracking live position (M1 revision)
+
+User playtest feedback: the King's style-shift rim glow shows green during
+the T7 compound telegraph, but green means "ranged" everywhere else in the
+game (prayer strip, overhead icon, projectiles), and the boss sometimes
+resolves to Lash (melee) — praying to match the glow was actively wrong.
+Separately, a ranged/magic projectile in flight keeps flying at the tile
+the player stood on at cast time, not their current tile if they move.
+Both confirmed as real bugs, not user error.
+
+- **Root cause, telegraph color**: `BattleScene.razor`'s `TelegraphVisual`
+  explicitly mapped the compound/ambiguous case (`id.Contains('/')`, i.e.
+  `"lash/grub_volley"`) to `"ranged"` — green — on the theory (a fourth-pass
+  comment) that this matched the Boss Bible's literal "Mandibles glow
+  green" text. It didn't actually match: `GameTickService.ForecastMessage`
+  has always produced "mandibles glow amber" for this same telegraph, a
+  pre-existing inconsistency between the log text and the in-world visual
+  that predates this session. Every doctrine color in this game (UI bible
+  §1) is supposed to be a promise of a specific style; reusing ranged-green
+  for a style that's genuinely undecided until cast time broke that
+  promise for the one telegraph where it mattered most.
+- **Fix**: `TelegraphVisual` now returns a distinct `"ambiguous"` token for
+  the compound case instead of `"ranged"`. `toon.js`'s `DOCTRINE_RGB`/
+  `DOCTRINE_HEX` gained an `ambiguous` entry (neutral amber, `#ffaa00`) —
+  not a fourth doctrine color, just a "no promise being made" signal.
+  `windupRoleForStyle` needed no code change: any style other than
+  `'ranged'`/`'magic'` already falls through to a neutral melee-swing-start
+  pose, so the ambiguous case no longer reinforces a false ranged read via
+  body language either (previously it played the bow-draw pose, which was
+  its own smaller instance of the same bug). The separate HUD forecast
+  badge (`ForecastStyle`) was already correct — it returns `null` for
+  compound actions — so only the in-world rim glow needed fixing.
+- **Root cause, projectile tracking**: the projectile update loop in
+  `toon.js` lerped from a `from` position to a `to` position computed
+  *once* at spawn time (`new THREE.Vector3(st.player.pos.wx, 1.2,
+  st.player.pos.wz)`), so it always flew toward wherever the target stood
+  at the exact moment the projectile was created, never updating.
+- **Fix**: all three projectile-spawn sites (the telegraph's own preview
+  projectile, the player's own ranged/magic attack, and the boss's
+  cast-time attack added in the twelfth pass) now store a live actor
+  reference (`toActor`) plus a fixed height offset (`toY`) instead of a
+  frozen `to` vector; the per-frame update loop recomputes the target
+  position from `toActor.pos` every frame. Applied to all three sites for
+  consistency, though only the boss-attack-on-player case was user-
+  reported — the player's own projectile targeting a stationary boss
+  wasn't broken today, but would be by the same bug against any future
+  non-stationary boss. These attacks were already established (twelfth
+  pass) as unconditionally landing regardless of position — impact-
+  resolution prayer, not positional dodging, is what blocks them — so
+  tracking the live tile doesn't change what's dodgeable, it just stops
+  the visual from implying a fake escape route.
+- **Bible updated** (`duels-boss-designs.md`): Phase 1's T7 rotation-table
+  row now says "glow amber (ambiguous — his choice depends on your
+  position)" instead of "glow green." Global Combat Grammar → Prayer
+  grammar gained two additions: a new sentence stating a doctrine color is
+  only ever used when that specific style is what's actually coming, with
+  a neutral amber for genuinely undecided telegraphs; and an appended
+  clause on the existing projectile-flight sentence noting projectiles
+  home in on the player's current tile every frame, never a cast-time
+  snapshot, since these attacks are never positionally dodgeable.
+- **Verified live via Playwright**: drove dev loadout → fight against the
+  real Maggot King. Confirmed the T0 Bile Spit projectile carries a live
+  `toActor` reference (not a static `to`) and, after ordering the player
+  to move mid-flight, that `toActor === st.player` and the mesh position
+  reflects tracking rather than a frozen target. Polled for the T7
+  telegraph's active window and confirmed `st.telegraph.style === "ambiguous"`
+  with `active: true`; a zoomed screenshot at that exact moment shows a
+  clean amber (not green) rim glow around the King. No C# logic changed
+  (only `BattleScene.razor`'s telegraph-color mapping, a markup/computed-
+  property change), so 68/68 tests are unaffected — reconfirmed by running
+  the full suite after the edits.

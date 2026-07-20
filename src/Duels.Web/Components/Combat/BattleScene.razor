@@ -277,18 +277,24 @@
     // tell per the boss bible's prayer grammar ("weapon glow / stance") and
     // UI bible §1's doctrine colors. Compound telegraphs (style undecided
     // until cast time, per the King's "his choice depends on YOUR position")
-    // use the Boss Bible's own literal color for that transition — "Mandibles
-    // glow green" — rather than inventing a new neutral color; a resolved
-    // single style (Bile Spit's Magic, or the King's return-to-Magic
-    // telegraph) uses its own doctrine color. Projectile visuals only fire
-    // for a style we're actually committing to, never the ambiguous case.
+    // used to reuse "ranged" green for this glow, on the theory that it was
+    // the Boss Bible's own literal color for the transition — but every
+    // OTHER green thing in this game (prayer strip, overhead icon,
+    // projectiles) means "ranged, specifically," so it read as a promise
+    // the boss wasn't making and got misprayed on (M1 playtest report).
+    // "ambiguous" is a genuinely neutral amber, not a 4th doctrine color —
+    // matches the ForecastMessage text ("mandibles glow amber"), which
+    // already disagreed with the old glow color. A resolved single style
+    // (Bile Spit's Magic, or the King's return-to-Magic telegraph) still
+    // uses its own doctrine color; projectile visuals still only fire for a
+    // style we're actually committing to, never the ambiguous case.
     private (string? Style, bool Projectile) TelegraphVisual
     {
         get
         {
             var npc = State?.ActiveNpc;
             if (npc?.ForecastAttackId is not { } id) return (null, false);
-            if (id.Contains('/')) return ("ranged", false);
+            if (id.Contains('/')) return ("ambiguous", false);
             var style = npc.Template.Script?.Attacks.GetValueOrDefault(id)?.Style;
             if (style is null) return (null, false);
             var cls = StyleClass(style.Value);
