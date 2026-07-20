@@ -35,16 +35,20 @@ const battles = new Map();    // canvasId → battle state
 
 // UI bible §1 doctrine palette — melee red-orange / ranged green / magic
 // blue. RGB (0-1 floats) for OutlineEffect's per-material color override;
-// hex for everything else (projectile tint, etc). Compound style-shift
-// telegraphs (style undecided until cast time) reuse 'ranged' green — the
-// Boss Bible's own literal color for that transition ("Mandibles glow
-// green"), not an invented neutral.
+// hex for everything else (projectile tint, etc). 'ambiguous' is NOT a 4th
+// doctrine — it's the compound style-shift telegraph's neutral amber
+// (style undecided until cast time, e.g. Lash-if-adjacent/Grub-Volley-if-
+// not), used specifically so it can never be mistaken for a doctrine color
+// promising a specific style. It used to reuse 'ranged' green, which read
+// as exactly that promise and got misprayed on (M1 playtest report) —
+// every other green in the game means "ranged, specifically."
 const DOCTRINE_RGB = {
     melee:  [0.878, 0.337, 0.102],
     ranged: [0.224, 0.827, 0.224],
     magic:  [0.357, 0.659, 0.878],
+    ambiguous: [1.0, 0.667, 0.0],
 };
-const DOCTRINE_HEX = { melee: '#e0561a', ranged: '#39d339', magic: '#5ba8e0' };
+const DOCTRINE_HEX = { melee: '#e0561a', ranged: '#39d339', magic: '#5ba8e0', ambiguous: '#ffaa00' };
 
 // 3-step toon ramp shared by every material.
 let gradientMap = null;
@@ -621,7 +625,12 @@ function playOverlay(actor, role, { ts = 1, fade = 0.08, hold = false, force = t
 // Windup pose: the same attack-role clip the real swing will use, played at
 // a fraction of speed so it visibly "winds up" rather than immediately
 // resolving — the actual attack (played at full speed, force:true) then
-// naturally interrupts and reads as the sudden release.
+// naturally interrupts and reads as the sudden release. 'ambiguous' (the
+// compound style-shift telegraph) deliberately falls through to the plain
+// melee swing-start below rather than getting its own branch — a bow-draw
+// or cast pose would commit to a specific style the same way the old green
+// glow did, so a neutral swing-start is the only pose that doesn't promise
+// something the boss might not deliver.
 function windupRoleForStyle(actor, style) {
     if (style === 'ranged') return actor.clips.throw ? 'throw' : 'swordA';
     if (style === 'magic') return actor.clips.cast ? 'cast' : 'swordA';
@@ -1103,11 +1112,17 @@ async function initBattle(canvasId, opts) {
             s.sprite.material.opacity = age > 600 ? Math.max(0, 1 - (age - 600) / 300) : 1;
             if (age > 900) { st.scene.remove(s.sprite); st.splats.splice(i, 1); }
         }
-        // projectiles
+        // projectiles — home in on the target actor's LIVE tile every frame
+        // (toActor + toY, not a frozen "to" snapshot from cast time). These
+        // attacks always land regardless of position (see the impact-
+        // resolution prayer rule — there's no positional dodge), so the
+        // visual shouldn't imply you can juke it by flying toward a tile
+        // you've since walked off.
         for (let i = st.projectiles.length - 1; i >= 0; i--) {
             const pr = st.projectiles[i], t = (now - pr.t0) / pr.dur;
             if (t >= 1) { st.scene.remove(pr.mesh); st.projectiles.splice(i, 1); continue; }
-            pr.mesh.position.lerpVectors(pr.from, pr.to, t);
+            const to = new THREE.Vector3(pr.toActor.pos.wx, pr.toY, pr.toActor.pos.wz);
+            pr.mesh.position.lerpVectors(pr.from, to, t);
             pr.mesh.position.y += Math.sin(t * Math.PI) * 0.8;
         }
 
@@ -1177,7 +1192,7 @@ const api = {
             st.scene.add(mesh);
             st.projectiles.push({
                 mesh, t0: performance.now(), dur: (t.ticks ?? 2) * TILE_MS,
-                from, to: new THREE.Vector3(st.player.pos.wx, 1.2, st.player.pos.wz),
+                from, toActor: st.player, toY: 1.2,
             });
         }
     },
@@ -1337,7 +1352,7 @@ const api = {
                     st.projectiles.push({ mesh, t0: now,
                         dur: 300,
                         from: new THREE.Vector3(st.player.pos.wx, 1.2, st.player.pos.wz),
-                        to: new THREE.Vector3(st.enemy.pos.wx, 1.2, st.enemy.pos.wz) });
+                        toActor: st.enemy, toY: 1.2 });
                 }
                 break;
             }
@@ -1357,7 +1372,7 @@ const api = {
                     st.projectiles.push({
                         mesh, t0: now, dur: (evt.ticks ?? 2) * TILE_MS,
                         from: new THREE.Vector3(st.enemy.pos.wx, 1.3, st.enemy.pos.wz),
-                        to: new THREE.Vector3(st.player.pos.wx, 1.2, st.player.pos.wz),
+                        toActor: st.player, toY: 1.2,
                     });
                 }
                 break;
