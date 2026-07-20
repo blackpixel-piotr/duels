@@ -125,6 +125,26 @@ public sealed class MaggotKingTests
     }
 
     [Fact]
+    public async Task ProtectionPrayerDrain_FiresOnceEveryThreeTicks_NotEveryTick()
+    {
+        // Playtest revision: drain rate cut to a third of the original (2
+        // points per protection-drain event, unchanged) by only firing
+        // every 3rd tick instead of every tick.
+        var (svc, state, _) = Build();
+        state.Player.ToggleProtection(ProtectionPrayer.Magic);
+        int startPoints = state.Player.PrayerPoints;
+
+        await Tick(svc); // tick 1 of the cadence — no drain yet
+        Assert.Equal(startPoints, state.Player.PrayerPoints);
+
+        await Tick(svc); // tick 2 — still no drain
+        Assert.Equal(startPoints, state.Player.PrayerPoints);
+
+        await Tick(svc); // tick 3 — drains now
+        Assert.Equal(startPoints - 2, state.Player.PrayerPoints);
+    }
+
+    [Fact]
     public async Task Phase1_StyleTelegraphAtTick7_SetsForecast()
     {
         // Tier-1 baseline (Boss Bible Global Combat Grammar): style-shift

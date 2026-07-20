@@ -181,22 +181,30 @@ public sealed class GameTickService : IDisposable
         if (!state.EnemyFrozen)
             ProcessHazardResolution(state, player, preTickPlayerTile, erupting);
 
-        // Prayer drain at tick end (D7: 2/tick while a protection is on;
-        // boost prayer unchanged at 1/tick) — only if still on at tick end,
-        // which is what makes flicking work.
+        // Prayer drain at tick end (D7: 2 pts per drain event for a
+        // protection, 1 pt for boost — playtest revision: cut to a third of
+        // the original rate, delivered once every 3 ticks instead of every
+        // tick via TickProtectionDrainDue/TickBoostDrainDue) — only if
+        // still on at tick end, which is what makes flicking work.
         if (player.ActiveProtection != ProtectionPrayer.None)
         {
-            int before = player.PrayerPoints;
-            player.DrainPrayer(2);
-            if (player.PrayerPoints == 0 && before > 0)
-                state.AppendLog("Your prayer has run out!", LogEntryKind.System);
+            if (state.TickProtectionDrainDue())
+            {
+                int before = player.PrayerPoints;
+                player.DrainPrayer(2);
+                if (player.PrayerPoints == 0 && before > 0)
+                    state.AppendLog("Your prayer has run out!", LogEntryKind.System);
+            }
         }
         if (player.BoostPrayerActive)
         {
-            int before = player.PrayerPoints;
-            player.DrainPrayer(1);
-            if (player.PrayerPoints == 0 && before > 0)
-                state.AppendLog("Your prayer has run out!", LogEntryKind.System);
+            if (state.TickBoostDrainDue())
+            {
+                int before = player.PrayerPoints;
+                player.DrainPrayer(1);
+                if (player.PrayerPoints == 0 && before > 0)
+                    state.AppendLog("Your prayer has run out!", LogEntryKind.System);
+            }
         }
 
         // Special energy regen (items doc §1): 1/tick in combat, replacing
