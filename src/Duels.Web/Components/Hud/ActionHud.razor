@@ -80,25 +80,13 @@
             </button>
         </div>
 
-        @* ── Prayers + style ── *@
+        @* ── Boost prayer + style (protection prayers moved to the left-edge
+             PrayerStrip — UI bible §3.2, M1 playtest revision) ── *@
         <div class="hud-row hud-prayers">
             @{
-                var activeProt  = State.Player?.ActiveProtection ?? ProtectionPrayer.None;
                 var boostActive = State.Player?.BoostPrayerActive == true;
                 var noPrayer    = (State.Player?.PrayerPoints ?? 0) <= 0;
             }
-            <button class="quickslot pray-slot @(activeProt == ProtectionPrayer.Melee ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
-                    title="Protect from Melee" disabled="@_busy" @onclick='() => Protect("protect_melee")'>
-                <span class="qs-icon">⛉</span><span class="qs-label">MELEE</span>
-            </button>
-            <button class="quickslot pray-slot @(activeProt == ProtectionPrayer.Range ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
-                    title="Protect from Ranged" disabled="@_busy" @onclick='() => Protect("protect_range")'>
-                <span class="qs-icon">➶</span><span class="qs-label">RANGE</span>
-            </button>
-            <button class="quickslot pray-slot @(activeProt == ProtectionPrayer.Magic ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
-                    title="Protect from Magic" disabled="@_busy" @onclick='() => Protect("protect_magic")'>
-                <span class="qs-icon">✦</span><span class="qs-label">MAGIC</span>
-            </button>
             <button class="quickslot pray-slot @(boostActive ? "qs-active" : "") @(noPrayer ? "qs-spec-depleted" : "")"
                     title="Boost prayer — +20% damage, drains prayer" disabled="@_busy" @onclick="Boost">
                 <span class="qs-icon">⚡</span><span class="qs-label">BOOST</span>
@@ -214,7 +202,6 @@
     private Task Attack()                  => Run(() => GameSvc.DispatchAsync(new AttackCommand(GameSvc.PlayerId!, AttackStyle.Accurate)));
     private Task Spec()                    => Run(() => GameSvc.DispatchAsync(new AttackCommand(GameSvc.PlayerId!, AttackStyle.Accurate, UseSpecial: true)));
     private Task WeaponShortcut(string id) => Run(() => GameSvc.DispatchAsync(new WeaponShortcutCommand(GameSvc.PlayerId!, id)));
-    private Task Protect(string prayer)    => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, prayer)));
     private Task Boost()                   => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, "boost")));
     private Task Sip(int slot)             => Run(() => GameSvc.DispatchAsync(new SipFlaskCommand(GameSvc.PlayerId!, slot)));
 

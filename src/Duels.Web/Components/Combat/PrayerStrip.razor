@@ -1,0 +1,49 @@
+@using Duels.Application.GameSession
+@using Duels.Application.Commands
+@using Duels.Domain.ValueObjects
+@inject Duels.Web.Services.GameService GameSvc
+@inject IJSRuntime JS
+
+@* Left-edge prayer strip (M1 playtest revision, replaces the three
+   protection BUTTONS in ActionHud's left arc — see UI bible §3.2).
+   ~76px visible, near-transparent, three equal zones top→bottom
+   mage/ranged/melee in doctrine colors. Touch zones are wider than what's
+   visible (edge bleed) so a thumb resting right at the bezel still lands
+   inside a zone; everywhere else on the battlefield taps straight through
+   to the canvas beneath (this strip only ever occupies its own thin edge
+   column, never the center). *@
+<div class="prayer-strip">
+    <button class="prayer-zone prayer-zone-magic @(ActiveProt == ProtectionPrayer.Magic ? "prayer-zone-active" : "") @(NoPrayer ? "prayer-zone-depleted" : "")"
+            title="Protect from Magic" disabled="@_busy" @onclick='() => Protect("protect_magic", "magic")'>
+        <span class="prayer-zone-icon">✦</span>
+    </button>
+    <button class="prayer-zone prayer-zone-ranged @(ActiveProt == ProtectionPrayer.Range ? "prayer-zone-active" : "") @(NoPrayer ? "prayer-zone-depleted" : "")"
+            title="Protect from Ranged" disabled="@_busy" @onclick='() => Protect("protect_range", "ranged")'>
+        <span class="prayer-zone-icon">➶</span>
+    </button>
+    <button class="prayer-zone prayer-zone-melee @(ActiveProt == ProtectionPrayer.Melee ? "prayer-zone-active" : "") @(NoPrayer ? "prayer-zone-depleted" : "")"
+            title="Protect from Melee" disabled="@_busy" @onclick='() => Protect("protect_melee", "melee")'>
+        <span class="prayer-zone-icon">⚔</span>
+    </button>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+
+    private bool _busy;
+    private ProtectionPrayer ActiveProt => State?.Player?.ActiveProtection ?? ProtectionPrayer.None;
+    private bool NoPrayer => (State?.Player?.PrayerPoints ?? 0) <= 0;
+
+    private async Task Protect(string prayer, string hapticStyle)
+    {
+        if (_busy || GameSvc.PlayerId is null) return;
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            await GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId, prayer));
+            await JS.InvokeVoidAsync("hapticPulse", hapticStyle);
+        }
+        finally { _busy = false; }
+    }
+}

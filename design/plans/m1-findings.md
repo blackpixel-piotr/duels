@@ -537,3 +537,85 @@ reading `window.voxelToon._battles.get('battle-canvas').player` directly
   piece's promise resolves independently, so any script (or future manual
   QA) checking gear render must poll until the full expected set is present,
   not bail on the first truthy sign of *something* having loaded.
+
+## Ninth pass: prayer strip + overhead-prayer renderer (M1 playtest revision)
+
+Explicit user request to replace the three protection-prayer BUTTONS with a
+left-edge touch strip and add an in-world overhead icon, updating the bible
+alongside the code (not a bug fix — a deliberate UX redesign from
+playtesting).
+
+- **`ActionHud.razor`**: removed the Melee/Range/Magic `pray-slot` buttons
+  from `hud-prayers`; Boost and the style-cycle button remain as ordinary
+  quickslots in that row (the "standard button" the request asked for —
+  Boost isn't a doctrine-colored protection, so it never belonged on the
+  strip). The now-unused `Protect(string)` helper and its `ProtectionPrayer`
+  reference were removed rather than left dead.
+- **New `PrayerStrip.razor`** (`Components/Combat/`): three zone buttons —
+  mage top, ranged mid, melee bottom — each dispatching the same
+  `PrayerCommand` the old buttons used (`protect_magic`/`protect_range`/
+  `protect_melee`), so `PrayerHandler`/`GameTickService`'s tick-start-flick
+  semantics are completely unchanged; only the input surface moved. Wired
+  into `Game.razor`'s `.battle-fs` block, gated on `InDuel` like the old
+  row was.
+- **CSS edge-bleed mechanic**: `.prayer-strip` is 100px wide but positioned
+  at `left: -24px`, so the browser viewport itself clips the leftmost 24px
+  — the on-screen tap surface ends up exactly the requested 76px without
+  any JS geometry math. Only the three `.prayer-zone` buttons carry
+  `pointer-events: auto`; the strip's own container is `pointer-events:
+  none`, so nothing outside an actual zone can intercept a battlefield tap
+  (there's no non-zone gap inside the strip's bounds today, but the
+  pass-through was built structurally rather than assumed).
+- **Overhead-prayer renderer (`toon.js`)**: new `OVERHEAD_STYLES` map +
+  `getOverheadTexture`/`setActorOverhead`, wired into the previously-stub
+  `setBattleOverheads(canvasId, {player, enemy})`. Bakes a small canvas
+  texture per style (dark plate + doctrine-colored ring + glyph, same
+  visual language as the retired `voxel.js` pixel-art version) into a
+  `THREE.Sprite` parented to the actor's own group — it auto-billboards
+  (always faces camera) and inherits the group's per-frame position update
+  for free, the same pattern already used for weapon/armor attachment.
+  Built generically over `(actor, styleKey)` so the identical call already
+  wired for `st.enemy` picks up a boss's own prayer the moment `NpcOverhead`
+  stops returning `null` — no boss grants one in M1, so visually nothing
+  changes on that side yet.
+- **Haptics are new infrastructure, not previously present.** Grepped first
+  — there was no vibration/haptic call anywhere in the codebase, despite
+  the UI bible already mentioning an "optional haptic tick" for the tick
+  metronome. Added a minimal `window.hapticPulse(style)` in `index.html`
+  (same file/pattern as the existing `triggerShake`/metronome globals)
+  wrapping the standard `navigator.vibrate()` Web API. **Assumption
+  flagged**: the exact per-style pattern values (`melee: 25ms`,
+  `ranged: [15,30,15]ms`, `magic: 45ms`) are invented — the brief asked for
+  "per-style haptic" without specifying patterns, and nothing elsewhere in
+  the docs does either. Chosen to feel roughly proportional to each style's
+  combat identity (melee = one sharp hit, ranged = a quick double-tap,
+  magic = one longer hum) but these are provisional/tunable, and
+  `navigator.vibrate` itself is Android-Chrome-only — a no-op everywhere
+  else (notably iOS Safari), which the UI bible's own "optional" framing
+  already anticipates but is worth restating since M1 has no way to
+  playtest the haptic on this session's tooling.
+- **Bible updated** (`duels-ui-design.md` §2 tap-targets line, §3.1 layout
+  diagram, §3.2 protection-prayer/boost-prayer bullets, new overhead-icon
+  bullet) to match, per the explicit "log as an M1 playtest revision"
+  instruction — this is a revision to the shipped M1 spec, not a
+  deviation from a plan that was never reviewed this way.
+- **Playwright end-to-end pass, and one real bug it caught**: drove the
+  running app (dev loadout → fight → tap zones) and screenshotted at each
+  step. The strip and zone-switching worked first try — tapping ranged then
+  melee showed exactly one `.prayer-zone-active` at a time, in the right
+  zone, with `overheadKey` tracking correctly. The overhead sprite did not:
+  the first screenshot showed a cyan halo hugging the player's *hood
+  silhouette* instead of a disc floating above it — a real bug, not a
+  rendering-timing false alarm this time. Root cause: the sprite's
+  `SpriteMaterial` was created with `depthTest: true` and positioned at only
+  `height * 0.95`, landing at/inside the head geometry — the scene's own
+  depth buffer was occluding the sprite's center against the head mesh,
+  leaving only the ring's edge visible where it poked past the head's
+  screen-space silhouette. The existing splat sprites already establish the
+  right convention for in-world UI elements that must always read clearly
+  (`depthTest: false`) — the overhead sprite just hadn't followed it. Fixed
+  by setting `depthTest: false` and raising the offset to `height * 1.1`,
+  clearly clearing the head; reverified with a zoomed screenshot showing a
+  clean dark-plate/ring/glyph disc floating above the hood, well separated
+  from the model. 64/64 unit tests still pass; this bug was JS-only and
+  wouldn't have been caught by the C# suite.

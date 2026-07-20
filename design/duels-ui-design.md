@@ -34,7 +34,7 @@ Every colored signal also has a **unique shape and audio cue** (colorblind-safe 
 
 - **Grip model:** two-thumb claw. Left thumb owns **prayers**, right thumb owns **attacks/weapons**. The center of the screen is the battlefield and is tapped by either thumb for movement/targeting.
 - **Thumb zones:** all combat-critical buttons live inside the bottom-corner arcs reachable without shifting grip (~⅓ screen width from each corner). Nothing combat-critical in the top half of the screen except passive readouts.
-- **Tap targets:** 56dp minimum for combat buttons, 64dp for protection prayers (the most time-critical input in the game). 8dp minimum spacing.
+- **Tap targets:** 56dp minimum for combat buttons. Protection prayers (the most time-critical input in the game) traded a dedicated 64dp button for a left-edge strip — see §3.2 — whose zones are ~44dp tall but bleed wider than their visible width to keep the effective touch target generous. 8dp minimum spacing elsewhere.
 - **Input latency budget:** visual + haptic acknowledgment within 50ms of any tap; the 0.6s tick can absorb server/logic resolution, but the *feel* of responsiveness lives in that first 50ms.
 - **Input buffering:** taps within the last 150ms of a tick queue for the next tick instead of dropping. Prayer and weapon swaps resolve on the tick they're tapped (they're instant per combat rules).
 - **Safe areas:** full notch/punch-hole compliance; HUD anchors to safe-area insets, battlefield renders full-bleed underneath.
@@ -50,21 +50,23 @@ Every colored signal also has a **unique shape and audio cue** (colorblind-safe 
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │ [HP orb]                [ BOSS NAME + HP BAR + phase pips ]  [⚙]│
-│ [Prayer orb]                 [style forecast icon]              │
-│ [debuff icons]                                                  │
-│                                                                 │
-│                        B A T T L E F I E L D                    │
-│                        (full-bleed, 3D, tiles)                  │
-│                                                                 │
-│  [PRAY MELEE]                                     [weapon 1]    │
-│  [PRAY RANGE]                                     [weapon 2]    │
-│  [PRAY MAGIC]                                     [weapon 3]    │
-│  [BOOST]                                          [weapon 4]    │
-│            [style toggle]          [SPECIAL ATTACK — big]       │
+│▓[Prayer orb]                  [style forecast icon]              │
+│▓[debuff icons]                                                  │
+│▓                                                                │
+│▓                       B A T T L E F I E L D                    │
+│▓                       (full-bleed, 3D, tiles)                  │
+│▓                                                                │
+│▓       [BOOST]                                    [weapon 1]    │
+│        [style toggle]                             [weapon 2]    │
+│  [flask][flask]                                    [weapon 3]    │
+│                                                    [weapon 4]    │
+│                                    [SPECIAL ATTACK — big]        │
 └────────────────────────────────────────────────────────────────┘
 ```
-
-(Exact positions are the defaults; edit mode can rearrange. Prayers stack as a vertical arc under the left thumb; weapons as a vertical arc under the right thumb with the special attack button largest, at the natural resting position of the right thumb.)
+(`▓` marks the left-edge prayer strip — see below. Exact positions are the
+defaults; edit mode can rearrange. Weapons stack as a vertical arc under
+the right thumb with the special attack button largest, at the natural
+resting position of the right thumb.)
 
 ### 3.2 Elements in detail
 
@@ -74,10 +76,12 @@ Every colored signal also has a **unique shape and audio cue** (colorblind-safe 
 
 **Cast bar (top-center, under boss plate).** Appears only for channeled/fused boss actions (Transfusion, Rot Burst inhale, Gaze charge): a tick-segmented bar so players can count remaining ticks. Segmented, not smooth — the game runs on ticks and the UI should teach that.
 
-**Protection prayers (left arc).** Three 64dp buttons — Melee / Range / Magic — in the doctrine colors with distinct glyphs. States: inactive (inked outline), active (full color fill + glow ring + 1-frame smear pop), insufficient prayer points (grayed, hatched). Tap = toggle, resolves same tick. Only one protection active at a time — tapping a new one switches instantly (no need to un-toggle first; this single rule is what makes flicking playable on touch).
+**Protection prayer strip (left edge)** *— M1 playtest revision, replaces the original three 64dp arc buttons.* A near-transparent vertical strip hugging the screen's left edge: ~76px visible, three equal zones stacked top→bottom — **Magic / Ranged / Melee** — each tinted with its doctrine color and carrying a small icon. The touch target is wider than what's visible (~100px, bleeding past the true edge) so a thumb resting right at the bezel still lands cleanly inside a zone; outside the strip, every tap passes straight through to the battlefield beneath it. States: inactive (faint doctrine tint), active (brighter fill + a 220ms brightness flash on the tick it's toggled + a short per-style haptic pulse), insufficient prayer points (dimmed, non-interactive). Tap = toggle, resolves same tick. Only one protection active at a time — tapping a new zone switches instantly (no need to un-toggle first; this single rule is what makes flicking playable on touch). This traded the old buttons' bigger, more discoverable tap targets for edge-anchored reachability and screen space back for the battlefield — worth revisiting if playtesting shows mis-taps between zones.
 **Optional "hold-to-pray" mode** (settings): prayer active only while finger is held — the flicking purist's mode, drains points only while held.
 
-**Boost prayer (below protections, 56dp).** Toggle, drains prayer points while on, gold glow when active.
+**Overhead prayer icon (in-world, above the actor's head).** Whichever protection (or boost) is active shows as a small doctrine-colored icon-in-a-ring floating above the player's head in the 3D scene itself — not just the HUD — so it reads at a glance without looking away from the fight. Same renderer is shared for bosses (mirror-match fights give the boss its own visible prayer, per §3-in-boss-designs' "boss's prayer bar" framing) once a boss actually grants one; M1's Maggot King doesn't pray, so only the player shows one today.
+
+**Boost prayer (standard 56dp button, weapon-arc side).** Toggle, drains prayer points while on, gold glow when active. No longer grouped with the protection buttons since those moved to the edge strip — it now sits as an ordinary action-bar button alongside the style toggle.
 
 **Weapon slots (right arc, 4 × 56dp).** The RS3-style action bar — see §4. Each slot shows the weapon's inked icon, its **attack-style color as the frame**, and a thin durability-style bar repurposed as *nothing* (reserved). Current weapon = enlarged 15% + gold underline. Tap = swap (resolves same tick, max one swap per tick; extra taps buffer). Empty slot = dashed outline, tapping opens the Loadout Editor out of combat and does nothing in combat.
 
