@@ -84,6 +84,19 @@ public sealed class MaggotKingTests
     }
 
     [Fact]
+    public async Task Phase1_BileSpit_FullyNegatedByMatchingPrayer()
+    {
+        var (svc, state, _) = Build();
+        state.Player.ToggleProtection(ProtectionPrayer.Magic);
+        int hpBefore = state.Player.CurrentHp;
+
+        await Tick(svc); // T0 Bile Spit (Magic, not Unprayable) — 100% block, not a mitigation
+
+        Assert.Equal(hpBefore, state.Player.CurrentHp);
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.NpcHit && e.Message.Contains("Bile Spit") && e.Message.Contains("(prayed)"));
+    }
+
+    [Fact]
     public async Task Phase1_StyleTelegraphAtTick8_SetsForecast()
     {
         var (svc, state, npc) = Build();

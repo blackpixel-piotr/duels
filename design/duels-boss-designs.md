@@ -29,7 +29,7 @@ Big attacks that miss or end in a landing/recovery leave the boss vulnerable: **
 - Light ≈ 5–10% · Medium ≈ 15–20% · Heavy ≈ 30–40% · Severe ≈ 50–60% (checks, never one-shots) · Lethal = reserved for fully ignored mechanics.
 
 **Prayer grammar**
-Boss style changes are telegraphed **2 ticks** ahead (weapon glow / stance / audio sting). High invocations reduce this to 1 tick.
+Boss style changes are telegraphed **2 ticks** ahead (weapon glow / stance / audio sting). High invocations reduce this to 1 tick. A protection prayer matching the incoming attack's style **fully negates that hit (100% block)** — full negation, not mitigation, is what makes flicking the correct-color prayer feel decisive rather than just a damage slider. This is the baseline every boss's attacks assume unless explicitly marked **Unprayable** (ground hazards, channeled arena-wide blasts, and similar mechanics that ignore prayer outright and must be dodged positionally instead). The *Doubt* invocation (see Invocations doc) is the only thing that weakens this to a 75% block — it's a curse precisely because it breaks the base rule.
 
 **Anti-camping rule**
 Every boss has at least one tool that punishes max-range passivity and one that punishes brainless face-tanking. No corner is ever free.

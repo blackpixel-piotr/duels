@@ -665,14 +665,20 @@ public sealed class GameTickService : IDisposable
         return Math.Min(points * Duels.Domain.Services.DamageModel.DefPointValue, Duels.Domain.Services.DamageModel.GearDefCap);
     }
 
+    // Boss bible "Prayer grammar": a matching protection prayer fully negates
+    // a non-Unprayable boss attack (100% block), not a percentage mitigation
+    // — confirmed by the invocations doc's Doubt curse ("Protection prayers
+    // block 75% instead of 100%"), which only makes sense as a debuff of a
+    // 100% baseline. Doubt itself is out of scope for M1 (no invocation
+    // system yet); when it lands this is the one number it should override.
     private static double GetPrayerReduction(GameState state, AttackType npcAttackType)
     {
         if (state.Player.PrayerPoints <= 0) return 0.0;
         return state.TickStartProtection switch
         {
-            ProtectionPrayer.Melee => npcAttackType is AttackType.Stab or AttackType.Slash or AttackType.Crush ? 0.75 : 0.0,
-            ProtectionPrayer.Range => npcAttackType == AttackType.Ranged ? 0.75 : 0.0,
-            ProtectionPrayer.Magic => npcAttackType == AttackType.Magic ? 0.75 : 0.0,
+            ProtectionPrayer.Melee => npcAttackType is AttackType.Stab or AttackType.Slash or AttackType.Crush ? 1.0 : 0.0,
+            ProtectionPrayer.Range => npcAttackType == AttackType.Ranged ? 1.0 : 0.0,
+            ProtectionPrayer.Magic => npcAttackType == AttackType.Magic ? 1.0 : 0.0,
             _ => 0.0,
         };
     }
