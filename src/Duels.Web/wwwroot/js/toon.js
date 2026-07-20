@@ -745,22 +745,28 @@ function getOverheadTexture(styleKey) {
     return tex;
 }
 // Sprite auto-billboards (always faces camera) and is parented to the
-// actor's own group, so it inherits that group's per-frame position update
-// for free — no extra per-frame bookkeeping needed, same as weapon/armor.
+// actor's HEAD BONE, not the actor's root group — a fixed height above the
+// group looked right in an idle pose but drifted badly during a crouched
+// attack lunge (the group's own Y never moves, only the skeleton bends), and
+// even in idle it needed re-tuning per camera zoom to clear the head without
+// the same offset reading as "too far" at a different zoom. Parenting to the
+// bone means it inherits the head's real per-frame position for free, the
+// same way weapon/armor already ride the skeleton instead of a flat offset.
 function setActorOverhead(actor, styleKey) {
     if (actor.overheadKey === styleKey) return;
     actor.overheadKey = styleKey;
     if (actor.overheadSprite) { actor.overheadSprite.parent?.remove(actor.overheadSprite); actor.overheadSprite = null; }
     if (!styleKey || !OVERHEAD_STYLES[styleKey]) return;
-    // depthTest: false, same as the splat sprites above the head — without
-    // it the icon partially disappears behind/into the head mesh at some
-    // camera angles instead of reading as a clean disc floating above it.
+    const headBone = actor.ch.bones?.Head ?? actor.ch.bones?.head ?? actor.ch.group;
+    // depthTest: false, same as the splat sprites — without it the icon
+    // partially disappears behind/into the head mesh at some camera angles
+    // instead of reading as a clean disc floating above it.
     const mat = new THREE.SpriteMaterial({ map: getOverheadTexture(styleKey), transparent: true, depthTest: false });
     const sprite = new THREE.Sprite(mat);
     sprite.renderOrder = 10;
-    sprite.scale.set(0.5, 0.5, 1);
-    sprite.position.set(0, actor.ch.height * 1.1, 0); // clear of the head, not resting on it
-    actor.ch.group.add(sprite);
+    sprite.scale.set(0.4, 0.4, 1);
+    sprite.position.set(0, 0.4, 0); // small clearance above the head bone's own origin
+    headBone.add(sprite);
     actor.overheadSprite = sprite;
 }
 

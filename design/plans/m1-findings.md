@@ -619,3 +619,45 @@ playtesting).
   clean dark-plate/ring/glyph disc floating above the hood, well separated
   from the model. 64/64 unit tests still pass; this bug was JS-only and
   wouldn't have been caught by the C# suite.
+
+## Tenth pass: overhead icon still reading as "in his head" at the real default camera
+
+User report after the ninth pass shipped: "it's in his head." The ninth
+pass's fix (`depthTest: false`, `height * 1.1`) was real and necessary, but
+verified against a manually zoomed-out debug camera (`zoom: 0.35`), not the
+game's actual default (`zoom: 1`, FOV 15 telephoto). Screenshotting at the
+real default camera reproduced the report exactly — same absolute
+world-space gap reads as sitting right on the hood once the character fills
+much more of a telephoto frame. Two rounds of retuning the height multiplier
+against the *default* camera this time (`1.35` → over-corrected clean off
+the top of the 260×200 canvas entirely; `1.2` → looked right on its own but
+partially overlapped the always-on "Last hit" debug panel at top-center,
+noted but not chased further — a debug-tool overlap, not a gameplay one)
+before stepping back to fix the actual design flaw underneath both misses:
+
+- **The sprite was never actually attached to anything that moves with the
+  head.** It was parented to `actor.ch.group` (the whole-character root,
+  whose Y position never changes — only the skeleton bends) with a flat
+  height offset computed once. That's why *any* single offset was a
+  compromise: it could look right in one static idle pose at one camera
+  zoom, and nothing else — confirmed by testing an attack-swing lunge
+  (`anim-02-attack-midswing`), where the character crouches forward
+  significantly and the icon was left floating in empty space, visibly
+  detached from the now-lowered head.
+- **Real fix**: parent the sprite directly to the character's own head bone
+  (`actor.ch.bones.Head`, falling back to `.head` for the procedural
+  fallback rig, then to `actor.ch.group` if neither exists) with a small
+  *local* offset (`0.4` units) instead of a world-space multiple of overall
+  character height. Bones are ordinary `Object3D` nodes in three.js's scene
+  graph, so this costs nothing extra per frame — the sprite now inherits the
+  head's true animated position exactly the way weapon/armor already ride
+  the skeleton, rather than approximating it with a flat number. Reverified
+  at the real default camera (clean gap, no more debug-panel collision
+  either — the bone-relative offset sits lower in world space than the
+  `1.2×`-height guess had) and mid-attack-swing (icon stays locked above the
+  head through the crouch instead of drifting).
+- **Lesson for future in-world HUD work**: verify visual offsets against the
+  actual default camera/zoom, not a debug override — and prefer attaching
+  to the skeleton over computing a fixed world-space offset whenever the
+  thing being positioned needs to track a specific body part through
+  animation, not just "somewhere near the character."
