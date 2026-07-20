@@ -548,7 +548,15 @@ public sealed class GameTickService : IDisposable
         player.TakeDamage(damage);
         state.RecordDamageTaken(damage);
         if (damage > 0) state.SetKilledBy($"{attack.Name} ({StyleName(attack.Style)})");
-        state.AppendLog($"{damage}:normal:{StyleToken(attack.Style)}", LogEntryKind.HitsplatNpc);
+
+        // A matching protection prayer fully negates the hit (Global Combat
+        // Grammar's 100%-block rule), so a "blocked" hitsplat is a distinct
+        // outcome from a plain 0-damage hitsplat — the renderer swaps the
+        // usual damage numeral for a doctrine-colored "prevented" icon
+        // instead of showing what would otherwise read as a weak 0 hit.
+        bool blockedByPrayer = damage == 0 && !attack.Unprayable && GetPrayerReduction(state, attack.Style) >= 1.0;
+        string tier = blockedByPrayer ? "blocked" : "normal";
+        state.AppendLog($"{damage}:{tier}:{StyleToken(attack.Style)}", LogEntryKind.HitsplatNpc);
         string prayedMsg = damage < attack.Damage && !attack.Unprayable ? " (prayed)" : "";
         state.AppendLog($"{npc.Template.Name} uses {attack.Name} for {damage}{prayedMsg}. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
     }

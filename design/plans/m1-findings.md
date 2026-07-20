@@ -948,3 +948,47 @@ minimal 1-tick nudge over a wider buffer or leaving it alone.
   cross-references it.
 - 68/68 tests pass (67 + 1 new; the drain test rename doesn't change the
   total, it replaces its own prior version in place).
+
+## Fifteenth pass: distinct "blocked" hitsplat for a prayer-negated hit (M1 revision)
+
+User feedback: a fully-prayed hit currently shows the same "0" numeral a
+weak hit or a miss would, giving no visual credit for the block. Requested
+a distinct icon (a slashed circle was the suggestion) instead.
+
+- **Backend**: `GameTickService.ResolveBossAttack` already knows whether a
+  hit was fully negated by prayer (it's the only way a non-Unprayable boss
+  attack lands at exactly 0 damage, given Sap's -10% and armor Def's 40%
+  cap can't reach 0 alone) — re-checks `GetPrayerReduction(state,
+  attack.Style) >= 1.0` (the same call `ResolveIncomingDamage` already
+  made) to tag the hitsplat's tier as `"blocked"` instead of `"normal"`
+  when that's the reason, so the message format is
+  `"{damage}:{tier}:{styleToken}"` — e.g. `"0:blocked:magic"` vs. the
+  existing `"18:normal:magic"`. Only this one line's tier changes; damage
+  math, prayer resolution, and the `NpcHit` text log (which already said
+  "for 0 (prayed)") are untouched.
+- **Rendering** (`toon.js`): `splatSprite` grew a `blocked` branch — a
+  slashed ring (ink outline + doctrine-colored ring + diagonal slash)
+  instead of the usual starburst-and-numeral, sized slightly smaller than
+  a real hitsplat so it visually reads as "a non-event was drawn," not "a
+  weak hit landed." Colored via the style now threaded through
+  `splatOn`/the `enemyHit`/`playerHit` events (previously only `tier` and
+  `dmg` made the trip) and looked up in the existing `DOCTRINE_HEX` map —
+  the same color already carrying "this doctrine" meaning on the prayer
+  strip, the overhead icon, and telegraph glow, so a blocked Magic hit
+  shows the same blue as everywhere else Magic shows up. `flinch()` also
+  now skips `'blocked'` (alongside the existing `'miss'`/`'poison'`
+  skips) — nothing hit the player, so no hit-reaction animation should
+  play.
+- **Verified live via Playwright**: prayed Magic before the T0 Bile Spit
+  cast landed, confirmed `"Bile Spit for 0 (prayed)"` in the log, and
+  screenshotted the actual rendered icon — a clean blue slashed circle
+  with a dark ink rim, matching the doctrine color and the requested
+  shape exactly.
+- **New assertions** (added to the two existing Bile Spit tests rather
+  than new `[Fact]`s, since they're already testing the exact scenarios):
+  the unprayed test now also asserts the hitsplat is `"18:normal:magic"`;
+  the fully-negated test now also asserts `"0:blocked:magic"`. 68/68
+  tests pass (no new test count — assertions added to existing tests).
+- **Bible updated**: UI bible §3.3 "Damage numbers" gained a "Blocked
+  hits" bullet describing the rule and referencing the doctrine-color
+  reuse.
