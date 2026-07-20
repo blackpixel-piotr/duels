@@ -153,9 +153,18 @@ public sealed class GameTickService : IDisposable
 
         if (!state.EnemyFrozen)
         {
+            // Impact-resolution prayer (Global Combat Grammar): in-flight
+            // ranged/magic attacks land here, against THIS tick's fresh
+            // TickStartProtection — before ProcessBossScript can queue a
+            // brand new one this same tick, same reasoning as TickForecast
+            // below (a freshly-cast 2-tick attack must not immediately
+            // decrement on its own casting tick).
+            foreach (var impact in state.TickPendingAttacks())
+                ResolveBossAttack(state, player, npc, impact);
+
             // Forecast countdown must land before the boss script can set a
-            // fresh one this same tick — otherwise a just-armed 2-tick
-            // telegraph is immediately decremented to 1 on its own setup tick.
+            // fresh one this same tick — otherwise a just-armed telegraph
+            // is immediately decremented on its own setup tick.
             npc.TickForecast();
             ProcessBossScript(state, player, npc);
             ProcessEruptionTimer(state, npc);
@@ -447,14 +456,37 @@ public sealed class GameTickService : IDisposable
         {
             var nextAction = FindNextAttackAction(npc.ActivePhaseDef, npc.RotationTick);
             if (nextAction is null) return;
-            npc.SetForecast(nextAction, 2);
+            npc.SetForecast(nextAction, npc.ActivePhaseDef.TelegraphLeadTicks);
             state.AppendLog($"⚠ {ForecastMessage(npc, nextAction)}", LogEntryKind.BossSpecial);
             return;
         }
 
         var attackId = ResolveAttackId(state, step.Action);
         var attack = npc.Template.Script!.Attacks[attackId];
-        ResolveBossAttack(state, player, npc, attack);
+
+        // Global Combat Grammar "impact-resolution prayer": ranged/magic
+        // attacks travel as a 2-tick doctrine-colored projectile — damage
+        // (and the protection-prayer check) lands on the impact tick, not
+        // this cast tick. Melee has no travel time and still resolves here,
+        // instantly, exactly as before.
+        if (attack.Style is AttackType.Ranged or AttackType.Magic)
+            LaunchProjectileAttack(state, attack);
+        else
+            ResolveBossAttack(state, player, npc, attack);
+    }
+
+    // Boss Bible: "Ranged/magic boss attacks travel as doctrine-colored
+    // projectiles with 2 ticks of flight; the projectile is the primary
+    // flick cue." Cast-time only queues the impact and fires the visual —
+    // no damage, no prayer check, no hitsplat yet. ResolveBossAttack (and
+    // therefore GetPrayerReduction's read of TickStartProtection) doesn't
+    // run until the impact tick, via ProcessTick's TickPendingAttacks loop.
+    private const int ProjectileFlightTicks = 2;
+
+    private void LaunchProjectileAttack(GameState state, BossAttackDef attack)
+    {
+        state.QueuePendingAttack(attack, ProjectileFlightTicks);
+        state.AppendLog($"{StyleToken(attack.Style)}:{ProjectileFlightTicks}", LogEntryKind.BossCast);
     }
 
     private static string ResolveAttackId(GameState state, string action)
@@ -480,6 +512,11 @@ public sealed class GameTickService : IDisposable
         return $"The Maggot King's mandibles glow — {StyleName(atk.Style)} incoming!";
     }
 
+    // Actually lands the damage — called synchronously for melee (cast tick
+    // == impact tick) and from ProcessTick's TickPendingAttacks loop for a
+    // ranged/magic attack's impact tick, 2 ticks after LaunchProjectileAttack
+    // queued it. Either way, ResolveIncomingDamage reads whatever
+    // TickStartProtection is fresh THIS tick — that's the whole point.
     private void ResolveBossAttack(GameState state, Player player, NpcInstance npc, BossAttackDef attack)
     {
         if (!player.IsAlive) return;

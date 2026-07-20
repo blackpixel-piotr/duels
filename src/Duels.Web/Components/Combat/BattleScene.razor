@@ -428,6 +428,27 @@
                 await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas", new { type = "perfectDodge" });
                 continue;
             }
+            // Impact-resolution prayer (Global Combat Grammar): a ranged/magic
+            // attack's cast tick fires this — the windup animation AND the
+            // doctrine-colored projectile launch — well before its hitsplat
+            // shows up (that lands ProjectileFlightTicks ticks later, at
+            // impact). Reuses the same 'enemyAttack' JS handler a melee hit
+            // uses for its (instant, same-tick) swing; toon.js tells them
+            // apart by style, spawning a projectile only for ranged/magic.
+            if (e.Kind == LogEntryKind.BossCast)
+            {
+                var castParts = e.Message.Split(':');
+                await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
+                    new
+                    {
+                        type = "enemyAttack",
+                        style = castParts[0],
+                        tier = "normal",
+                        weapon = (string?)null,
+                        ticks = castParts.Length > 1 && int.TryParse(castParts[1], out var ct) ? ct : 2,
+                    });
+                continue;
+            }
             if (e.Kind == LogEntryKind.NpcHit)
                 _lastHitDebug = $"{e.Message} | dist {State?.DistanceToNpc}";
 
@@ -451,9 +472,18 @@
             string? specWeapon = onEnemy && parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
             string? npcStyle = !onEnemy && parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
 
+            // A ranged/magic NPC hitsplat is this attack's IMPACT — its swing
+            // + projectile already played back at the earlier BossCast event
+            // (ProjectileFlightTicks ticks ago), so re-firing 'enemyAttack'
+            // here would double the animation and spawn a second projectile
+            // right on top of the first one landing. Melee never has a cast
+            // phase (impact tick == cast tick), so it still fires here as
+            // its only trigger, unchanged.
+            bool alreadyAnimatedAtCast = !onEnemy && npcStyle is "ranged" or "magic";
+
             // DoT ticks and ground hazards aren't attacks — no swing, just
             // the victim's flash (the eruption burst is drawn tile-side).
-            if (tier is not ("poison" or "hazard"))
+            if (tier is not ("poison" or "hazard") && !alreadyAnimatedAtCast)
                 await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
                     new
                     {

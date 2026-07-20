@@ -29,7 +29,9 @@ Big attacks that miss or end in a landing/recovery leave the boss vulnerable: **
 - Light ≈ 5–10% · Medium ≈ 15–20% · Heavy ≈ 30–40% · Severe ≈ 50–60% (checks, never one-shots) · Lethal = reserved for fully ignored mechanics.
 
 **Prayer grammar**
-Boss style changes are telegraphed **2 ticks** ahead (weapon glow / stance / audio sting). High invocations reduce this to 1 tick. A protection prayer matching the incoming attack's style **fully negates that hit (100% block)** — full negation, not mitigation, is what makes flicking the correct-color prayer feel decisive rather than just a damage slider. This is the baseline every boss's attacks assume unless explicitly marked **Unprayable** (ground hazards, channeled arena-wide blasts, and similar mechanics that ignore prayer outright and must be dodged positionally instead). The *Doubt* invocation (see Invocations doc) is the only thing that weakens this to a 75% block — it's a curse precisely because it breaks the base rule.
+A protection prayer matching the incoming attack's style **fully negates that hit (100% block)** — full negation, not mitigation, is what makes flicking the correct-color prayer feel decisive rather than just a damage slider. This is the baseline every boss's attacks assume unless explicitly marked **Unprayable** (ground hazards, channeled arena-wide blasts, and similar mechanics that ignore prayer outright and must be dodged positionally instead). The *Doubt* invocation (see Invocations doc) is the only thing that weakens this to a 75% block — it's a curse precisely because it breaks the base rule.
+
+Protection prayers are evaluated on the impact tick, never the cast tick. Ranged/magic boss attacks travel as doctrine-colored projectiles with 2 ticks of flight; the projectile is the primary flick cue. Tier-1 bosses telegraph style changes 3 ticks ahead; 2 is standard; 1 is invocation-tier.
 
 **Anti-camping rule**
 Every boss has at least one tool that punishes max-range passivity and one that punishes brainless face-tanking. No corner is ever free.
@@ -61,22 +63,27 @@ Minigame pool: bosses 1–7 (Gale Roc and Millstone use slightly shrunk arenas i
 **Arena:** 9×9. King occupies a 2×2 mound at center-north; can pivot but not walk.
 
 ### Phase 1 (100–50%)
-Attack rotation on a fixed 20-tick loop:
+Attack rotation on a fixed 20-tick loop. Maggot King is Tier 1, so its style
+telegraphs lead by **3 ticks** (Global Combat Grammar's Tier-1 baseline) —
+Bile Spit and Grub Volley also travel as their own doctrine-colored
+projectiles per that same section, each with 2 ticks of flight and their
+own impact-tick prayer check, independent of whether a style-shift
+telegraph happens to precede them:
 
 | Tick | Action | Details |
 |---|---|---|
 | T0 | **Bile Spit** (magic) | Single target, Medium. Pray Magic. |
 | T4 | **Bile Spit** (magic) | Same. |
-| T8 | *Style shift telegraph* | Mandibles glow green → 2 ticks warning. |
+| T7 | *Style shift telegraph* | Mandibles glow green → 3 ticks warning (lands T10). |
 | T10 | **Lash** (melee if adjacent) / **Grub Volley** (ranged if not) | Medium. Pray accordingly — his choice depends on YOUR position, so spacing decides what you must flick. |
 | T14 | Lash / Grub Volley | Same. |
-| T16 | *Style shift telegraph* | Glow blue. |
+| T17 | *Style shift telegraph* | Glow blue → 3 ticks warning (lands T0 of the next loop, idle ticks included). |
 | T18–19 | idle | Free damage window. Loop restarts. |
 
 **Eruption** (independent timer, every 16 ticks): marks 3 random tiles **plus the player's current tile**. Standard 3-tick fuse → erupt for Heavy (unprayable). Erupted tiles leave **poison pools** for 20 ticks (Light/tick standing in them, applies poison stack).
 
 ### Phase 2 (<50%)
-- Rotation compresses to a 14-tick loop; style telegraphs stay 2 ticks.
+- Rotation compresses to a 14-tick loop; style telegraphs tighten to the 2-tick standard (down from Phase 1's 3-tick Tier-1 baseline) — an intentional escalation, not a bug.
 - Eruption every 12 ticks, now 5 tiles; pools last 30 ticks. The floor fills up — routing matters.
 - **Maggot swarms:** at 50% and 25%, two swarms spawn at arena corners, crawl 1 tile/tick toward the player. Contact = bleed stack. Each dies to 2 hits — a target-switch decision under prayer pressure.
 - **Rot Burst** (signature, every ~40 ticks): King inhales for 4 ticks (whole body swells) → arena-wide Severe blast that ignores prayer. **Safe tiles are the scorched tiles left by past eruptions** (pools expire into scorch). The hazard system inverts: the floor that punished you becomes your shelter, and good players track scorch locations all phase.

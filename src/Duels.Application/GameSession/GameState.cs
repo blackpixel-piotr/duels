@@ -102,6 +102,39 @@ public sealed class GameState
 
     private void ClearHazards() => _hazards.Clear();
 
+    // In-flight boss attacks (Boss Bible "impact-resolution prayer"):
+    // ranged/magic attacks travel as a doctrine-colored projectile instead
+    // of resolving on the cast tick, so a protection prayer raised any time
+    // before impact — not just at cast — still blocks it. Melee never uses
+    // this; it has no travel time, so cast tick == impact tick already.
+    private readonly List<PendingBossAttack> _pendingAttacks = new();
+    public void QueuePendingAttack(BossAttackDef attack, int ticksUntilImpact) =>
+        _pendingAttacks.Add(new PendingBossAttack(attack, ticksUntilImpact));
+
+    /// <summary>Advance every in-flight attack one tick; returns the ones
+    /// impacting THIS tick (their flight just ran out) for the caller to
+    /// resolve against this tick's fresh <see cref="TickStartProtection"/>.</summary>
+    public List<BossAttackDef> TickPendingAttacks()
+    {
+        var impacting = new List<BossAttackDef>();
+        for (int i = _pendingAttacks.Count - 1; i >= 0; i--)
+        {
+            var p = _pendingAttacks[i] with { TicksLeft = _pendingAttacks[i].TicksLeft - 1 };
+            if (p.TicksLeft <= 0)
+            {
+                impacting.Add(p.Attack);
+                _pendingAttacks.RemoveAt(i);
+            }
+            else
+            {
+                _pendingAttacks[i] = p;
+            }
+        }
+        return impacting;
+    }
+
+    public void ClearPendingAttacks() => _pendingAttacks.Clear();
+
     // Swarm adds (m1-plan Workstream C.7)
     private readonly List<AddInstance> _adds = new();
     public IReadOnlyList<AddInstance> Adds => _adds;
@@ -216,6 +249,7 @@ public sealed class GameState
         KilledBy = null;
         TargetId = null;
         _adds.Clear();
+        ClearPendingAttacks();
 
         var script = npc.Template.Script;
         NpcFootprint = script?.Footprint is { } fp ? (fp.Width, fp.Height) : (1, 1);
@@ -312,6 +346,7 @@ public sealed class GameState
         ClearDots();
         ClearHazards();
         _adds.Clear();
+        ClearPendingAttacks();
     }
 
     public void AppendLog(string message, LogEntryKind kind = LogEntryKind.Info)
@@ -330,6 +365,10 @@ public enum HazardState { Warning, Pool, Scorch }
 /// until it dries into permanent Scorch. PoolDurationTicks is captured at
 /// creation so a Warning->Pool transition doesn't need the caller to repass it.</summary>
 public readonly record struct HazardTile(int X, int Z, HazardState State, int TicksLeft, int PoolDurationTicks);
+
+/// <summary>A boss attack in flight — cast, not yet landed. See
+/// <see cref="GameState.TickPendingAttacks"/>.</summary>
+public readonly record struct PendingBossAttack(BossAttackDef Attack, int TicksLeft);
 
 /// <summary>Snapshot of a finished duel for the end-of-fight result overlay
 /// (m1-plan Workstream H).</summary>
@@ -359,4 +398,5 @@ public enum LogEntryKind
     BossSpecial,
     HitsplatPlayer,
     HitsplatNpc,
+    BossCast,
 }

@@ -35,13 +35,21 @@ public sealed record SwarmWaveDef(int ThresholdPercent, int Count, int Hp);
 /// mid-loop, so it can't interrupt a telegraphed style read.</summary>
 public sealed record RotBurstDef(int CadenceTicks, int InhaleTicks, int Damage, int SlumpTicks);
 
-/// <summary>One phase's full choreography (Boss Bible P1/P2).</summary>
+/// <summary>One phase's full choreography (Boss Bible P1/P2).
+/// <paramref name="TelegraphLeadTicks"/> is how many ticks ahead a
+/// style-shift telegraph in this phase warns before the new style's first
+/// hit — per the Global Combat Grammar's "Prayer grammar": 3 for a Tier-1
+/// boss's baseline (introductory phase), 2 is standard, 1 is
+/// invocation-tier. A later phase may deliberately tighten below the
+/// boss's own tier baseline as an escalation (Maggot King's Phase 2 stays
+/// at 2 even though Phase 1 is 3, per the Boss Bible's own Phase 2 note).</summary>
 public sealed record BossPhaseDef(
     int LoopLength,
     IReadOnlyList<RotationStep> Rotation,
     EruptionDef Eruption,
     RotBurstDef? RotBurst = null,
-    IReadOnlyList<SwarmWaveDef>? Swarms = null);
+    IReadOnlyList<SwarmWaveDef>? Swarms = null,
+    int TelegraphLeadTicks = 2);
 
 /// <summary>Boss footprint in tiles (plain record, not a ValueTuple — System.Text.Json
 /// has no built-in ValueTuple converter).</summary>
@@ -177,7 +185,7 @@ public sealed class NpcInstance
             // or another; the opener shouldn't be the one exception.
             var opening = s.Phase1.Rotation.FirstOrDefault(r => r.Tick == 0);
             if (opening is not null && opening.Action is not ("idle" or "style_telegraph"))
-                SetForecast(opening.Action, 2);
+                SetForecast(opening.Action, s.Phase1.TelegraphLeadTicks);
         }
     }
 
