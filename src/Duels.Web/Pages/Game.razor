@@ -48,6 +48,10 @@ else
                              PlayerDead="@(_duelResult is { Won: false })"
                              WeaponId="@(_state?.Player?.GetEquippedWeaponId())" />
                 <ActionHud State="@_state" Layout="float" />
+                @if (_state?.InDuel == true)
+                {
+                    <PrayerStrip State="@_state" />
+                }
                 @if (_duelResult is not null)
                 {
                     <DuelResultOverlay Summary="@_duelResult"

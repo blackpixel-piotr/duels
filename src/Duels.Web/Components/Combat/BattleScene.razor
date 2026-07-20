@@ -296,8 +296,10 @@
         }
     }
 
-    // Overhead prayer icons are drawn in-canvas by voxel.js (pixel art);
-    // these just name the active icon per side.
+    // Overhead prayer icons: a billboarded icon-in-a-ring above the actor's
+    // head, rendered in-world by toon.js's shared overhead renderer (M1
+    // playtest revision — see setActorOverhead). These just name the active
+    // style key per side; NpcOverhead stays null until bosses grant one.
     private string? PlayerOverhead => State?.Player switch
     {
         { ActiveProtection: ProtectionPrayer.Melee } => "melee",
@@ -397,7 +399,7 @@
                 s.Adds.Select(a => new { id = a.Id, x = a.Tile.X, z = a.Tile.Z, hpPct = a.MaxHp > 0 ? a.CurrentHp * 100 / a.MaxHp : 0 }).ToArray());
         }
 
-        // Overhead prayer icons (drawn in-canvas); send only on change.
+        // Overhead prayer icons (billboarded in-world sprite); send only on change.
         var overheads = $"{PlayerOverhead}|{NpcOverhead}";
         if (overheads != _lastOverheads)
         {

@@ -570,6 +570,7 @@ async function makeActor(st, key, colors) {
         pos: { wx: 0, wz: 0 }, target: { wx: 0, wz: 0 },
         facing: 0, crumbled: false, hp: 1,
         weaponMesh: null, weaponToken: 0, armorMeshes: [], armorKey: '',
+        overheadSprite: null, overheadKey: null,
     };
     mixer.addEventListener('finished', e => {
         if (actor.overlay && e.action === actor.overlay.action && !actor.overlay.hold) {
@@ -706,6 +707,61 @@ async function setActorArmor(actor, itemIds) {
             actor.armorMeshes.push(mesh);
         });
     }
+}
+
+// Shared overhead-prayer renderer (M1 playtest revision — replaces the old
+// left-arc protection BUTTONS with a left-edge touch strip; this is the
+// in-world payoff: whichever protection/boost is active gets a small
+// billboarded icon-in-a-ring above the actor's head, doctrine-colored, so
+// it reads at a glance in the 3D scene itself — not just the HUD. Built
+// once as a generic (actor, styleKey) pair so the same function drives both
+// the player today and bosses later (Boss Bible mirror-match fights give
+// the boss its own visible prayer).
+const OVERHEAD_STYLES = {
+    melee: { glyph: '⚔', hex: DOCTRINE_HEX.melee },
+    ranged: { glyph: '➶', hex: DOCTRINE_HEX.ranged },
+    magic: { glyph: '✦', hex: DOCTRINE_HEX.magic },
+    piety: { glyph: '⚡', hex: '#ffd700' }, // boost prayer — "safe/reward" gold, not a combat doctrine color
+};
+const overheadTexCache = new Map(); // styleKey → THREE.CanvasTexture (baked once, shared by every actor)
+function getOverheadTexture(styleKey) {
+    if (overheadTexCache.has(styleKey)) return overheadTexCache.get(styleKey);
+    const def = OVERHEAD_STYLES[styleKey];
+    const size = 64;
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = 'rgba(8,6,12,0.72)'; // dark plate so the icon pops on any background
+    ctx.beginPath(); ctx.arc(size / 2, size / 2, size / 2 - 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = def.hex;
+    ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(size / 2, size / 2, size / 2 - 4, 0, Math.PI * 2); ctx.stroke(); // colored ring
+    ctx.fillStyle = def.hex;
+    ctx.font = 'bold 30px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(def.glyph, size / 2, size / 2 + 2);
+    const tex = new THREE.CanvasTexture(c);
+    tex.needsUpdate = true;
+    overheadTexCache.set(styleKey, tex);
+    return tex;
+}
+// Sprite auto-billboards (always faces camera) and is parented to the
+// actor's own group, so it inherits that group's per-frame position update
+// for free — no extra per-frame bookkeeping needed, same as weapon/armor.
+function setActorOverhead(actor, styleKey) {
+    if (actor.overheadKey === styleKey) return;
+    actor.overheadKey = styleKey;
+    if (actor.overheadSprite) { actor.overheadSprite.parent?.remove(actor.overheadSprite); actor.overheadSprite = null; }
+    if (!styleKey || !OVERHEAD_STYLES[styleKey]) return;
+    // depthTest: false, same as the splat sprites above the head — without
+    // it the icon partially disappears behind/into the head mesh at some
+    // camera angles instead of reading as a clean disc floating above it.
+    const mat = new THREE.SpriteMaterial({ map: getOverheadTexture(styleKey), transparent: true, depthTest: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.renderOrder = 10;
+    sprite.scale.set(0.5, 0.5, 1);
+    sprite.position.set(0, actor.ch.height * 1.1, 0); // clear of the head, not resting on it
+    actor.ch.group.add(sprite);
+    actor.overheadSprite = sprite;
 }
 
 // Per-frame locomotion blending: ease the displayed speed (the sim moves at
@@ -1121,7 +1177,17 @@ const api = {
         const st = battles.get(canvasId);
         if (st) setActorArmor(st.player, itemIds);
     },
-    setBattleOverheads() { /* PoC parity gap: overhead prayer icons */ },
+    setBattleOverheads(canvasId, { player, enemy } = {}) {
+        // { player, enemy } are style keys ('melee'/'range'/'magic'/'piety')
+        // or null — BattleScene.razor's PlayerOverhead/NpcOverhead already
+        // resolve GameState.Player.ActiveProtection/BoostPrayerActive down
+        // to that key each frame. Bosses don't grant one yet (NpcOverhead
+        // is always null in M1) but the renderer is generic either way.
+        const st = battles.get(canvasId);
+        if (!st) return;
+        if (st.player) setActorOverhead(st.player, player ?? null);
+        if (st.enemy) setActorOverhead(st.enemy, enemy ?? null);
+    },
     // Keep viewRot in sync with device orientation — the fight is CSS-rotated
     // 90° in portrait, so taps/drags must be mapped back (same as voxel.js).
     watchOrientation(canvasId) {
