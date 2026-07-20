@@ -715,3 +715,132 @@ unsure which. Went with the latter.
   independent WASM-resource caching, unrelated to and untouched by this
   service worker's fetch behavior — expected, not a regression). 64/64 .NET
   tests unaffected (JS/static-asset-only change).
+
+## Twelfth pass: rotation-timing fix, impact-resolution prayer, doctrine projectiles, Tier-1 telegraphs (M1 revision)
+
+Explicit user request to (1) verify/fix Maggot King's rotation against the
+Boss Bible's "telegraph 2 ticks before the new style's first hit" promise,
+(2) make protection prayer a *global* rule evaluated on the impact tick
+rather than the cast tick, (3) give ranged/magic boss attacks a real 2-tick
+doctrine-colored projectile flight, and (4) raise Tier-1 bosses' telegraph
+lead to 3 ticks — then bake all of it into the Boss Bible's Global Combat
+Grammar as the standard for the other seven bosses, not a Maggot-King-only
+special case. This is a revision to shipped M1 behavior, logged per the
+explicit instruction, not a bug report.
+
+**Part 1 — the rotation bug the request asked me to verify.** Found a real
+one, but not exactly "adjacent" — the opposite: too *loose*, not too tight.
+Phase 1's SECOND style-shift telegraph (old npcs.json: T16) is supposed to
+warn about the wrapped Bile Spit that restarts the 20-tick loop, but the
+actual gap was 4 ticks (T16 → T17 → T18/T19 idle → T0), not the promised 2
+— the two "free damage window" idle ticks sat unaccounted-for between the
+telegraph and the wrap. Phase 1's FIRST telegraph (T8 → T10 Lash/Grub
+Volley) and both of Phase 2's telegraphs were already correct (Phase 2 has
+no idle padding before its wrap, so it never had this bug). Fixed by moving
+the telegraph ticks earlier rather than moving the scripted attacks (which
+are the bible's literal beats): Phase 1's telegraphs now sit at T7 and T17
+(was T8/T16), each exactly `TelegraphLeadTicks` ahead of what they
+announce — T7+3=T10, T17+3=T20≡T0 of the next loop, idle ticks included.
+New regression test:
+`Phase1_SecondStyleTelegraph_GivesExactlyThreeTicksBeforeTheWrappedBileSpit`.
+
+**Part 2 — impact-resolution prayer, as a genuinely global rule, not a
+special case.** `GetPrayerReduction` already read `state.TickStartProtection`
+— captured fresh at the top of every `ProcessTick` call — so the "evaluate
+on the tick it's fresh" half of the rule was already true by construction.
+What was missing: every boss attack resolved damage on the SAME tick it was
+cast, so "impact tick" and "cast tick" were always the same tick and the
+distinction was invisible. Introduced a real gap between the two:
+- `GameState` gained `PendingBossAttack` (mirrors the existing `HazardTile`
+  pattern: a `readonly record struct`, ticked down each frame, resolved
+  when it hits zero) plus `QueuePendingAttack`/`TickPendingAttacks`/
+  `ClearPendingAttacks`. Cleared on both `StartDuel` and `EndDuel`, same as
+  hazards/adds.
+- `GameTickService.ResolveRotationStep` now branches on `attack.Style`: a
+  ranged/magic attack calls the new `LaunchProjectileAttack` (queues a
+  `PendingBossAttack` with `ProjectileFlightTicks = 2`, logs a new
+  `LogEntryKind.BossCast` entry for the visual) instead of resolving
+  damage immediately; melee still calls `ResolveBossAttack` synchronously,
+  exactly as before — it has no travel time, so cast tick == impact tick
+  by definition and the rule is a no-op for it.
+- `ProcessTick` gained a `foreach (var impact in state.TickPendingAttacks())
+  ResolveBossAttack(...)` step, positioned — like `TickForecast()` right
+  after it — BEFORE `ProcessBossScript`, so a freshly-cast 2-tick attack
+  isn't immediately decremented on its own casting tick (same reasoning
+  already established for the forecast countdown two passes ago).
+- New regression test proving the actual point of the feature:
+  `ImpactResolutionPrayer_RaisedAfterCastButBeforeImpact_StillBlocksDamage`
+  — Bile Spit casts with NO prayer up, Magic prayer is raised mid-flight,
+  and the hit is still fully blocked on impact. This is the behavior that
+  was NOT possible before this pass (prayer only mattered at cast).
+- **Closes a previously-flagged gap for free**: the fourth pass's finding
+  noted "Phase 1's second Bile Spit (T4) still has no telegraph of its
+  own." It still doesn't have a *style-shift* telegraph (correctly — T0→T4
+  isn't a style change), but it now gets its own 2-tick doctrine-colored
+  projectile every single cast, style-shift telegraph or not — the
+  projectile *is* the telegraph for individual attacks now, per the bible
+  text's own framing ("the projectile is the primary flick cue"). No blind
+  reads remain in Maggot King's kit.
+
+**Part 3 — doctrine-colored projectiles, wired through the existing
+render pipeline, not a new one.** `BossCast`'s log entry (`"magic:2"` /
+`"ranged:2"`) reuses the *existing* `enemyAttack` JS event — the one that
+already picks the throw/cast/swing animation by style — rather than
+inventing a parallel event type. `toon.js`'s `enemyAttack` handler now also
+spawns a projectile (mirroring the pattern `playerAttack` already used for
+the player's own ranged/magic swings) whenever style is ranged/magic,
+colored via the existing `DOCTRINE_HEX` map and sized to `evt.ticks *
+TILE_MS` — the real cast→impact delay, not a cosmetic guess, so the
+projectile visually lands exactly as the hitsplat does. Verified live via
+Playwright: the spawned mesh reads `color: '#5ba8e0'` (magic doctrine blue)
+and `dur: 1200` (2 ticks × 600ms) exactly, visible in-scene mid-flight.
+Because the swing/cast animation and the projectile now both fire at CAST
+time (not impact), the impact-time hitsplat had to stop re-triggering that
+same animation — `BattleScene.razor`'s hitsplat loop gained an
+`alreadyAnimatedAtCast` check (`!onEnemy && npcStyle is "ranged" or
+"magic"`) that skips the `enemyAttack` JS call at impact for those styles
+only; melee is untouched (it never had a separate cast phase to begin
+with, so impact is still its only/first trigger).
+
+**Part 4 — Tier-1 telegraph lead time, made data-driven, not hardcoded.**
+`BossPhaseDef` gained `TelegraphLeadTicks` (default 2 = "standard," per the
+new bible language) rather than inventing a `Tier` enum with no second
+example to validate it against yet — Maggot King is M1's only boss, so a
+full tier-abstraction system would be speculative. `GameTickService`'s
+`SetForecast` calls (both the rotation's `style_telegraph` step and
+`NpcInstance`'s opening-tick forecast seed) now read
+`npc.ActivePhaseDef.TelegraphLeadTicks` instead of a hardcoded `2`.
+npcs.json sets Maggot King's Phase 1 to `3` (Tier-1 baseline) and Phase 2
+to `2` (explicit, matching the bible's own pre-existing "Phase 2... style
+telegraphs stay 2 ticks" note — an intentional escalation within the fight,
+not something today's tier-baseline change was meant to override).
+
+**Bible updated** (per explicit instruction — this makes today's fix
+doctrine for the other seven bosses, not a Maggot-King-only patch):
+`duels-boss-designs.md`'s Global Combat Grammar → Prayer grammar section
+now carries the user's exact requested sentences on impact-tick evaluation,
+projectile flight, and the Tier-1/standard/invocation-tier telegraph
+ladder; Maggot King's own Phase 1 table reflects the corrected T7/T17
+telegraph ticks and the 3-tick lead; Phase 2's bullet now explicitly notes
+its 2-tick telegraphs are an intentional in-fight escalation, not the new
+baseline. `duels-items.md` §1 cross-references the impact-tick timing
+alongside the existing 100%-block rule.
+
+**Test suite**: 4 existing tests needed updates for the cast/impact split
+(`Phase1_FiresBileSpitAtRotationTick0` and
+`Phase1_BileSpit_FullyNegatedByMatchingPrayer` now tick through the 2-tick
+flight before asserting damage; the telegraph test was renamed
+`Phase1_StyleTelegraphAtTick7_SetsForecast` and re-tuned for the T7/3-tick
+change; `RotBurst_NegatedForPlayerStandingOnScorch` needed a
+`state.ClearPendingAttacks()` call before capturing `hpBefore` — entering
+Phase 2 and building the scorch tile both incidentally cast a Bile Spit
+that would otherwise land on the exact tick being measured for Rot Burst,
+same category of test-isolation issue as the swarm-adds fix two passes
+ago, not a real bug). 3 new tests added (impact-resolution prayer, the
+corrected T7 telegraph, the corrected wrap-around T17 telegraph). 66/66
+tests pass (was 64 + 2 net new).
+
+**Verification**: full Playwright pass — dev loadout → fight → confirmed
+the T0 Bile Spit cast produces a magic-colored, 1200ms-duration projectile
+visible in-scene mid-flight, matching both the JS-level mesh properties and
+a direct screenshot.

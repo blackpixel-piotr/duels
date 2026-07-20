@@ -15,13 +15,14 @@
       },
       "Phase1": {
         "LoopLength": 20,
+        "TelegraphLeadTicks": 3,
         "Rotation": [
           { "Tick": 0,  "Action": "bile_spit" },
           { "Tick": 4,  "Action": "bile_spit" },
-          { "Tick": 8,  "Action": "style_telegraph" },
+          { "Tick": 7,  "Action": "style_telegraph" },
           { "Tick": 10, "Action": "lash/grub_volley" },
           { "Tick": 14, "Action": "lash/grub_volley" },
-          { "Tick": 16, "Action": "style_telegraph" },
+          { "Tick": 17, "Action": "style_telegraph" },
           { "Tick": 18, "Action": "idle" },
           { "Tick": 19, "Action": "idle" }
         ],
@@ -34,6 +35,7 @@
       },
       "Phase2": {
         "LoopLength": 14,
+        "TelegraphLeadTicks": 2,
         "Rotation": [
           { "Tick": 0,  "Action": "bile_spit" },
           { "Tick": 3,  "Action": "bile_spit" },

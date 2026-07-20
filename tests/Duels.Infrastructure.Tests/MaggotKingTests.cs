@@ -77,7 +77,13 @@ public sealed class MaggotKingTests
         var (svc, state, _) = Build();
         int hpBefore = state.Player.CurrentHp;
 
-        await Tick(svc); // RotationTick 0 resolves before advancing
+        await Tick(svc); // RotationTick 0 CASTS Bile Spit — a 2-tick magic projectile, not instant damage
+
+        Assert.Equal(hpBefore, state.Player.CurrentHp); // still in flight, no damage yet
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.BossCast && e.Message == "magic:2");
+
+        await Tick(svc); // in flight
+        await Tick(svc); // impact — exactly 2 ticks after cast
 
         Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.NpcHit && e.Message.Contains("Bile Spit"));
         Assert.Equal(hpBefore - 18, state.Player.CurrentHp); // Medium band, no prayer/gear mitigation
@@ -90,22 +96,67 @@ public sealed class MaggotKingTests
         state.Player.ToggleProtection(ProtectionPrayer.Magic);
         int hpBefore = state.Player.CurrentHp;
 
-        await Tick(svc); // T0 Bile Spit (Magic, not Unprayable) — 100% block, not a mitigation
+        await Tick(svc); // T0 cast — no damage yet
+        await Tick(svc); // in flight
+        await Tick(svc); // impact — Magic prayer still up: 100% block, not a mitigation
 
         Assert.Equal(hpBefore, state.Player.CurrentHp);
         Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.NpcHit && e.Message.Contains("Bile Spit") && e.Message.Contains("(prayed)"));
     }
 
     [Fact]
-    public async Task Phase1_StyleTelegraphAtTick8_SetsForecast()
+    public async Task ImpactResolutionPrayer_RaisedAfterCastButBeforeImpact_StillBlocksDamage()
     {
+        // Global Combat Grammar: "Protection prayers are evaluated on the
+        // impact tick, never the cast tick." Prove it by NOT praying at
+        // cast time and only raising the matching prayer partway through
+        // the projectile's flight — it should still fully block on impact.
+        var (svc, state, _) = Build();
+
+        await Tick(svc); // T0 Bile Spit casts with no prayer up at all
+
+        state.Player.ToggleProtection(ProtectionPrayer.Magic); // raised mid-flight
+        int hpBefore = state.Player.CurrentHp;
+
+        await Tick(svc); // still in flight
+        await Tick(svc); // impact — prayer active NOW is what matters
+
+        Assert.Equal(hpBefore, state.Player.CurrentHp);
+    }
+
+    [Fact]
+    public async Task Phase1_StyleTelegraphAtTick7_SetsForecast()
+    {
+        // Tier-1 baseline (Boss Bible Global Combat Grammar): style-shift
+        // telegraphs warn 3 ticks ahead, not 2 — the telegraph tick moved
+        // from T8 to T7 so it still lands exactly 3 ticks before the T10
+        // Lash/Grub Volley it announces (T7 + 3 = T10).
         var (svc, state, npc) = Build();
 
-        for (int i = 0; i < 9; i++) await Tick(svc); // ticks resolve T0..T8 inclusive
+        for (int i = 0; i < 8; i++) await Tick(svc); // ticks resolve T0..T7 inclusive
 
         Assert.NotNull(npc.ForecastAttackId);
-        Assert.Equal(2, npc.ForecastTicksLeft);
+        Assert.Equal(3, npc.ForecastTicksLeft);
         Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.BossSpecial && e.Message.Contains("mandibles glow"));
+    }
+
+    [Fact]
+    public async Task Phase1_SecondStyleTelegraph_GivesExactlyThreeTicksBeforeTheWrappedBileSpit()
+    {
+        // Regression test for the bug this pass was asked to verify/fix:
+        // the SECOND telegraph used to fire at T16, promising "N ticks
+        // warning" but the wrapped Bile Spit (rotation restarts at T0)
+        // didn't actually land until 4 ticks later (T16 -> T18/T19 idle ->
+        // T0), because the two "free damage window" idle ticks sat between
+        // the telegraph and the wrap with nothing accounting for them. It
+        // now fires at T17, so T17 + 3 = T20 (== T0 of the next loop) lines
+        // up exactly, idle ticks included.
+        var (svc, state, npc) = Build();
+
+        for (int i = 0; i < 18; i++) await Tick(svc); // ticks resolve T0..T17 inclusive
+
+        Assert.Equal("bile_spit", npc.ForecastAttackId);
+        Assert.Equal(3, npc.ForecastTicksLeft);
     }
 
     [Fact]
@@ -240,6 +291,14 @@ public sealed class MaggotKingTests
         await Tick(svc); // warning -> pool
         await Tick(svc); // pool -> scorch
         Assert.True(state.IsScorch(state.PlayerTile));
+
+        // Same reasoning as the swarm adds: the Phase 1->2 transition and
+        // the ticks spent building the scorch tile both cast an incidental
+        // Bile Spit (ranged/magic attacks are now 2-tick projectiles, not
+        // instant — see impact-resolution prayer), which could otherwise
+        // land on the very tick this test measures for Rot Burst. Flush
+        // any in-flight attacks so only Rot Burst itself is under test.
+        state.ClearPendingAttacks();
 
         npc.StartRotBurstInhale(1);
         int hpBefore = state.Player.CurrentHp;

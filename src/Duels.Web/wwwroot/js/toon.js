@@ -1328,6 +1328,22 @@ const api = {
             case 'enemyAttack': {
                 const style = evt.style ?? 'melee';
                 playOverlay(st.enemy, attackRole(st.enemy, style, true, evt.tier), { ts: 1.1 });
+                // Impact-resolution prayer (Global Combat Grammar): ranged/
+                // magic boss attacks travel as a doctrine-colored projectile
+                // — "the projectile is the primary flick cue," not a text
+                // popup. Duration matches evt.ticks (the real cast->impact
+                // delay from GameTickService), not a cosmetic guess, so the
+                // projectile lands exactly on the tick the hitsplat does.
+                if (style === 'ranged' || style === 'magic') {
+                    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8),
+                        new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX[style] ?? '#ffffff' }));
+                    st.scene.add(mesh);
+                    st.projectiles.push({
+                        mesh, t0: now, dur: (evt.ticks ?? 2) * TILE_MS,
+                        from: new THREE.Vector3(st.enemy.pos.wx, 1.3, st.enemy.pos.wz),
+                        to: new THREE.Vector3(st.player.pos.wx, 1.2, st.player.pos.wz),
+                    });
+                }
                 break;
             }
             case 'enemyHit':
