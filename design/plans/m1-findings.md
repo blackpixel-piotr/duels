@@ -473,3 +473,38 @@ combat-math or range bug.
   unprayable mechanics (Eruption, its pool, Rot Burst) are meant to ignore
   prayer entirely and hit for their full band. No code change; explained to
   the user directly since it wasn't an obvious reading of "protection."
+
+## Seventh pass: protection prayer changed from 75% mitigation to full negation
+
+User feedback on the sixth pass's explanation: wanted full negation for
+basic attacks, not the 75%-block reading I'd shipped — and asked for the
+bible and the implementation to change together, in M1.
+
+- **This corrects a real M1-plan assumption, not just a preference.**
+  `design/plans/m1-plan.md` line 39 explicitly said "keep 75% reduction...
+  unchanged," carried forward from the pre-M1 ladder build without
+  cross-checking the rest of the docs. But `duels-invocations.md`'s *Doubt*
+  entry — "Protection prayers block 75% instead of 100%" — only makes sense
+  as a debuff of a **100%** baseline; a curse that weakens 75%→56.25%
+  wouldn't read as a curse. The Boss Bible's own per-attack callouts
+  ("Heavy (unprayable)", "ignores prayer") only make sense too if the
+  *default* for everything not called out that way is a full block — there
+  would be no reason to specially flag Eruption/Rot Burst as unprayable if
+  ordinary attacks were already only 75% mitigated. So the M1 plan's
+  premise was itself the error; this pass brings the implementation in line
+  with what the rest of the design docs already implied.
+- **Bible updated** (per explicit request, in M1): `duels-boss-designs.md`'s
+  "Global Combat Grammar → Prayer grammar" now states the rule directly —
+  a matching protection prayer fully negates a non-Unprayable hit, and
+  *Doubt* is called out as the one thing that weakens it to 75%.
+  `duels-items.md` §1 (Combat Math Baseline) gets the same rule, since
+  that's the doc code comments already point to as "items doc §1."
+- **Code**: `GameTickService.GetPrayerReduction` now returns `1.0` (was
+  `0.75`) for a matched style against a non-Unprayable attack. Comment
+  added noting *Doubt* is the one place this number should differ, for
+  whenever the invocation system lands (not M1).
+- **Test added**: `Phase1_BileSpit_FullyNegatedByMatchingPrayer` — prays
+  Magic, ticks through the T0 Bile Spit, asserts zero HP loss and a
+  `"(prayed)"` log tag. 64/64 tests pass (was 63; the other 63 were
+  unaffected — none hard-coded the old 75% number, they either used no
+  prayer or tested Unprayable mechanics that don't call this path).
