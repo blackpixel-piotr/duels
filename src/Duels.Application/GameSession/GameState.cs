@@ -19,6 +19,29 @@ public sealed class GameState
     public string? RevertWeaponId { get; private set; }
     public ProtectionPrayer TickStartProtection { get; set; }
 
+    // Prayer drain cadence (playtest revision: cut to a third of the
+    // original rate). Same per-event amounts as before (2 for a
+    // protection, 1 for boost) but delivered once every 3 ticks instead of
+    // every tick, so the total drained over any 3-tick window is exactly a
+    // third of what it was — no fractional points, no drift. Independent
+    // counters since protection and boost can be toggled independently.
+    public int ProtectionDrainTickCounter { get; private set; }
+    public int BoostDrainTickCounter { get; private set; }
+    public bool TickProtectionDrainDue()
+    {
+        ProtectionDrainTickCounter++;
+        if (ProtectionDrainTickCounter < 3) return false;
+        ProtectionDrainTickCounter = 0;
+        return true;
+    }
+    public bool TickBoostDrainDue()
+    {
+        BoostDrainTickCounter++;
+        if (BoostDrainTickCounter < 3) return false;
+        BoostDrainTickCounter = 0;
+        return true;
+    }
+
     // Arena positions (duel-scoped). Fixed 9×9 arena (Boss Bible: Maggot
     // King) — M1 ships one boss, so the radius isn't per-duel data yet.
     public const int ArenaRadius = 4;
@@ -250,6 +273,8 @@ public sealed class GameState
         TargetId = null;
         _adds.Clear();
         ClearPendingAttacks();
+        ProtectionDrainTickCounter = 0;
+        BoostDrainTickCounter = 0;
 
         var script = npc.Template.Script;
         NpcFootprint = script?.Footprint is { } fp ? (fp.Width, fp.Height) : (1, 1);

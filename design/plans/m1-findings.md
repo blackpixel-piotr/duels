@@ -844,3 +844,39 @@ tests pass (was 64 + 2 net new).
 the T0 Bile Spit cast produces a magic-colored, 1200ms-duration projectile
 visible in-scene mid-flight, matching both the JS-level mesh properties and
 a direct screenshot.
+
+## Thirteenth pass: prayer drain cut to a third (M1 revision)
+
+User playtest feedback: prayer drain felt too aggressive. m1-plan.md's D7
+decision explicitly flagged the 2 pts/tick (protection) and 1 pt/tick
+(boost) numbers as "provisional/tunable" going in — this is exactly that
+tuning pass, not a bug fix, so it's logged here rather than by editing the
+plan itself (per the standing convention: the plan is what was intended
+going in, this file is what changed after).
+
+- **Implementation**: rather than drain fractional points per tick (2/3,
+  1/3 — awkward with an integer point pool and prone to rounding drift),
+  kept the same lump amounts (2 / 1) but gated them behind a new 3-tick
+  cadence — `GameState.TickProtectionDrainDue()` /
+  `TickBoostDrainDue()`, mirroring the existing `TickPoison()` counter
+  pattern exactly (increment, fire+reset at the threshold, no-op
+  otherwise). Net effect over any 3-tick window is exactly a third of the
+  original drain — precise, not an approximation — while keeping every
+  individual drain event a whole number of points.
+  Counters are independent (protection and boost can be toggled on
+  different schedules) and reset at `StartDuel`, same as the other
+  duel-scoped tick counters.
+  Deliberately NOT reset when a prayer toggles off: letting it free-run
+  keeps total drain proportional to total ticks-active regardless of how
+  choppy the flicking is, matching "flicking is the intended economy" from
+  the original D7 note — resetting on every toggle would let disciplined
+  micro-flicking (off just before the 3rd tick, back on immediately) nearly
+  eliminate drain entirely, which undermines prayer points being a scarce
+  resource at all.
+  `GameTickService`'s tick-end drain block now checks the cadence gate
+  before draining; the 99-point pool's practical duration triples
+  accordingly (roughly 90s of unflicked protection instead of ~30s).
+- **New test**: `ProtectionPrayerDrain_FiresOnceEveryThreeTicks_NotEveryTick`
+  — toggles Magic protection, confirms no drain on ticks 1-2, confirms the
+  full 2-point drain lands on tick 3. 67/67 tests pass (was 66 + 1 new); no
+  existing test referenced the drain rate, so nothing else needed updating.
