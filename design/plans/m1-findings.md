@@ -661,3 +661,57 @@ before stepping back to fix the actual design flaw underneath both misses:
   to the skeleton over computing a fixed world-space offset whenever the
   thing being positioned needs to track a specific body part through
   animation, not just "somewhere near the character."
+
+## Eleventh pass: service-worker asset cache turned into a self-cleaning kill switch
+
+User report: equip/model assets appeared stuck cached on mobile with no
+easy way to clear them, and asked whether the cache could be versioned —
+floating either "version every commit" or "don't cache at all during dev,"
+unsure which. Went with the latter.
+
+- **Root problem confirmed**: `service-worker.js` cache-first'd the toon
+  renderer's model/equip/texture files under a hand-bumped
+  `CACHE_VERSION` string — exactly the kind of manual step that's one
+  missed bump away from serving stale assets to a device with no easy
+  cache-clear UI (mobile browsers, unlike desktop devtools). M1's asset
+  files are still actively churning, so this was always going to bite
+  someone before it stabilized enough to be safe.
+- **Chose "don't cache at all" over auto-versioning** (e.g. stamping a
+  git SHA into the cache name at build time) — simpler, zero new build
+  tooling, and matches what the user said they'd be fine with. Worth
+  revisiting once M1's assets stop changing every commit; the file's own
+  header comment says so explicitly for whoever picks this up.
+- **`service-worker.js` rewritten as a self-cleaning kill switch**, not a
+  precache: no `ASSET_URLS`, no `fetch` listener at all — per spec, a
+  worker with no fetch handler never intercepts a single request once
+  active, so every asset request just goes straight to the network from
+  here on, indefinitely, with zero ongoing maintenance. `install` just
+  calls `skipWaiting()`; `activate` deletes every cache this origin owns
+  *only if there's something to delete* and, in that case, forces a
+  one-time reload of any open tabs past the now-flushed stale assets. This
+  is what self-heals the user's already-affected phone: `index.html` still
+  calls `register()` unconditionally on every load (kept deliberately —
+  that call is what makes the browser check for a newer worker script on
+  each visit, which is what propagates the fix promptly instead of waiting
+  on the browser's own ~24h passive background check).
+- **Caught and fixed a real bug in my own first draft before shipping it**:
+  the first version called `self.registration.unregister()` after cleanup
+  and force-reloaded. Since `index.html` re-registers on every load
+  regardless, that would have re-run install→activate→unregister→reload on
+  *every single page load forever* — an infinite reload loop, not a
+  one-time fix. Caught by tracing through the lifecycle by hand before
+  testing (Playwright can watch for repeated `framenavigated` events but
+  won't naturally catch a loop that only manifests on a *second* visit).
+  Fixed by dropping the `unregister()` call entirely (unnecessary — no
+  fetch handler means it's already inert) and gating the reload on
+  `cacheKeys.length > 0`, so a normal steady-state activation (nothing
+  stale left to flush) is a silent no-op.
+- **Verification**: Playwright confirmed a fresh install triggers exactly
+  one navigation (no spurious reload) with zero cache keys; manually
+  seeding a stale cache entry and running the cleanup logic correctly
+  detected and deleted it; a subsequent reload showed no repeated
+  cleanup/reload activity and no caches under this worker's control (the
+  one cache key that *did* reappear, `dotnet-resources-/`, is Blazor's own
+  independent WASM-resource caching, unrelated to and untouched by this
+  service worker's fetch behavior — expected, not a regression). 64/64 .NET
+  tests unaffected (JS/static-asset-only change).
