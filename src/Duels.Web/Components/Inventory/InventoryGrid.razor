@@ -1,6 +1,8 @@
 @using Duels.Application.GameSession
 @using Duels.Application.Commands
+@using Duels.Application.Abstractions
 @inject Duels.Web.Services.GameService GameSvc
+@inject IItemRepository ItemRepo
 
 <div class="inventory-panel">
     <div class="panel-title">Inventory</div>
@@ -36,9 +38,14 @@
 
     private static string SlotClass(string id) => _flasks.Contains(id) ? "inv-flask" : "";
 
-    private static string SlotTitle(string id) =>
-        _flasks.Contains(id) ? $"{ShortName(id)} — bind in the Loadout Editor"
-        : $"{ShortName(id)} — tap to equip";
+    private string SlotTitle(string id)
+    {
+        if (_flasks.Contains(id)) return $"{ShortName(id)} — bind in the Loadout Editor";
+        // Items doc §1: Power = average damage, max hit = 2×Power.
+        int? power = ItemRepo.GetWeapon(id)?.Doc.Power;
+        string stats = power is { } p ? $" · Power {p} · Max hit {p * 2}" : "";
+        return $"{ShortName(id)} — tap to equip{stats}";
+    }
 
     private static string ShortName(string id) =>
         string.Join(" ", id.Split('_').Select(w => char.ToUpper(w[0]) + w[1..]));

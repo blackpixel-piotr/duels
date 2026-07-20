@@ -333,7 +333,11 @@ public sealed class GameTickService : IDisposable
     {
         var weapon = GetPlayerWeapon(player);
         var attacker = BuildAttackerProfile(player, weapon);
-        var roll = _damage.Roll(attacker, new DefenderProfile(0));
+        // Accuracy is rolled vs the boss's per-style Evasion for the doctrine
+        // this weapon attacks with (items doc §1) — neutral (0) for Maggot
+        // King, the future "favors ranged" lever for other bosses.
+        var doctrine = weapon?.AttackType ?? AttackType.Crush;
+        var roll = _damage.Roll(attacker, new DefenderProfile(0, false, npc.EvasionFor(doctrine)));
 
         if (!roll.Hit)
         {
@@ -345,9 +349,16 @@ public sealed class GameTickService : IDisposable
         bool punished = npc.InPunishWindow;
         int damage = punished ? (int)Math.Round(roll.Damage * 1.25) : roll.Damage;
         npc.TakeDamage(damage);
-        state.AppendLog($"{damage}:normal", LogEntryKind.HitsplatPlayer);
+        // A max-hit (rolled the weapon's 2×Power ceiling) gets its own hitsplat
+        // tier + MaxHit log kind (the latter already fires a screen shake) so it
+        // reads distinctly from an ordinary hit — items doc §1's "distinct
+        // max-hit visual."
+        string tier = roll.MaxHit ? "max" : "normal";
+        state.AppendLog($"{damage}:{tier}", LogEntryKind.HitsplatPlayer);
         string punishMsg = punished ? " (punish window!)" : "";
-        state.AppendLog($"You hit {npc.Template.Name} for {damage}{punishMsg}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.PlayerHit);
+        string maxMsg = roll.MaxHit ? " — MAX HIT!" : "";
+        state.AppendLog($"You hit {npc.Template.Name} for {damage}{punishMsg}{maxMsg}. [{npc.CurrentHp}/{npc.MaxHp} HP]",
+            roll.MaxHit ? LogEntryKind.MaxHit : LogEntryKind.PlayerHit);
         await _events.PublishAsync(new AttackLanded(player.Id, npc.Template.Id, damage));
     }
 
@@ -408,7 +419,7 @@ public sealed class GameTickService : IDisposable
         double damageMult = 1.0, int burnTicks = 0, int burnPerTick = 0, Action? onHit = null)
     {
         var attacker = BuildAttackerProfile(player, weapon);
-        var roll = _damage.Roll(attacker, new DefenderProfile(0));
+        var roll = _damage.Roll(attacker, new DefenderProfile(0, false, npc.EvasionFor(weapon.AttackType)));
 
         if (!roll.Hit)
         {
@@ -544,7 +555,17 @@ public sealed class GameTickService : IDisposable
     private void ResolveBossAttack(GameState state, Player player, NpcInstance npc, BossAttackDef attack)
     {
         if (!player.IsAlive) return;
-        int damage = ResolveIncomingDamage(state, player, npc, attack.Damage, attack.Style, attack.Unprayable);
+
+        // Standard boss autos roll 60–100% of their listed band each cast
+        // (items doc §1). Mechanic/hazard damage (eruptions, Rot Burst) and
+        // DoTs never reach here — they resolve deterministically in their own
+        // paths, dodge-checks that always land for exactly their listed value.
+        int band = RollAttackBand(attack.Damage);
+        // Compute the prayer reduction once, up front — the "(prayed)"/"blocked"
+        // messaging keys off actual prayer negation, NOT off the band roll (a
+        // low band roll landing under the listed value is variance, not prayer).
+        double prayerReduction = attack.Unprayable ? 0.0 : GetPrayerReduction(state, attack.Style);
+        int damage = ResolveIncomingDamage(state, player, npc, band, attack.Style, attack.Unprayable);
         player.TakeDamage(damage);
         state.RecordDamageTaken(damage);
         if (damage > 0) state.SetKilledBy($"{attack.Name} ({StyleName(attack.Style)})");
@@ -554,11 +575,21 @@ public sealed class GameTickService : IDisposable
         // outcome from a plain 0-damage hitsplat — the renderer swaps the
         // usual damage numeral for a doctrine-colored "prevented" icon
         // instead of showing what would otherwise read as a weak 0 hit.
-        bool blockedByPrayer = damage == 0 && !attack.Unprayable && GetPrayerReduction(state, attack.Style) >= 1.0;
+        bool blockedByPrayer = damage == 0 && prayerReduction >= 1.0;
         string tier = blockedByPrayer ? "blocked" : "normal";
         state.AppendLog($"{damage}:{tier}:{StyleToken(attack.Style)}", LogEntryKind.HitsplatNpc);
-        string prayedMsg = damage < attack.Damage && !attack.Unprayable ? " (prayed)" : "";
+        string prayedMsg = prayerReduction > 0 ? " (prayed)" : "";
         state.AppendLog($"{npc.Template.Name} uses {attack.Name} for {damage}{prayedMsg}. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+    }
+
+    // Boss standard autos roll 60–100% of their listed band (items doc §1);
+    // deterministic mechanics/DoTs never call this. Uses Next(60,101) — a test
+    // RNG returning the top of the range yields a full-band value, keeping the
+    // choreography suite's exact-damage assertions stable.
+    private int RollAttackBand(int band)
+    {
+        int pct = _random.Next(60, 101); // 60..100 inclusive
+        return Math.Max(1, (int)Math.Round(band * pct / 100.0));
     }
 
     // ── Eruption hazard timer (independent of the rotation loop) ───────

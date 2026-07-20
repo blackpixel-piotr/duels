@@ -4,6 +4,7 @@
     "Name": "The Maggot King",
     "ExamineText": "A bloated horror crowned in chitin, fused to his own rotting mound. Pray against his rotation — but MOVE when the ground churns.",
     "Stats": { "Attack": 1, "Strength": 1, "Defence": 1, "Hitpoints": 450 },
+    "Evasion": { "Melee": 0, "Ranged": 0, "Magic": 0 },
     "LootTable": [],
     "GoldReward": 500,
     "Script": {

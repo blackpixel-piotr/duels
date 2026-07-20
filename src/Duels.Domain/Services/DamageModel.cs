@@ -3,11 +3,12 @@ using Duels.Domain.ValueObjects;
 
 namespace Duels.Domain.Services;
 
-/// <summary>Combat-math-v2 (items doc §1): 100 HP baseline, 80% base hit
-/// chance, weapon Power flat damage (no roll-to-max ramp — variance comes from
-/// hit/miss and mechanics), Precision as a flat hit-chance bonus, armour Def
-/// points reducing incoming damage. Replaces the OSRS <c>CombatCalculator</c>
-/// retired in M1 (m1-plan Workstream A, D1).</summary>
+/// <summary>Combat-math-v2 (items doc §1): 100 HP baseline, ~80% base hit
+/// chance, a uniform 0..2×Power damage roll on a hit (Power = mean, 2×Power =
+/// max hit), Precision as a flat hit-chance bonus, the defender's per-style
+/// Evasion subtracting from hit chance, armour Def points reducing incoming
+/// damage. Replaces the OSRS <c>CombatCalculator</c> retired in M1 (m1-plan
+/// Workstream A, D1).</summary>
 public sealed class DamageModel : IDamageModel
 {
     public const int BaseHitChancePercent = 80;
@@ -29,20 +30,28 @@ public sealed class DamageModel : IDamageModel
 
     public DamageResult Roll(AttackerProfile attacker, DefenderProfile defender)
     {
-        bool hit = _random.NextDouble() < HitChance(attacker);
-        return hit ? new DamageResult(true, ComputeDamage(attacker, defender)) : new DamageResult(false, 0);
+        // Accuracy roll (items doc §1): Precision + style mod vs the defender's
+        // per-style Evasion, ~80% at-tier. A miss deals nothing.
+        if (_random.NextDouble() >= HitChance(attacker, defender))
+            return new DamageResult(false, 0);
+
+        // Damage roll: uniform 0..2×(effective Power) so Power is the mean and
+        // 2×Power the max hit. The effective mean folds in style/line/boost
+        // multipliers, so the ceiling tracks them too (an Aggressive max is
+        // higher than an Accurate max). Mitigation applies to the rolled value.
+        double effectiveMean = attacker.Power * (1.0 + attacker.LineDamageBonus) * StyleDamageMultiplier(attacker.Style);
+        int maxRoll = Math.Max(0, (int)Math.Round(2.0 * effectiveMean));
+        int raw = maxRoll == 0 ? 0 : _random.Next(0, maxRoll + 1); // inclusive 0..maxRoll
+        bool isMax = maxRoll > 0 && raw == maxRoll;
+
+        double mitigated = raw * (1.0 - MitigationFraction(defender));
+        return new DamageResult(true, Math.Max(0, (int)Math.Round(mitigated)), isMax);
     }
 
-    private static int ComputeDamage(AttackerProfile attacker, DefenderProfile defender)
+    private static double HitChance(AttackerProfile attacker, DefenderProfile defender)
     {
-        double dmg = attacker.Power * (1.0 + attacker.LineDamageBonus) * StyleDamageMultiplier(attacker.Style);
-        dmg *= 1.0 - MitigationFraction(defender);
-        return Math.Max(0, (int)Math.Round(dmg));
-    }
-
-    private static double HitChance(AttackerProfile attacker)
-    {
-        double pct = BaseHitChancePercent + StyleHitModifierPercent(attacker.Style) + attacker.Precision * 100.0;
+        double pct = BaseHitChancePercent + StyleHitModifierPercent(attacker.Style)
+                   + attacker.Precision * 100.0 - defender.Evasion;
         return Math.Clamp(pct, 0, 100) / 100.0;
     }
 

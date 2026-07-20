@@ -993,6 +993,112 @@ a distinct icon (a slashed circle was the suggestion) instead.
   hits" bullet describing the rule and referencing the doctrine-color
   reuse.
 
+## Seventeenth pass: damage rolls — accuracy vs Evasion, uniform 0..2×Power, boss band rolls, max-hit visual (M1 revision)
+
+Explicit user request to (1) make player hits an accuracy roll (Precision +
+style mod vs a new per-style boss Evasion, ~80% at-tier) then a uniform
+0..2×Power damage roll — redefining Power as *average* damage with 2×Power
+as the max hit shown on item cards, plus a distinct max-hit visual; (2) make
+boss standard attacks roll 60–100% of their band while all mechanic/hazard
+damage and DoTs stay deterministic; (3) verify accuracy was actually being
+applied; (4) amend items §1 and the boss bible grammar; and (5) give each
+boss a per-style Evasion stat line as the future "favors ranged" lever. An
+M1 revision, logged here per the standing convention.
+
+**"Verify accuracy was actually being applied" — it was, but defender-blind.**
+`DamageModel.Roll` already gated every player hit on `_random.NextDouble() <
+HitChance` (a miss logged `0:miss` and dealt nothing), and Precision/style
+already shifted it — so accuracy was real, not a no-op. What was missing:
+`HitChance` read only the *attacker* (`80 + styleMod + Precision×100`), never
+the defender, so there was no per-style boss Evasion to consult. This pass
+adds that term; the roll itself was sound.
+
+**Power redefined as mean; damage is now a roll.** `DamageModel.Roll`'s old
+`ComputeDamage` returned flat `Power × mults × (1−mitigation)` (its own
+comment bragged "no roll-to-max ramp"). Now: on a hit it rolls a uniform
+integer `0..2×(effective Power)` where effective Power folds in
+style/line/boost multipliers, so Power is exactly the mean and 2×Power the
+ceiling (an Aggressive max is higher than an Accurate max, as it should be).
+Mitigation applies to the rolled value. `DamageResult` gained a `MaxHit`
+flag (raw roll == ceiling, pre-mitigation).
+
+**Accuracy vs per-style Evasion.** `DefenderProfile` gained `Evasion`
+(percentage points for the incoming doctrine); `HitChance` subtracts it:
+`80 + styleMod + Precision×100 − Evasion`, clamped 0–100. A new
+`NpcEvasion(Melee, Ranged, Magic)` record hangs off `NpcTemplate` (null =
+neutral), with `NpcInstance.EvasionFor(AttackType)` mapping the player's
+weapon doctrine (Stab/Slash/Crush→melee, Ranged, Magic) to the right value.
+The player-attack call sites (`ExecuteBasicAttackOnBoss`, `ExecuteSpecialHit`)
+pass `npc.EvasionFor(weapon.AttackType)`. Maggot King's npcs.json line is
+`{ "Melee": 0, "Ranged": 0, "Magic": 0 }` — neutral, so nothing about his
+~80%-at-tier feel changes; the field exists purely as the tuning lever the
+request asked for.
+
+**Boss autos roll 60–100% of band; mechanics/DoTs stay fixed.** Only
+`ResolveBossAttack` (the standard autos — Bile Spit/Lash/Grub Volley) gained
+a `RollAttackBand` roll of `Next(60, 101)` percent of the listed value.
+Everything routed through the hazard/Rot Burst/DoT paths
+(`ProcessHazardResolution`, `ResolveRotBurst`, `ApplyDots`) was left
+untouched — those remain deterministic dodge-checks, exactly as the request
+requires. The RNG channel matters for the test suite: `Next(60, 101)` means
+the existing test doubles (which return `max-1` = top of range) roll a full
+100% band, so every choreography assertion expecting the flat listed value
+(`18`, etc.) still passes unchanged — no churn there. A new floor test
+(`Phase1_BossAuto_RollsBottomOfBand_WhenRngRollsLow`, a min-rolling RNG →
+60% → 11) brackets the band's lower end; the live Playwright run showed a
+"Bile Spit for 13" in-band roll for free.
+- **Fixed a latent messaging bug the band roll exposed**: the "(prayed)"
+  tag keyed off `damage < attack.Damage`, which a mere low band roll (11 <
+  18) now trips even with no prayer up. Re-derived it (and the "blocked"
+  hitsplat tier) from the actual `GetPrayerReduction` value instead of the
+  damage delta, so band variance can't masquerade as a prayer block.
+
+**Distinct max-hit visual.** A player basic attack that rolls its ceiling
+tags the hitsplat tier `max` and logs the text line as `LogEntryKind.MaxHit`
+(a previously-vestigial enum value that was already wired to fire a screen
+shake — repurposed rather than adding new plumbing). `toon.js`'s `splatSprite`
+gained a `max` branch: a bigger (1.15 vs 0.9 scale), spikier (16 vs 12
+points), gold, double-rim burst so it reads as "you topped out," and `flinch`
+adds `max` to its heavy-reaction set. Specials keep their own `:spec:` splat
+(already distinct) — max-hit tagging is basic-attacks-only, a deliberate
+scope choice. Verified live: injecting a `tier:'max'` `enemyHit` produced a
+1.15-scale gold spiky sprite in-scene.
+
+**Item cards — lightweight, deferred full panel (design decision, flagged).**
+The request said "max hit = 2×Power shown on item cards," but M1 has no
+item-card/stat UI at all — Power was displayed nowhere (StatsPanel shows only
+HP; inventory tiles showed just a name). I tried to ask which surface to build
+(AskUserQuestion), but the tool call failed with a permission-stream error, so
+rather than stall I took the lightweight path I'd have recommended: a
+"Power N · Max hit 2N" text readout on the Loadout Editor's weapon slots +
+picker cards (both already had `IItemRepository`) and the inventory tile
+hover title, plus the in-combat max-hit splat — and deferred a proper stat
+card as its own UI pass. Flagging so the user can green-light a fuller card
+if they wanted one now. Verified live: the picker shows "Power 10 · Max hit
+20" for all three T1 weapons.
+
+**Bible updated** (per explicit instruction): items §1 now states Power =
+average / 2×Power = max hit / uniform roll, the accuracy-vs-Evasion rule, the
+boss 60–100% band roll, the deterministic-mechanics/DoT rule, and the
+per-style Evasion lever. The boss bible's Global Combat Grammar gained a
+"Damage rolls" block carrying the same grammar for all eight bosses, not a
+Maggot-King-only patch.
+
+**Tests**: DamageModelTests rewritten for the roll semantics (max-roll →
+2×Power + MaxHit flag; zero-roll → a real 0-damage *hit*, distinct from a
+miss; a 20k-sample statistical test confirming mean ≈ Power and nothing
+exceeds 2×Power; a new Evasion hit-chance test). MaggotKingTests gained the
+band-floor test. 73/73 pass (was 68; +4 DamageModel, +1 boss band). No
+existing choreography assertion needed editing — the full-band RNG channel
+kept them all green, which is the cleanest possible outcome for a change this
+central.
+
+**Not done / flagged**: boss Evasion is wired end-to-end but every value is
+0 in M1 (only one boss), so the "favors ranged" behavior is untested against
+a real non-zero value beyond the unit test — first non-neutral boss in a
+later milestone is where it earns its keep. The full item-card stat panel is
+deferred (above).
+
 ## Sixteenth pass: ambiguous telegraph misread as "ranged," projectiles not tracking live position (M1 revision)
 
 User playtest feedback: the King's style-shift rim glow shows green during

@@ -9,12 +9,23 @@ namespace Duels.Domain.Entities;
 /// second (Boss Bible "Lash if adjacent / Grub Volley if not").</summary>
 public sealed record RotationStep(int Tick, string Action);
 
-/// <summary>One named boss attack. Damage is a concrete value chosen inside
-/// the Boss Bible's damage band (Light 5–10, Medium 15–20, Heavy 30–40,
-/// Severe 50–60) — boss attacks are scripted, not rolled: they always land
-/// unless dodged positionally, then reduced 75% by a matching protection
-/// prayer (unless Unprayable).</summary>
+/// <summary>One named boss attack. Damage is the top of the Boss Bible's damage
+/// band (Light 5–10, Medium 15–20, Heavy 30–40, Severe 50–60); a standard auto
+/// rolls 60–100% of it each cast (items doc §1). Boss attacks always land (no
+/// accuracy roll) unless dodged positionally, then fully negated by a matching
+/// protection prayer (unless Unprayable). Mechanic/hazard damage (eruptions,
+/// Rot Burst) and DoTs are deterministic — they never roll a band.</summary>
 public sealed record BossAttackDef(string Id, string Name, AttackType Style, int Damage, bool Unprayable = false);
+
+/// <summary>A boss's per-style Evasion (items doc §1 / Global Combat Grammar):
+/// percentage points subtracted from a player's hit chance for the doctrine
+/// they're attacking with. Neutral (all zero) leaves the ~80% at-tier baseline
+/// untouched; a positive value on one style is the "this boss favors ranged"
+/// tuning lever, no mechanic changes required.</summary>
+public sealed record NpcEvasion(double Melee = 0, double Ranged = 0, double Magic = 0)
+{
+    public static readonly NpcEvasion Zero = new();
+}
 
 /// <summary>Independent eruption-hazard timer (Boss Bible "Eruption"):
 /// every CooldownTicks, TilesPerWave tiles (+ the player's tile) get a
@@ -81,7 +92,8 @@ public sealed record NpcTemplate(
     IReadOnlyList<LootEntry> LootTable,
     int GoldReward = 0,
     BossScript? Script = null,
-    AttackType? DummyStyle = null)
+    AttackType? DummyStyle = null,
+    NpcEvasion? Evasion = null)
 {
     public int MaxHp => Stats.Hitpoints;
 }
@@ -192,6 +204,20 @@ public sealed class NpcInstance
     public void TakeDamage(int amount) => CurrentHp = Math.Max(0, CurrentHp - amount);
 
     public int HpPercent => MaxHp == 0 ? 0 : CurrentHp * 100 / MaxHp;
+
+    /// <summary>This boss's Evasion (hit-chance penalty, percentage points) for
+    /// the doctrine a player is attacking with — melee (Stab/Slash/Crush),
+    /// Ranged, or Magic. Null template Evasion is neutral (zero everywhere).</summary>
+    public double EvasionFor(AttackType doctrine)
+    {
+        var ev = Template.Evasion ?? NpcEvasion.Zero;
+        return doctrine switch
+        {
+            AttackType.Ranged => ev.Ranged,
+            AttackType.Magic => ev.Magic,
+            _ => ev.Melee, // Stab/Slash/Crush
+        };
+    }
 
     /// <summary>Advances the rotation cursor by one tick. Also promotes
     /// Phase 1→2 the first tick HP is at/below the threshold, resetting the

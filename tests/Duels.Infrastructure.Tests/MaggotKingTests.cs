@@ -25,6 +25,15 @@ public sealed class MaggotKingTests
         public double NextDouble() => 0.0;
     }
 
+    // Always hits, but rolls the FLOOR of any range (Next => min): a boss auto's
+    // 60–100% band roll lands at 60%, the opposite extreme from AlwaysHitRandom's
+    // full band — used to bracket the band's lower bound.
+    private sealed class MinRollRandom : IRandomProvider
+    {
+        public int Next(int min, int max) => min;
+        public double NextDouble() => 0.0;
+    }
+
     private sealed class StubEventBus : IEventBus
     {
         public Task PublishAsync<TEvent>(TEvent e, CancellationToken ct = default) where TEvent : DomainEvent => Task.CompletedTask;
@@ -46,8 +55,9 @@ public sealed class MaggotKingTests
         public Task WaitForNextTickAsync(CancellationToken ct) => Task.CompletedTask;
     }
 
-    private static (GameTickService svc, GameState state, NpcInstance npc) Build()
+    private static (GameTickService svc, GameState state, NpcInstance npc) Build(IRandomProvider? rng = null)
     {
+        rng ??= new AlwaysHitRandom();
         var items = new DefinitionItemRepository();
         var npcs = new DefinitionNpcRepository(items);
         var template = npcs.GetTemplate("maggot_king")!;
@@ -58,9 +68,9 @@ public sealed class MaggotKingTests
         state.StartDuel(npc);
         state.HoldPositionAtSpawn(); // stand still unless a test moves the player
 
-        var damage = new DamageModel(new AlwaysHitRandom());
+        var damage = new DamageModel(rng);
         var svc = new GameTickService(
-            new InMemoryStateRepo(state), damage, new AlwaysHitRandom(),
+            new InMemoryStateRepo(state), damage, rng,
             items, new StubEventBus(), new StubTickSource());
         return (svc, state, npc);
     }
@@ -89,6 +99,25 @@ public sealed class MaggotKingTests
         Assert.Equal(hpBefore - 18, state.Player.CurrentHp); // Medium band, no prayer/gear mitigation
         // Unprayed hit: "normal" tier, not "blocked" — a real hitsplat.
         Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.HitsplatNpc && e.Message == "18:normal:magic");
+    }
+
+    [Fact]
+    public async Task Phase1_BossAuto_RollsBottomOfBand_WhenRngRollsLow()
+    {
+        // Standard autos roll 60–100% of their listed band (items doc §1). The
+        // full-band ceiling is covered by every other test (AlwaysHitRandom
+        // rolls the top); this pins the floor: 60% of Bile Spit's 18 = 11.
+        // Mechanics/DoTs never roll — see the fixed-value eruption/Rot Burst
+        // tests, which stay exact.
+        var (svc, state, _) = Build(new MinRollRandom());
+        int hpBefore = state.Player.CurrentHp;
+
+        await Tick(svc); // T0 casts Bile Spit — a 2-tick magic projectile
+        await Tick(svc); // in flight
+        await Tick(svc); // impact
+
+        Assert.Equal(hpBefore - 11, state.Player.CurrentHp);
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.HitsplatNpc && e.Message == "11:normal:magic");
     }
 
     [Fact]

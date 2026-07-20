@@ -20,9 +20,13 @@
                 {
                     var slot = i;
                     var boundId = State?.Player?.Loadout.WeaponSlots.ElementAtOrDefault(slot);
-                    <button class="loadout-slot @(_editingWeaponSlot == slot ? "loadout-slot-active" : "")" @onclick="() => SelectWeaponSlot(slot)">
+                    <button class="loadout-slot @(_editingWeaponSlot == slot ? "loadout-slot-active" : "")" @onclick="() => SelectWeaponSlot(slot)" title="@WeaponStatLine(boundId)">
                         <span class="loadout-slot-label">Slot @(slot + 1)</span>
                         <span class="loadout-slot-item">@(boundId is null ? "empty" : Name(boundId))</span>
+                        @if (boundId is not null && WeaponStatLine(boundId) is { Length: > 0 } stats)
+                        {
+                            <span class="loadout-slot-stats">@stats</span>
+                        }
                         @if (boundId is not null)
                         {
                             <span class="loadout-slot-clear" @onclick:stopPropagation @onclick="() => BindWeapon(slot, null)">✕</span>
@@ -36,7 +40,10 @@
                     <div class="panel-title">Choose a weapon for Slot @(editing + 1)</div>
                     @foreach (var id in OwnedWeapons())
                     {
-                        <button class="loadout-pick-item" @onclick="() => BindWeapon(editing, id)">@Name(id)</button>
+                        <button class="loadout-pick-item" @onclick="() => BindWeapon(editing, id)">
+                            <span class="loadout-pick-name">@Name(id)</span>
+                            <span class="loadout-pick-stats">@WeaponStatLine(id)</span>
+                        </button>
                     }
                     @if (!OwnedWeapons().Any())
                     {
@@ -99,6 +106,16 @@
         KnownFlasks.Where(id => State?.Player?.HasItem(id) == true).ToList();
 
     private string Name(string id) => ItemRepo.GetItemName(id) ?? id;
+
+    // Items doc §1: Power is average damage; a weapon's max hit is 2×Power.
+    // Surfaced here (the closest thing M1 has to an item card) until a proper
+    // stat panel lands.
+    private string WeaponStatLine(string? id)
+    {
+        if (id is null) return "";
+        int? power = ItemRepo.GetWeapon(id)?.Doc.Power;
+        return power is { } p ? $"Power {p} · Max hit {p * 2}" : "";
+    }
 
     private async Task BindWeapon(int slot, string? weaponId)
     {
