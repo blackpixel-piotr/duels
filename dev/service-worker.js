@@ -1,73 +1,38 @@
-// Battle-asset cache: the toon renderer's character model, animation
-// library, equip meshes/textures, and the vendored three.js libs are ~8MB
-// combined and never change between sessions, but nothing about them is
-// fingerprinted (unlike Blazor's own .wasm/.dll resources, which the
-// framework already caches itself) — a fresh visit re-downloads and
-// re-decodes all of it, which is most of the multi-second wait before the
-// TEST FIGHT character is ready. Cache-first here skips the network
-// entirely on repeat visits. Bump CACHE_VERSION whenever a file in
-// ASSET_URLS changes on disk — that's what forces a clean re-fetch instead
-// of serving a stale cached copy forever.
-const CACHE_VERSION = 'duels-assets-v2';
-const ASSET_URLS = [
-    'data/asset-manifest.json',
-    'assets/models/superhero.gltf',
-    'assets/models/Superhero_Male_FullBody.bin',
-    'assets/models/T_Eye_Brown.png',
-    'assets/models/T_Hair_1_BaseColor.png',
-    'assets/models/T_Superhero_Male_Dark.png',
-    'assets/models/anims1.glb',
-    'assets/models/anims2.glb',
-    'assets/models/equip/sword.glb',
-    'assets/models/equip/Male_Ranger_Head_Hood.gltf',
-    'assets/models/equip/Male_Ranger_Head_Hood.bin',
-    'assets/models/equip/Male_Ranger_Body.gltf',
-    'assets/models/equip/Male_Ranger_Body.bin',
-    'assets/models/equip/Male_Ranger_Legs.gltf',
-    'assets/models/equip/Male_Ranger_Legs.bin',
-    'assets/models/equip/Male_Ranger_Feet_Boots.gltf',
-    'assets/models/equip/Male_Ranger_Feet_Boots.bin',
-    'assets/models/equip/Male_Ranger_Arms.gltf',
-    'assets/models/equip/Male_Ranger_Arms.bin',
-    'assets/models/equip/Male_Ranger_Acc_Pauldron.gltf',
-    'assets/models/equip/Male_Ranger_Acc_Pauldron.bin',
-    'assets/models/equip/T_Ranger_BaseColor.png',
-    'assets/models/equip/T_Regular_Male_Dark_BaseColor.png',
-    'lib/three.module.min.js',
-    'lib/OutlineEffect.js',
-    'lib/GLTFLoader.js',
-    'lib/SkeletonUtils.js',
-    'lib/BufferGeometryUtils.js',
-    'lib/CCDIKSolver.js',
-];
-
-// Relative URLs resolve against this script's own location, so this works
-// unmodified whether deployed at the site root or under /duels/dev/.
-self.addEventListener('install', e => {
-    e.waitUntil(
-        caches.open(CACHE_VERSION)
-            .then(cache => cache.addAll(ASSET_URLS))
-            .then(() => self.skipWaiting())
-            .catch(err => console.warn('duels sw: precache failed', err)),
-    );
-});
+// KILL SWITCH (M1 in active development, 2026-07): the battle-asset
+// precache below this comment used to cache-first the toon renderer's
+// model/equip/texture files under a hand-bumped CACHE_VERSION string.
+// During active development those files change practically every commit,
+// and a hand-bumped version is one "forgot to bump it" away from serving a
+// stale build to a real device with no way to clear it (mobile browsers
+// don't offer an easy per-site cache-clear the way desktop devtools do —
+// this bit a playtester on mobile). Rather than switch to an
+// auto-versioned scheme (e.g. stamping the git SHA into the cache name at
+// build time), the simplest fix for a phase where content is still
+// churning is to just not cache these assets at all: every request goes
+// straight to the network, same as if there were no service worker. This
+// also self-heals anyone who already has the old caching version
+// installed — install/activate below purge every cache this origin owns
+// and unregister the worker so subsequent loads skip service-worker
+// interception entirely (no fetch handler is registered).
+// Revisit once M1's assets stabilize: worth reintroducing cache-first with
+// a version that's actually tied to the content (a build-time git-SHA
+// stamp, not a manually-bumped string) rather than deleting this outright.
+//
+// No 'fetch' listener is registered below — per spec, that alone means this
+// worker never intercepts a single request once active, so it's safe to
+// stay installed indefinitely as a permanent no-op rather than unregister
+// itself (which would just make the browser re-run this same install →
+// activate → cleanup dance on every visit, since index.html still calls
+// register() unconditionally on load).
+self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', e => {
     e.waitUntil(
-        caches.keys()
-            .then(keys => Promise.all(keys.filter(k => k !== CACHE_VERSION).map(k => caches.delete(k))))
-            .then(() => self.clients.claim()),
-    );
-});
-
-self.addEventListener('fetch', e => {
-    const path = new URL(e.request.url).pathname;
-    if (!ASSET_URLS.some(p => path.endsWith(p))) return; // not ours — let the browser handle it normally
-    e.respondWith(
-        caches.match(e.request).then(cached => cached ?? fetch(e.request).then(res => {
-            const copy = res.clone();
-            caches.open(CACHE_VERSION).then(cache => cache.put(e.request, copy));
-            return res;
-        })),
+        caches.keys().then(keys => {
+            if (keys.length === 0) return; // steady state: nothing stale to flush, no reload needed
+            return Promise.all(keys.map(k => caches.delete(k)))
+                .then(() => self.clients.matchAll())
+                .then(clients => clients.forEach(c => c.navigate(c.url))); // one-time reload past the now-flushed stale assets
+        }),
     );
 });

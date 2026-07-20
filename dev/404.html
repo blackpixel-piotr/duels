@@ -68,10 +68,14 @@
         };
     </script>
     <script>
-        // Precache the toon renderer's model/animation/equip assets (~8MB,
-        // never change between sessions) so repeat visits skip the network
-        // entirely instead of re-downloading and re-decoding every time.
-        // See service-worker.js for the versioned asset list.
+        // service-worker.js is currently a self-unregistering kill switch,
+        // not a precache (see its own top comment — M1's assets change too
+        // often for hand-bumped cache versioning to be safe on a device
+        // that can't easily clear site data). Registering it here is still
+        // worth doing: the call itself forces the browser to check for an
+        // updated worker script on every load, which is what makes anyone
+        // still running the old caching version self-heal promptly instead
+        // of waiting on the browser's own ~24h passive update check.
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('service-worker.js').catch(() => {});
         }
