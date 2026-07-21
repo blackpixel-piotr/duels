@@ -35,25 +35,20 @@
         "Swarms": null
       },
       "Phase2": {
-        "LoopLength": 14,
-        "TelegraphLeadTicks": 2,
-        "Rotation": [
-          { "Tick": 0,  "Action": "bile_spit" },
-          { "Tick": 3,  "Action": "bile_spit" },
-          { "Tick": 6,  "Action": "style_telegraph" },
-          { "Tick": 8,  "Action": "lash/grub_volley" },
-          { "Tick": 11, "Action": "lash/grub_volley" },
-          { "Tick": 12, "Action": "style_telegraph" }
-        ],
+        "LoopLength": 28,
+        "TelegraphLeadTicks": 3,
+        "MasterScript": true,
+        "PoolCap": 8,
+        "ScorchTicks": 40,
+        "SwarmHp": 1,
+        "SwarmMaxAlive": 2,
+        "RotBurstEveryNCycles": 3,
+        "Rotation": [],
         "Eruption": {
-          "CooldownTicks": 12, "WarningTicks": 3, "TilesPerWave": 5,
-          "EruptDamage": 35, "PoolTicks": 30, "PoolDamagePerTick": 6
+          "CooldownTicks": 0, "WarningTicks": 3, "TilesPerWave": 4,
+          "EruptDamage": 35, "PoolTicks": 20, "PoolDamagePerTick": 6
         },
-        "RotBurst": { "CadenceTicks": 40, "InhaleTicks": 4, "Damage": 55, "SlumpTicks": 5 },
-        "Swarms": [
-          { "ThresholdPercent": 50, "Count": 2, "Hp": 2 },
-          { "ThresholdPercent": 25, "Count": 2, "Hp": 2 }
-        ]
+        "RotBurst": { "CadenceTicks": 0, "InhaleTicks": 4, "Damage": 55, "SlumpTicks": 5 }
       },
       "ArenaRadius": 4,
       "Footprint": { "Width": 2, "Height": 2 },

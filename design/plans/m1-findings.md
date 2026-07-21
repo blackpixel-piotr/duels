@@ -1194,6 +1194,95 @@ swarm cap of 2 @1 HP, and Rot-Burst-every-3rd-cycle are also not yet
 implemented — they belong to the same master-script rebuild and are gated on
 the same missing table.)
 
+## Nineteenth pass: P2 rebuilt as the single 28-tick master script (verbatim, unblocked)
+
+The user supplied the full P2 table verbatim (the eighteenth pass's blocker),
+and it's now implemented. This is the largest single change of the milestone:
+it folds three previously-independent timers (Eruption, Rot Burst, swarms) onto
+one fixed-tick clock, adds real board economy, and reconciles the punish-window
+machinery with the master-script model — the first fight to actually satisfy
+the "Master-script rule" doctrine the seventeenth/eighteenth passes wrote.
+
+**New master-script engine (`GameTickService.ProcessMasterScript`).** A phase
+with `BossPhaseDef.MasterScript = true` (P2) is driven by a 28-tick `switch`
+on `RotationTick`, branching on `NpcInstance.IsRotBurstCycle` (every 3rd
+cycle). ProcessTick routes P2 here instead of `ProcessBossScript` + the
+independent `ProcessEruptionTimer`/`ProcessSwarmSpawns` (which now run for P1
+only, and are skipped the instant the P1→P2 flip enters a master-script phase).
+All the numbers still come from data (`EruptionDef`, `RotBurstDef`, the new
+phase fields); the shared systems (hazards, projectiles, telegraph, Rot Burst
+resolution, swarm spawns) are reused unchanged — the master script just places
+their triggers on explicit ticks. **Scope decision, flagged:** the 28-tick
+*layout* lives in code (a switch), not data — a fully data-driven master-script
+DSL (mechanic-action rotation tokens) is deferred as future work; with M1's one
+master-script boss, a general DSL would be speculative. Numbers are data;
+structure is code.
+
+**The cursor-freeze reconciliation (the subtle part).** The old Rot Burst /
+slump machinery *froze* the rotation cursor during inhale and punish window
+(early-returns before `AdvanceRotation`). That's exactly the drift the
+master-script rule forbids — under it, T10 inhale → T14 burst → T15–T19 slump →
+T20 telegraph must all sit on the same clock. So `ProcessMasterScript` keeps
+`AdvanceMasterTick()` running *through* the inhale and slump (ticking them down
+without freezing the cursor); the +25% punish bonus still rides
+`SlumpTicksLeft` via `ExecuteBasicAttackOnBoss`, unchanged. P1 keeps the old
+freezing `ProcessBossScript` untouched.
+
+**Hazard board economy (shared-system extension).** `HazardTile` gained
+`ScorchDurationTicks` (<0 = permanent, P1's behavior; 40 = P2). `TickHazards`
+now counts timed scorch down and reverts it to clean floor, and enforces a
+concurrent-pool cap (`SetPoolCap`, converting the oldest excess pool — least
+TicksLeft — to scorch early). `BurnPoolsToScorch()` (Rot Burst inhale) dries
+every active pool at once so safe ground is guaranteed from the inhale's first
+tick. `ClearHazardWarnings()` clears only in-flight marks (the transition roar).
+P1 is unaffected — it passes the permanent-scorch default and never sets a cap.
+
+**Master-script state (`NpcInstance` / `BossPhaseDef`).** New: `CycleCount`
+(+`IsRotBurstCycle`), `RoarTicksLeft` (3-tick transition roar, holds the cursor
+at T0), `StyleAId`/`StyleBId` (rolled per cycle — A ∈ {magic bile, positional},
+B always the other), and `AdvanceMasterTick` (wraps at LoopLength, bumps the
+cycle). `BossPhaseDef` gained `MasterScript`, `PoolCap`, `ScorchTicks`,
+`SwarmHp`, `SwarmMaxAlive`, `RotBurstEveryNCycles` — all defaulted so P1's def
+is unchanged. The P1→P2 flip resets `CycleCount`; `EnterMasterScriptPhase`
+starts the roar, clears in-flight marks/projectiles, sets the pool cap, and
+spawns the first swarm pair.
+
+**Attack resolution** reuses the existing paths verbatim: magic bile / grub
+volley are 2-tick doctrine projectiles (impact-tick prayer), lash is instant
+melee chosen at cast only if adjacent (else grub volley) via `ResolveAttackId`,
+autos roll 60–100% of their band, mechanics/DoTs stay fixed.
+
+**npcs.json P2** rewritten to the master-script shape (LoopLength 28,
+TelegraphLeadTicks 3, MasterScript true, PoolCap 8, ScorchTicks 40, SwarmHp 1,
+SwarmMaxAlive 2, RotBurstEveryNCycles 3, Eruption TilesPerWave 4 / PoolTicks 20,
+RotBurst InhaleTicks 4 / Damage 55 / SlumpTicks 5). The old independent-timer
+fields (CooldownTicks, CadenceTicks, threshold-based Swarms) are gone/zeroed.
+
+**Docs.** The boss bible's P2 section is replaced verbatim with the supplied
+table, and Global Combat Grammar now carries the exact requested "**Master-
+script rule.**" wording. P1's Eruption stays an independent timer (not in scope
+to rebuild) and remains flagged as a pre-M5 audit target alongside Gale Roc /
+Unblinking.
+
+**Tests.** The five P2-dependent tests were rewritten for the new model
+(transition → master script + 3-tick roar; first swarm pair at 1 HP + contact
+bleed; Rot Burst severe/negation isolated via the new mechanic toggles; a new
+`RotBurstInhale_BurnsActivePoolsToScorch`; repo fidelity asserts the new phase
+fields). No P1 test changed. 76/76 pass (was 75; +1 net).
+
+**Live verification (Playwright).** Disabled every boss mechanic via the MECH
+panel to safely grind the boss below 50% (450→204) — the P1→P2 transition
+fired — then re-enabled everything and let the master script run. It ran to a
+real outcome with **zero page errors**: P2 swarms spawned, crawled in, and
+applied contact bleed that killed the player, and the result screen showed
+"Killed by: Bleed" — simultaneously confirming the master script *and* the
+eighteenth pass's damage-source death logging, live. The 28-tick schedule's
+own tick-exact timing is covered by the unit suite (the live grind can't
+cheaply reach multiple full cycles), which is the one caveat on this pass's
+verification: end-to-end no-crash + transition + swarms/bleed/death are
+confirmed live; the exact T10-eruption / T14-burst / every-3rd-cycle cadence is
+confirmed by unit tests, not yet eyeballed across cycles in the browser.
+
 ## Sixteenth pass: ambiguous telegraph misread as "ranged," projectiles not tracking live position (M1 revision)
 
 User playtest feedback: the King's style-shift rim glow shows green during

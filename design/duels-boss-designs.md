@@ -36,8 +36,11 @@ A protection prayer matching the incoming attack's style **fully negates that hi
 
 Protection prayers are evaluated on the impact tick, never the cast tick. Ranged/magic boss attacks travel as doctrine-colored projectiles with 2 ticks of flight; the projectile is the primary flick cue. The projectile homes in on the player's current tile every frame, not the tile they stood on at cast — these are never positionally dodgeable, only prayer-blockable, and the visual shouldn't imply otherwise by flying toward a tile the player has since left. Tier-1 bosses telegraph style changes 3 ticks ahead; 2 is standard; 1 is invocation-tier. A doctrine color is a promise: red-orange, green, and blue only ever appear on a telegraph when that specific style is what's actually coming. A telegraph whose resolved style genuinely isn't known yet (e.g. a position-dependent choice like Lash-if-adjacent/Grub-Volley-if-not) glows a neutral amber instead — never a doctrine color standing in for "maybe," since a player who's learned the doctrine palette elsewhere will read it as a commitment the boss isn't making.
 
-**Master tick script**
-Every phase runs on one master tick script. Independent mechanic timers are forbidden — overlapping demands must be authored deliberately, never produced by timer drift. Hazards, channels, and swarm spawns are rows in the same fixed-tick table as the attack rotation, so anything that shares a tick with a prayer flick is there because a designer placed it, not because two free-running cooldowns happened to alias. This is the authoritative rule; the "Independent-timer stagger" below is a transitional mitigation for fights not yet folded into it, not a licence to keep independent timers. (Latent offenders to audit before M5: Maggot King's Eruption/Rot Burst — being migrated in M1 — Gale Roc's ambient lightning, and the Unblinking's crawler spawns.)
+**Master-script rule.** Every boss phase runs on one master tick script.
+Independent mechanic timers are forbidden — overlapping demands must be
+authored deliberately, never produced by timer drift.
+
+Hazards, channels, and swarm spawns are rows in the same fixed-tick table as the attack rotation, so anything that shares a tick with a prayer flick is there because a designer placed it, not because two free-running cooldowns happened to alias. This is the authoritative rule; the "Independent-timer stagger" below is a transitional mitigation for fights not yet folded into it, not a licence to keep independent timers. (Maggot King's Phase 2 is now migrated — see below. Latent offenders to audit before M5: Maggot King's Phase 1 Eruption, Gale Roc's ambient lightning, and the Unblinking's crawler spawns.)
 
 **Independent-timer stagger** *(legacy — superseded by "Master tick script"; applies only where a fight's mechanics still run on their own timers, pending migration to the master script)*
 A boss's own hazard/channel timers (Eruption, Rot Burst, and their like) that still run independently of its rotation script can land on the *exact same tick* as a style telegraph, a channel warning, or an attack/channel impact purely by arithmetic coincidence, forcing two separate reactions (a prayer flick and a tile relocation) into one single reaction window with no stagger between them. Until such a timer is folded into the master script, nudge its event by exactly one tick rather than letting it pile on — re-check the following tick rather than assuming one nudge is always enough. This is a floor, not a ceiling: the fight is still allowed (expected, even) to demand hazard awareness and prayer discipline in the same *stretch* of ticks — it just shouldn't compress both into the same *single* tick with zero gap. The master-script rule above makes this unnecessary by construction, and is the preferred fix.
@@ -91,13 +94,35 @@ telegraph happens to precede them:
 
 **Eruption** (independent timer, every 16 ticks, staggered off any same-tick rotation-script event per the Global Combat Grammar's "Independent-timer stagger"): marks 3 random tiles **plus the player's current tile**. Standard 3-tick fuse → erupt for Heavy (unprayable). Erupted tiles leave **poison pools** for 20 ticks (Light/tick standing in them, applies poison stack).
 
-### Phase 2 (<50%)
-- Rotation compresses to a 14-tick loop; style telegraphs tighten to the 2-tick standard (down from Phase 1's 3-tick Tier-1 baseline) — an intentional escalation, not a bug.
-- Eruption every 12 ticks, now 5 tiles; pools last 30 ticks. The floor fills up — routing matters.
-- **Maggot swarms:** at 50% and 25%, two swarms spawn at arena corners, crawl 1 tile/tick toward the player. Contact = bleed stack. Each dies to 2 hits — a target-switch decision under prayer pressure.
-- **Rot Burst** (signature, every ~40 ticks): King inhales for 4 ticks (whole body swells) → arena-wide Severe blast that ignores prayer. **Safe tiles are the scorched tiles left by past eruptions** (pools expire into scorch). The hazard system inverts: the floor that punished you becomes your shelter, and good players track scorch locations all phase.
+### Phase 2 (<50%) — single 28-tick master script
 
-**Punish window:** after Rot Burst, the King slumps for 5 ticks (+25% damage).
+Transition at 50%: 3-tick roar (all in-flight marks/projectiles cleared), first swarm pair spawns.
+
+**Standard cycle (T0–T27, repeats; every 3rd cycle is the Rot Burst cycle below):**
+
+| Tick | Action |
+|---|---|
+| T0 | Style telegraph A (3 ticks: rim glow + windup pose). Roll: magic bile OR positional. Telegraph B later always differs. |
+| T3 | Attack (style A) |
+| T7 | Attack (style A) |
+| T10 | Eruption wave: marks 4 tiles (3 random + player's current tile), 3-tick fuse. King casts nothing during the fuse. |
+| T13 | Eruption resolves (fixed Heavy, unprayable). Tiles become poison pools. |
+| T14 | Attack (style A) |
+| T17 | Style telegraph B (3 ticks, always ≠ A) |
+| T20 | Attack (style B) — the quick-flick check |
+| T23 | Swarm spawn (only if fewer than 2 alive) |
+| T24–T27 | Idle — clean damage window |
+
+**Rot Burst cycle (every 3rd cycle):** T0–T7 as standard → T10 inhale begins (4-tick swell; **all active pools instantly burn out into scorch tiles** — safe ground is guaranteed and visible from the inhale's first tick) → T14 Rot Burst: arena-wide fixed Severe, unprayable, safe only on scorch → T15–T19 slump (punish window: +25% damage, no actions) → T20 style telegraph → T23 attack → T24–T27 idle → resume standard cycle 1.
+
+**Attack resolution:** magic bile and grub volley are doctrine-colored projectiles, impact 2 ticks after cast, prayer checked on impact. Lash is instant melee on the cast tick, chosen at cast only if the player is adjacent; otherwise the attack is grub volley. Autos roll 60–100% of Medium; all mechanic damage (eruptions, Rot Burst, pools) is fixed.
+
+**Board economy:** pools last 20 ticks, then expire into scorch; hard cap 8 concurrent pools (oldest converts early). Scorch tiles persist 40 ticks, then revert to clean floor.
+
+**Swarms:** max 2 alive, 1 HP each (any hit kills), move 1 tile/tick, contact applies 1 bleed stack.
+
+The cycle's demands alternate — flick, dodge, flick-check, adds, breathe — and never stack by drift, because nothing in this phase runs on an independent timer.
+
 **Perfect Dodge hooks:** last-tick eruption dodges are the natural special-energy engine of this fight.
 
 **Invocation hooks:** *Fecund* (pools never expire — Rot Burst safe tiles become precious), *Restless Rot* (style telegraph → 1 tick), *Broodfather* (swarms spawn continuously).

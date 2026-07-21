@@ -167,23 +167,32 @@ public sealed class GameTickService : IDisposable
             // fresh one this same tick — otherwise a just-armed telegraph
             // is immediately decremented on its own setup tick.
             npc.TickForecast();
-            ProcessBossScript(state, player, npc);
 
-            // Eruption stagger (M1 playtest revision): Eruption's cooldown
-            // is independent of the rotation script by design, but nothing
-            // stopped it from landing on the exact same tick as a
-            // style-shift telegraph, a Rot Burst warning, or an attack/Rot
-            // Burst impact — forcing a prayer flick AND a tile relocation
-            // in the same single reaction window. Detected from what
-            // actually got logged this tick (robust to punish-window/Pin
-            // Shot/Rot-Burst-inhale early returns in ProcessBossScript,
-            // which never log any of this) rather than re-deriving it from
-            // the rotation table.
-            bool rotationEventThisTick = state.CombatLog.Skip(logCountBeforeRotation).Any(e =>
-                e.Kind == LogEntryKind.HitsplatNpc ||
-                (e.Kind == LogEntryKind.BossSpecial && (e.Message.Contains("mandibles glow") || e.Message.Contains("ROT BURST incoming"))));
-            ProcessEruptionTimer(state, npc, rotationEventThisTick);
-            ProcessSwarmSpawns(state, npc);
+            if (npc.UsesMasterScript)
+            {
+                // Master-script phase (P2): one fixed-tick clock drives attacks,
+                // eruptions, Rot Burst and swarms — no independent timers, so no
+                // stagger machinery is needed (overlaps are authored, not drift).
+                ProcessMasterScript(state, player, npc);
+            }
+            else
+            {
+                ProcessBossScript(state, player, npc); // may flip P1 → P2 this tick
+
+                // Independent-timer path (P1 only). Skipped once the flip above
+                // has entered a master-script phase — its mechanics live in the
+                // master clock. Eruption stagger (legacy): don't pile a hazard
+                // wave onto the same tick as a telegraph/warning/impact; detected
+                // from what actually got logged this tick.
+                if (!npc.UsesMasterScript)
+                {
+                    bool rotationEventThisTick = state.CombatLog.Skip(logCountBeforeRotation).Any(e =>
+                        e.Kind == LogEntryKind.HitsplatNpc ||
+                        (e.Kind == LogEntryKind.BossSpecial && (e.Message.Contains("mandibles glow") || e.Message.Contains("ROT BURST incoming"))));
+                    ProcessEruptionTimer(state, npc, rotationEventThisTick);
+                    ProcessSwarmSpawns(state, npc);
+                }
+            }
         }
 
         if (!npc.IsAlive)
@@ -471,6 +480,7 @@ public sealed class GameTickService : IDisposable
         if (phaseChanged)
         {
             state.AppendLog("★ The Maggot King convulses — the assault frenzies! Phase 2 begins.", LogEntryKind.BossSpecial);
+            if (npc.UsesMasterScript) EnterMasterScriptPhase(state, npc);
             return;
         }
 
@@ -482,6 +492,136 @@ public sealed class GameTickService : IDisposable
             npc.StartRotBurstInhale(rb.InhaleTicks);
             state.AppendLog("⚠ The Maggot King's body swells — ROT BURST incoming!", LogEntryKind.BossSpecial);
         }
+    }
+
+    // ── Master-script engine (Global Combat Grammar "Master-script rule") ──
+    // One fixed-tick clock per phase; attacks, eruptions, Rot Burst and swarms
+    // are all placed on it, so overlapping demands are authored, never produced
+    // by independent-timer drift. Maggot King P2 (28 ticks): see the boss bible.
+
+    private void EnterMasterScriptPhase(GameState state, NpcInstance npc)
+    {
+        var phase = npc.ActivePhaseDef;
+        // Transition: 3-tick roar; all in-flight marks/projectiles cleared;
+        // first swarm pair spawns; the phase's board economy (pool cap) applies.
+        npc.StartRoar(3);
+        state.ClearHazardWarnings();
+        state.ClearPendingAttacks();
+        state.SetPoolCap(phase.PoolCap);
+        if (state.IsMechanicEnabled(BossMechanic.Swarms))
+            SpawnSwarmsUpTo(state, phase, phase.SwarmMaxAlive);
+        state.AppendLog("The Maggot King throws back his head and ROARS — the brood surges!", LogEntryKind.BossSpecial);
+    }
+
+    private void ProcessMasterScript(GameState state, Player player, NpcInstance npc)
+    {
+        if (!npc.IsAlive) return;
+
+        // Transition roar: hold the cursor at T0, no actions, for 3 ticks.
+        if (npc.RoarTicksLeft > 0) { npc.TickRoar(); return; }
+
+        // Rot Burst inhale (begun at T10 of a Rot Burst cycle) resolves at T14;
+        // the cursor keeps advancing so the slump lands on schedule.
+        if (npc.RotBurstInhaling)
+        {
+            if (npc.TickRotBurstInhale()) ResolveRotBurst(state, player, npc); // → slump
+            npc.AdvanceMasterTick();
+            return;
+        }
+
+        // Slump / punish window: the boss takes no actions, but the master clock
+        // keeps running — no cursor freeze (that would reintroduce drift).
+        if (npc.InPunishWindow) { npc.TickSlump(); npc.AdvanceMasterTick(); return; }
+
+        int t = npc.RotationTick;
+        bool rb = npc.IsRotBurstCycle;
+
+        switch (t)
+        {
+            case 0:  RollCycleStyles(npc); MasterTelegraph(state, npc, npc.StyleAId); break;
+            case 3:  MasterAttack(state, player, npc, npc.StyleAId); break;
+            case 7:  MasterAttack(state, player, npc, npc.StyleAId); break;
+            case 10: if (rb) BeginRotBurstInhale(state, npc); else MasterEruption(state, npc); break;
+            case 14: if (!rb) MasterAttack(state, player, npc, npc.StyleAId); break; // rb: burst resolves via inhale
+            case 17: if (!rb) MasterTelegraph(state, npc, npc.StyleBId); break;
+            case 20:
+                if (rb) { RollCycleStyles(npc); MasterTelegraph(state, npc, npc.StyleAId); }
+                else MasterAttack(state, player, npc, npc.StyleBId);
+                break;
+            case 23:
+                if (rb) MasterAttack(state, player, npc, npc.StyleAId);
+                else MasterSwarmSpawn(state, npc);
+                break;
+        }
+
+        npc.AdvanceMasterTick();
+    }
+
+    // Style A ∈ {magic bile, positional}; B is always the other (Telegraph B ≠ A).
+    private void RollCycleStyles(NpcInstance npc)
+    {
+        const string bile = "bile_spit", positional = "lash/grub_volley";
+        bool aIsBile = _random.NextDouble() < 0.5;
+        npc.SetCycleStyles(aIsBile ? bile : positional, aIsBile ? positional : bile);
+    }
+
+    private void MasterTelegraph(GameState state, NpcInstance npc, string styleId)
+    {
+        if (string.IsNullOrEmpty(styleId)) return;
+        npc.SetForecast(styleId, npc.ActivePhaseDef.TelegraphLeadTicks);
+        state.AppendLog($"⚠ {ForecastMessage(npc, styleId)}", LogEntryKind.BossSpecial);
+    }
+
+    private void MasterAttack(GameState state, Player player, NpcInstance npc, string styleId)
+    {
+        if (string.IsNullOrEmpty(styleId)) return;
+        if (!state.IsMechanicEnabled(BossMechanic.BossAutos)) return;
+        var attackId = ResolveAttackId(state, styleId);
+        var attack = npc.Template.Script!.Attacks[attackId];
+        if (attack.Style is AttackType.Ranged or AttackType.Magic)
+            LaunchProjectileAttack(state, attack);
+        else
+            ResolveBossAttack(state, player, npc, attack);
+    }
+
+    private void MasterEruption(GameState state, NpcInstance npc)
+    {
+        if (!state.IsMechanicEnabled(BossMechanic.Eruptions)) return;
+        var e = npc.ActivePhaseDef.Eruption;
+        var tiles = PickHazardTiles(state, e.TilesPerWave); // player tile + (TilesPerWave-1) random
+        state.AddHazardWave(tiles, e.WarningTicks, e.PoolTicks, npc.ActivePhaseDef.ScorchTicks);
+        state.AppendLog("⚠ The Maggot King's brood burrows beneath you — MOVE!", LogEntryKind.BossSpecial);
+    }
+
+    private void BeginRotBurstInhale(GameState state, NpcInstance npc)
+    {
+        if (!state.IsMechanicEnabled(BossMechanic.RotBurst)) return; // toggle off: cycle still advances
+        var rb = npc.ActivePhaseDef.RotBurst!;
+        state.BurnPoolsToScorch(); // safe ground guaranteed + visible from the inhale's first tick
+        npc.StartRotBurstInhale(rb.InhaleTicks);
+        state.AppendLog("⚠ The Maggot King's body swells — ROT BURST incoming! (scorch tiles are safe)", LogEntryKind.BossSpecial);
+    }
+
+    private void MasterSwarmSpawn(GameState state, NpcInstance npc)
+    {
+        if (!state.IsMechanicEnabled(BossMechanic.Swarms)) return;
+        SpawnSwarmsUpTo(state, npc.ActivePhaseDef, npc.ActivePhaseDef.SwarmMaxAlive);
+    }
+
+    // Top up to `target` live swarms (never exceeds the cap), 1 HP each in P2.
+    private static readonly (int X, int Z)[] _swarmCorners =
+    {
+        (-GameState.ArenaRadius, GameState.ArenaRadius),
+        (GameState.ArenaRadius, GameState.ArenaRadius),
+    };
+    private void SpawnSwarmsUpTo(GameState state, BossPhaseDef phase, int target)
+    {
+        int alive = state.Adds.Count(a => a.IsAlive);
+        int toSpawn = target - alive;
+        if (toSpawn <= 0) return;
+        for (int i = 0; i < toSpawn; i++)
+            state.SpawnAdd(new AddInstance($"swarm_{state.FightTicks}_{alive + i}", _swarmCorners[(alive + i) % _swarmCorners.Length], phase.SwarmHp));
+        state.AppendLog($"⚠ Maggot swarms surge from the corners! ({toSpawn})", LogEntryKind.BossSpecial);
     }
 
     private void ResolveRotationStep(GameState state, Player player, NpcInstance npc, RotationStep step)

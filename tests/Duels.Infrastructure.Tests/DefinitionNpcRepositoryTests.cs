@@ -32,11 +32,17 @@ public class DefinitionNpcRepositoryTests
         Assert.Equal(35, script.Phase1.Eruption.EruptDamage);
         Assert.Null(script.Phase1.RotBurst);
 
-        Assert.Equal(14, script.Phase2.LoopLength);
+        // Phase 2 is the single 28-tick master script (no independent timers).
+        Assert.Equal(28, script.Phase2.LoopLength);
+        Assert.True(script.Phase2.MasterScript);
+        Assert.Equal(8, script.Phase2.PoolCap);
+        Assert.Equal(40, script.Phase2.ScorchTicks);
+        Assert.Equal(1, script.Phase2.SwarmHp);
+        Assert.Equal(2, script.Phase2.SwarmMaxAlive);
+        Assert.Equal(3, script.Phase2.RotBurstEveryNCycles);
         Assert.NotNull(script.Phase2.RotBurst);
         Assert.Equal(55, script.Phase2.RotBurst!.Damage);
-        Assert.NotNull(script.Phase2.Swarms);
-        Assert.Equal(2, script.Phase2.Swarms!.Count);
+        Assert.Equal(4, script.Phase2.Eruption.TilesPerWave);
 
         Assert.True(script.Attacks.ContainsKey("bile_spit"));
         Assert.Equal(AttackType.Magic, script.Attacks["bile_spit"].Style);

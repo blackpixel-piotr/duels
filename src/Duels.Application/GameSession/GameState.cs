@@ -92,23 +92,38 @@ public sealed class GameState
     public List<(int X, int Z)> TilesErupting() =>
         _hazards.Where(h => h.State == HazardState.Warning && h.TicksLeft == 1).Select(h => (h.X, h.Z)).ToList();
 
-    public void AddHazardWave(IEnumerable<(int X, int Z)> tiles, int warningTicks, int poolTicks)
+    public void AddHazardWave(IEnumerable<(int X, int Z)> tiles, int warningTicks, int poolTicks, int scorchTicks = -1)
     {
         foreach (var t in tiles)
             if (!_hazards.Any(h => (h.X, h.Z) == t))
-                _hazards.Add(new HazardTile(t.X, t.Z, HazardState.Warning, warningTicks, poolTicks));
+                _hazards.Add(new HazardTile(t.X, t.Z, HazardState.Warning, warningTicks, poolTicks, scorchTicks));
     }
 
-    /// <summary>Advance all hazards one tick. Warning fuses that hit zero
-    /// erupt into pools (returned so the caller can damage whoever stands
-    /// there); pools that dry out become permanent scorch.</summary>
+    // Concurrent-pool cap (master-script board economy). Default: no cap (P1).
+    // The master-script P2 sets 8, converting the oldest excess pool to scorch
+    // early rather than letting the floor fill without bound.
+    private int _poolCap = int.MaxValue;
+    public void SetPoolCap(int cap) => _poolCap = cap;
+
+    /// <summary>Advance all hazards one tick. Warning fuses that hit zero erupt
+    /// into pools (returned so the caller can damage whoever stands there);
+    /// pools that dry out become scorch; timed scorch counts down and reverts
+    /// to clean floor (permanent scorch — ScorchDurationTicks &lt; 0 — never
+    /// does). Enforces the concurrent-pool cap after transitions.</summary>
     public List<(int X, int Z)> TickHazards()
     {
         var erupted = new List<(int X, int Z)>();
         for (int i = _hazards.Count - 1; i >= 0; i--)
         {
             var h = _hazards[i];
-            if (h.State == HazardState.Scorch) continue;
+            if (h.State == HazardState.Scorch)
+            {
+                if (h.ScorchDurationTicks < 0) continue; // permanent
+                var s = h with { TicksLeft = h.TicksLeft - 1 };
+                if (s.TicksLeft <= 0) _hazards.RemoveAt(i); // reverts to clean floor
+                else _hazards[i] = s;
+                continue;
+            }
 
             var next = h with { TicksLeft = h.TicksLeft - 1 };
             if (next.TicksLeft > 0) { _hazards[i] = next; continue; }
@@ -118,13 +133,49 @@ public sealed class GameState
                 erupted.Add((h.X, h.Z));
                 _hazards[i] = h with { State = HazardState.Pool, TicksLeft = h.PoolDurationTicks };
             }
-            else
+            else // Pool dried out
             {
-                _hazards[i] = h with { State = HazardState.Scorch, TicksLeft = 0 };
+                _hazards[i] = h with { State = HazardState.Scorch, TicksLeft = h.ScorchDurationTicks < 0 ? 0 : h.ScorchDurationTicks };
             }
         }
+        EnforcePoolCap();
         return erupted;
     }
+
+    // Keep at most _poolCap concurrent pools: convert the oldest excess (least
+    // TicksLeft remaining — created earliest) to scorch early.
+    private void EnforcePoolCap()
+    {
+        if (_poolCap == int.MaxValue) return;
+        var poolIdx = new List<int>();
+        for (int i = 0; i < _hazards.Count; i++)
+            if (_hazards[i].State == HazardState.Pool) poolIdx.Add(i);
+        int excess = poolIdx.Count - _poolCap;
+        if (excess <= 0) return;
+        poolIdx.Sort((a, b) => _hazards[a].TicksLeft.CompareTo(_hazards[b].TicksLeft));
+        for (int k = 0; k < excess; k++)
+        {
+            var h = _hazards[poolIdx[k]];
+            _hazards[poolIdx[k]] = h with { State = HazardState.Scorch, TicksLeft = h.ScorchDurationTicks < 0 ? 0 : h.ScorchDurationTicks };
+        }
+    }
+
+    /// <summary>Rot Burst inhale (master script): every active pool instantly
+    /// dries into scorch, so safe ground is guaranteed and visible from the
+    /// inhale's first tick.</summary>
+    public void BurnPoolsToScorch()
+    {
+        for (int i = 0; i < _hazards.Count; i++)
+            if (_hazards[i].State == HazardState.Pool)
+            {
+                var h = _hazards[i];
+                _hazards[i] = h with { State = HazardState.Scorch, TicksLeft = h.ScorchDurationTicks < 0 ? 0 : h.ScorchDurationTicks };
+            }
+    }
+
+    /// <summary>Clears only in-flight warning marks (used at the P2 transition's
+    /// roar); pools and scorch on the ground persist.</summary>
+    public void ClearHazardWarnings() => _hazards.RemoveAll(h => h.State == HazardState.Warning);
 
     private void ClearHazards() => _hazards.Clear();
 
@@ -283,6 +334,7 @@ public sealed class GameState
         TargetId = null;
         _adds.Clear();
         ClearPendingAttacks();
+        _poolCap = int.MaxValue; // master-script P2 raises this on phase entry
         ProtectionDrainTickCounter = 0;
         BoostDrainTickCounter = 0;
 
@@ -397,9 +449,12 @@ public sealed record CombatLogEntry(string Message, LogEntryKind Kind, DateTimeO
 public enum HazardState { Warning, Pool, Scorch }
 
 /// <summary>One hazard tile: Warning counts down its fuse, Pool counts down
-/// until it dries into permanent Scorch. PoolDurationTicks is captured at
-/// creation so a Warning->Pool transition doesn't need the caller to repass it.</summary>
-public readonly record struct HazardTile(int X, int Z, HazardState State, int TicksLeft, int PoolDurationTicks);
+/// until it dries into Scorch, which then counts down until it reverts to clean
+/// floor. PoolDurationTicks / ScorchDurationTicks are captured at creation so a
+/// state transition doesn't need the caller to repass them. ScorchDurationTicks
+/// &lt; 0 means permanent scorch (P1's original behavior; the master-script P2
+/// passes a finite lifetime).</summary>
+public readonly record struct HazardTile(int X, int Z, HazardState State, int TicksLeft, int PoolDurationTicks, int ScorchDurationTicks = -1);
 
 /// <summary>A boss attack in flight — cast, not yet landed. See
 /// <see cref="GameState.TickPendingAttacks"/>.</summary>
