@@ -938,7 +938,7 @@ async function initBattle(canvasId, opts) {
         viewRot: 0, // 0 or 90: CSS view rotation of the portrait fight
         player: null, enemy: null, dotnet: opts.dotnetRef ?? null,
         splats: [], hazardQuads: new Map(), marker: null, targetTile: null,
-        obstacles: [], flags: {}, projectiles: [], addMeshes: new Map(), telegraph: null,
+        obstacles: [], flags: {}, projectiles: [], addMeshes: new Map(), addHitboxes: new Map(), telegraph: null,
         clock: new THREE.Clock(), raf: 0, drag: null,
         enemyId: opts.enemyId,
     };
@@ -1091,10 +1091,15 @@ async function initBattle(canvasId, opts) {
         // enemy first: hit test its meshes (recursive — glTF meshes are nested)
         const hitEnemy = ray.intersectObjects(st.enemy.ch.group.children, true).length > 0;
         if (hitEnemy && !st.enemy.crumbled) { st.dotnet?.invokeMethodAsync('OnEnemyClick'); return; }
-        // swarm adds next (m1-plan Workstream C.7 targeting)
-        if (st.addMeshes.size > 0) {
-            const addMeshList = [...st.addMeshes.values()];
-            const hit = ray.intersectObjects(addMeshList, false)[0];
+        // swarm adds next (m1-plan Workstream C.7 targeting) — raycast against
+        // the invisible, tile-sized hitboxes, not the small visible sphere
+        // (playtest report: the sphere's own footprint was too small a tap
+        // target on mobile). Invisible meshes are still raycastable in
+        // three.js (Raycaster only checks .layers, never .visible), so this
+        // costs nothing extra to render.
+        if (st.addHitboxes.size > 0) {
+            const hitboxList = [...st.addHitboxes.values()];
+            const hit = ray.intersectObjects(hitboxList, false)[0];
             if (hit) { st.dotnet?.invokeMethodAsync('OnAddClick', hit.object.userData.id); return; }
         }
         const p = new THREE.Vector3();
@@ -1430,7 +1435,11 @@ const api = {
     },
     setBattleAdds(canvasId, adds) {
         // Swarm adds (m1-plan Workstream C.7): small placeholder blobs at
-        // their tile positions, tinted by remaining HP.
+        // their tile positions, tinted by remaining HP. Each also gets an
+        // invisible, tile-sized hitbox (see addHitboxes below) so the tap
+        // target is the whole tile, not just the small visible sphere —
+        // playtest report: the sphere alone was too small to reliably tap on
+        // mobile.
         const st = battles.get(canvasId);
         if (!st) return;
         const seen = new Set();
@@ -1442,12 +1451,32 @@ const api = {
                 m.userData = { id: a.id };
                 st.scene.add(m); st.addMeshes.set(a.id, m);
             }
+            let hb = st.addHitboxes.get(a.id);
+            if (!hb) {
+                // A column, not a flat ground plane: a flat hitbox would be
+                // nearly edge-on (hard to hit) at this camera's lower pitch
+                // angles, since the ray grazes close to parallel to it. A
+                // box with real height stays easy to hit across the whole
+                // pitch range. Slightly under a full TILE so two adjacent
+                // adds' tap zones can't overlap.
+                hb = new THREE.Mesh(new THREE.BoxGeometry(TILE * 0.92, 1.4, TILE * 0.92),
+                    new THREE.MeshBasicMaterial());
+                hb.visible = false; // invisible but still raycastable — three.js's
+                // Raycaster only checks .layers, never .visible, so this is
+                // free to render and never shows up on screen.
+                hb.userData = { id: a.id };
+                hb.position.y = 0.7;
+                st.scene.add(hb); st.addHitboxes.set(a.id, hb);
+            }
             m.position.x = a.x * TILE; m.position.z = a.z * TILE;
+            hb.position.x = a.x * TILE; hb.position.z = a.z * TILE;
             const hpPct = Math.max(0, Math.min(100, a.hpPct ?? 100));
             m.material.color.set(hpPct <= 50 ? '#b23a3a' : '#7a9e3a');
         }
         for (const [id, m] of st.addMeshes)
             if (!seen.has(id)) { st.scene.remove(m); st.addMeshes.delete(id); }
+        for (const [id, hb] of st.addHitboxes)
+            if (!seen.has(id)) { st.scene.remove(hb); st.addHitboxes.delete(id); }
     },
     battleEvent(canvasId, evt) {
         const st = battles.get(canvasId);

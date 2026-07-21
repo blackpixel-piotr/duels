@@ -99,7 +99,7 @@ resting position of the right thumb.)
 
 - **Tap a tile** → move (pathing dots preview the route for multi-tile paths, one dot per tick of travel).
 - **Tap the boss** → engage/attack.
-- **Tap an add** (e.g. a maggot swarm) → switches target to it and engages; basic attacks route to the add until it dies, then target reverts to the boss automatically. Same tap-to-(re)engage contract as the boss, per target.
+- **Tap an add** (e.g. a maggot swarm) → switches target to it and engages; basic attacks route to the add until it dies, then target reverts to the boss automatically. Same tap-to-(re)engage contract as the boss, per target. The tap target is the whole tile the add occupies, not just its (small, deliberately unshowy) model — mobile precision tapping on a tiny model was a real playtest complaint.
 - **Tap elsewhere while engaged** → move there and disengage (per combat rules).
 - Tap feedback: tapped tile flashes an ink ring; invalid tiles (rubble, walls) show a red X stamp.
 - **Telegraphs on tiles:** hazard tiles fill with hatched purple ink as the fuse burns, one hatch band per tick; the final fuse tick flashes the tile's outline white — that white flash is the universal "Perfect Dodge now" signal across every boss. Safe tiles (Rot Burst scorch, Downdraft corners) glow gold.
