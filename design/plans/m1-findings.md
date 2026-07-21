@@ -1797,3 +1797,47 @@ Both confirmed as real bugs, not user error.
   no player-facing mechanic, number, or doctrine-color change documented
   in `duels-ui-design.md`/`duels-boss-designs.md` — same determination as
   the camera-easing pass two revisions prior. Left both untouched.
+
+## Twenty-seventh pass: player reverted off the NPC interpolation layer (M1 revision, playtest correction)
+
+- **Playtest report**: the previous pass's snapshot-interpolation layer made
+  the player visibly jump/overshoot a few tiles forward — a regression from
+  the player's prior movement feel. The user clarified the interpolation
+  layer was only ever meant for NPCs (their words: "like the poison pods,"
+  i.e. the swarm adds) — the player should move exactly how it did before
+  this session's work started.
+- **Fix**: reverted the player specifically back to the original
+  constant-speed pursuit (`st.player.target` + `MOVE_SPEED.player`, "same
+  law as `voxel.js`," pulled verbatim from the pre-session commit
+  (`c074ff2`) rather than reinvented) — restored `MOVE_SPEED` (now
+  player-only; the enemy no longer needs a speed constant since it stays on
+  the interpolation layer), `st.player.target` seeding at actor-init, the
+  old constant-speed movement block inside `loop()`, and
+  `setBattlePositions` writing `st.player.target` directly instead of
+  calling `applySnapshot` for the player. The enemy/boss and swarm adds are
+  untouched — they keep the snapshot-interpolation layer, `snapFrom`/
+  `snapTo`/`snapT0`, and the `discontinuous`-flag snap behavior exactly as
+  the prior pass built it, since those were never the reported problem.
+  `BattleScene.razor`/`GameState.cs`/`GameTickService.cs` (the C# side —
+  `LogEntryKind.PlayerTeleport`, the Lunge marker, the diff-to-flag
+  plumbing) needed no changes: the flag is still computed and sent for the
+  player, `toon.js` just no longer reads it for that entity. Left it wired
+  rather than removed in case the player ever rejoins the layer later.
+- **Root cause, why this wasn't caught during the previous pass's live
+  verification**: that pass's Playwright check drove the *renderer's*
+  internal `snapFrom`/`snapTo`/`pos` state directly and confirmed the math
+  inside `interpolateSnapshot` was internally consistent (monotonic lerp,
+  correct facing) — which it was. It never compared the *feel* of the new
+  model against the old one from a player-experience standpoint, only that
+  the new code did what it was designed to do. The math was correct; the
+  design decision to apply it to the player was the actual defect, and
+  algorithmic self-consistency checks can't catch a scope mistake like
+  that — only playtest feedback could.
+- **No C# test impact**: no C# files changed this pass, so the existing
+  80/80 stayed green (re-run to confirm no incidental regression). Live
+  Playwright re-verification: read `st.player.target`/`.pos` every ~100-200ms
+  across an ordered multi-tile move and confirmed `pos` now chases `target`
+  at constant speed and holds once it arrives (matching the pre-session
+  model), rather than a fixed-duration lerp.
+- **No design-doc change** — same reasoning as the prior pass; this is a
+  renderer-internals correction, not a documented mechanic/number change.
