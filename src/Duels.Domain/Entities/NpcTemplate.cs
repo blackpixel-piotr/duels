@@ -14,8 +14,11 @@ public sealed record RotationStep(int Tick, string Action);
 /// rolls 60–100% of it each cast (items doc §1). Boss attacks always land (no
 /// accuracy roll) unless dodged positionally, then fully negated by a matching
 /// protection prayer (unless Unprayable). Mechanic/hazard damage (eruptions,
-/// Rot Burst) and DoTs are deterministic — they never roll a band.</summary>
-public sealed record BossAttackDef(string Id, string Name, AttackType Style, int Damage, bool Unprayable = false);
+/// Rot Burst) and DoTs are deterministic — they never roll a band.
+/// ProjectileSpeedTiles only matters for Ranged/Magic (melee never travels as
+/// a projectile — cast tick == impact tick already); 3.0 is the Global Combat
+/// Grammar default, per-attack overridable for a future slow/fast special.</summary>
+public sealed record BossAttackDef(string Id, string Name, AttackType Style, int Damage, bool Unprayable = false, double ProjectileSpeedTiles = 3.0);
 
 /// <summary>A boss's per-style Evasion (items doc §1 / Global Combat Grammar):
 /// percentage points subtracted from a player's hit chance for the doctrine
@@ -140,6 +143,31 @@ public sealed class AddInstance
 
     public void MoveTo((int X, int Z) tile) => Tile = tile;
     public void TakeDamage(int amount) => CurrentHp = Math.Max(0, CurrentHp - amount);
+}
+
+/// <summary>A boss's Ranged/Magic attack in flight (Boss Bible "Global Combat
+/// Grammar": simulated, homing, sim-authoritative position — not a fixed tick
+/// countdown). Advances toward the player's live tile every tick at its
+/// attack's ProjectileSpeedTiles; X/Z are fractional tile coordinates (not
+/// the integer combatant-tile grid) so it can move at a real speed and feed
+/// the renderer's smooth interpolation. Melee never creates one of these —
+/// it resolves synchronously, cast tick == impact tick.</summary>
+public sealed class InFlightProjectile
+{
+    public string Id { get; }
+    public double X { get; private set; }
+    public double Z { get; private set; }
+    public BossAttackDef Attack { get; }
+
+    public InFlightProjectile(string id, double x, double z, BossAttackDef attack)
+    {
+        Id = id;
+        X = x;
+        Z = z;
+        Attack = attack;
+    }
+
+    public void MoveTo(double x, double z) { X = x; Z = z; }
 }
 
 public sealed class NpcInstance

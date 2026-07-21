@@ -87,13 +87,19 @@ public sealed class MaggotKingTests
         var (svc, state, _) = Build();
         int hpBefore = state.Player.CurrentHp;
 
-        await Tick(svc); // RotationTick 0 CASTS Bile Spit — a 2-tick magic projectile, not instant damage
+        await Tick(svc); // RotationTick 0 CASTS Bile Spit — a homing magic projectile, not instant damage
 
         Assert.Equal(hpBefore, state.Player.CurrentHp); // still in flight, no damage yet
-        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.BossCast && e.Message == "magic:2");
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.BossCast && e.Message == "magic");
 
+        // Spawn tile (King's nearest footprint tile) to the default player
+        // spawn (0,3) is Euclidean distance exactly 6.0; at the default
+        // 3 tiles/tick, that's exactly 2 ticks of flight — same tick count
+        // as the old fixed constant, for this one specific placement (see
+        // RangedAttack_FlightTimeScalesWithDistance for a placement where it
+        // isn't 2).
         await Tick(svc); // in flight
-        await Tick(svc); // impact — exactly 2 ticks after cast
+        await Tick(svc); // impact — exactly 2 ticks after cast at this distance
 
         Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.NpcHit && e.Message.Contains("Bile Spit"));
         Assert.Equal(hpBefore - 18, state.Player.CurrentHp); // Medium band, no prayer/gear mitigation
@@ -157,6 +163,48 @@ public sealed class MaggotKingTests
         await Tick(svc); // impact — prayer active NOW is what matters
 
         Assert.Equal(hpBefore, state.Player.CurrentHp);
+    }
+
+    [Fact]
+    public async Task RangedAttack_FlightTimeScalesWithDistance()
+    {
+        // Distance-scaled flight (Boss Bible amendment): a closer player is
+        // hit sooner than the far-corner default (6.0 tiles / 2 ticks —
+        // Phase1_FiresBileSpitAtRotationTick0). Positioned so the King's
+        // Euclidean-nearest footprint tile (0,-3) is exactly 3.0 away — one
+        // full speed-step at the 3.0 tiles/tick default, so impact lands
+        // the very next tick after cast instead of two ticks later.
+        var (svc, state, _) = Build();
+        state.SetPlayerTile(0, 0);
+        int hpBefore = state.Player.CurrentHp;
+
+        await Tick(svc); // T0 casts Bile Spit from (0,-3), 3.0 away
+        Assert.Equal(hpBefore, state.Player.CurrentHp); // still in flight this tick
+
+        await Tick(svc); // exactly 1 tick of flight — arrives here, not 2
+
+        Assert.Equal(hpBefore - 18, state.Player.CurrentHp);
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.HitsplatNpc && e.Message == "18:normal:magic");
+    }
+
+    [Fact]
+    public async Task RangedAttack_MinimumOneTickFlight_EvenAtPointBlankRange()
+    {
+        // Minimum 1 tick of flight (Boss Bible amendment): even a point-
+        // blank cast — the player standing directly on the King's nearest
+        // footprint tile, 0.0 away — never resolves on its own cast tick.
+        // ProcessTick's pipeline order (AdvanceProjectiles runs before this
+        // tick's new casts are spawned) guarantees this for free.
+        var (svc, state, _) = Build();
+        state.SetPlayerTile(0, -3); // one of the King's own footprint tiles
+        int hpBefore = state.Player.CurrentHp;
+
+        await Tick(svc); // T0 casts Bile Spit AT the player's own tile — 0.0 away
+        Assert.Equal(hpBefore, state.Player.CurrentHp); // never resolves same-tick as cast
+
+        await Tick(svc); // the following tick — arrives here
+
+        Assert.Equal(hpBefore - 18, state.Player.CurrentHp);
     }
 
     [Fact]
@@ -450,7 +498,7 @@ public sealed class MaggotKingTests
         Assert.Equal(2, npc.Phase);
         for (int i = 0; i < 3; i++) await Tick(svc); // tick past the transition roar
 
-        state.ClearPendingAttacks();
+        state.ClearProjectiles();
         npc.StartRotBurstInhale(1); // resolves on the next master tick
         int hpBefore = state.Player.CurrentHp;
 
@@ -476,7 +524,7 @@ public sealed class MaggotKingTests
         await Tick(svc); // pool -> scorch
         Assert.True(state.IsScorch(state.PlayerTile));
 
-        state.ClearPendingAttacks();
+        state.ClearProjectiles();
         npc.StartRotBurstInhale(1);
         int hpBefore = state.Player.CurrentHp;
 

@@ -146,4 +146,25 @@ public sealed class WeaponSwapBufferTests
         Assert.Equal("sword_c", state.Player.GetEquippedWeaponId());
         Assert.Null(state.PendingWeaponSwapId);
     }
+
+    // UI bible §3.2: "Tap = swap (resolves same tick...)" — no confirm/
+    // double-tap step is described. A prior implementation pass added an
+    // undocumented auto-revert (scheduled right after the swap's queued
+    // attack fired) that silently required a second tap to keep a swap
+    // permanent; this test guards against that regressing.
+    [Fact]
+    public async Task Swap_PersistsPastTheQueuedAttack_NoAutoRevert()
+    {
+        var (svc, state, handler) = Build();
+        // Build()'s dummy spawns 6 tiles away and Build() holds the player at
+        // spawn — place the player cardinal-adjacent to the dummy's single-
+        // tile footprint so the queued attack the swap triggers actually
+        // resolves this same tick, instead of taking several ticks to chase.
+        state.SetPlayerTile(1, -2);
+
+        await handler.HandleAsync(new WeaponShortcutCommand("p1", "sword_b")); // also Engage()s, clearing HoldPosition
+        await Tick(svc); // resolves the queued attack the swap triggered
+
+        Assert.Equal("sword_b", state.Player.GetEquippedWeaponId());
+    }
 }

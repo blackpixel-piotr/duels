@@ -156,7 +156,7 @@
     {
         if (State?.Player is not { } player) yield break;
         var equippedId = player.GetEquippedWeaponId();
-        var primaryId  = State?.RevertWeaponId ?? equippedId;
+        var primaryId  = equippedId;
 
         for (int i = 0; i < 4; i++)
         {

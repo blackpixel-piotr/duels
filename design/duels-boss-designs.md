@@ -34,7 +34,7 @@ Player damage: an accuracy roll (Precision + style mod vs the target's per-style
 **Prayer grammar**
 A protection prayer matching the incoming attack's style **fully negates that hit (100% block)** — full negation, not mitigation, is what makes flicking the correct-color prayer feel decisive rather than just a damage slider. This is the baseline every boss's attacks assume unless explicitly marked **Unprayable** (ground hazards, channeled arena-wide blasts, and similar mechanics that ignore prayer outright and must be dodged positionally instead). The *Doubt* invocation (see Invocations doc) is the only thing that weakens this to a 75% block — it's a curse precisely because it breaks the base rule.
 
-Protection prayers are evaluated on the impact tick, never the cast tick. Ranged/magic boss attacks travel as doctrine-colored projectiles with 2 ticks of flight; the projectile is the primary flick cue. The projectile homes in on the player's current tile every frame, not the tile they stood on at cast — these are never positionally dodgeable, only prayer-blockable, and the visual shouldn't imply otherwise by flying toward a tile the player has since left. Tier-1 bosses telegraph style changes 3 ticks ahead; 2 is standard; 1 is invocation-tier. A doctrine color is a promise: red-orange, green, and blue only ever appear on a telegraph when that specific style is what's actually coming. A telegraph whose resolved style genuinely isn't known yet (e.g. a position-dependent choice like Lash-if-adjacent/Grub-Volley-if-not) glows a neutral amber instead — never a doctrine color standing in for "maybe," since a player who's learned the doctrine palette elsewhere will read it as a commitment the boss isn't making.
+Protection prayers are evaluated on the impact tick, never the cast tick. Ranged/magic attacks travel as simulated doctrine-colored projectiles at ~3 tiles/tick, homing; impact and prayer evaluation occur on the arrival tick, so flight time scales with distance. Homing attacks are answered by prayer; ground-target attacks are answered by movement. The projectile itself is the primary flick cue. A homing projectile tracks the player's current tile every tick, not the tile they stood on at cast — it's never positionally dodgeable, only prayer-blockable, and the visual shouldn't imply otherwise by flying toward a tile the player has since left. Ground-target mechanics (eruptions, Rot Burst, and similar Unprayable hazards) are the opposite: they ignore prayer outright and are answered purely by relocating off the marked tile. Tier-1 bosses telegraph style changes 3 ticks ahead; 2 is standard; 1 is invocation-tier. A doctrine color is a promise: red-orange, green, and blue only ever appear on a telegraph when that specific style is what's actually coming. A telegraph whose resolved style genuinely isn't known yet (e.g. a position-dependent choice like Lash-if-adjacent/Grub-Volley-if-not) glows a neutral amber instead — never a doctrine color standing in for "maybe," since a player who's learned the doctrine palette elsewhere will read it as a commitment the boss isn't making.
 
 **Master-script rule.** Every boss phase runs on one master tick script.
 Independent mechanic timers are forbidden — overlapping demands must be
@@ -78,9 +78,9 @@ Minigame pool: bosses 1–7 (Gale Roc and Millstone use slightly shrunk arenas i
 Attack rotation on a fixed 20-tick loop. Maggot King is Tier 1, so its style
 telegraphs lead by **3 ticks** (Global Combat Grammar's Tier-1 baseline) —
 Bile Spit and Grub Volley also travel as their own doctrine-colored
-projectiles per that same section, each with 2 ticks of flight and their
-own impact-tick prayer check, independent of whether a style-shift
-telegraph happens to precede them:
+projectiles per that same section — homing, ~3 tiles/tick, with their own
+impact-tick prayer check that scales with the player's distance at cast,
+independent of whether a style-shift telegraph happens to precede them:
 
 | Tick | Action | Details |
 |---|---|---|
@@ -115,7 +115,7 @@ Transition at 50%: 3-tick roar (all in-flight marks/projectiles cleared), first 
 
 **Rot Burst cycle (every 3rd cycle):** T0–T7 as standard → T10 inhale begins (4-tick swell; **all active pools instantly burn out into scorch tiles** — safe ground is guaranteed and visible from the inhale's first tick) → T14 Rot Burst: arena-wide fixed Severe, unprayable, safe only on scorch → T15–T19 slump (punish window: +25% damage, no actions) → T20 style telegraph → T23 attack → T24–T27 idle → resume standard cycle 1.
 
-**Attack resolution:** magic bile and grub volley are doctrine-colored projectiles, impact 2 ticks after cast, prayer checked on impact. Lash is instant melee on the cast tick, chosen at cast only if the player is adjacent; otherwise the attack is grub volley. Autos roll 60–100% of Medium; all mechanic damage (eruptions, Rot Burst, pools) is fixed.
+**Attack resolution:** magic bile and grub volley are homing doctrine-colored projectiles (~3 tiles/tick); impact tick — and so prayer timing — scales with distance to the player at cast, prayer checked on arrival. Lash is instant melee on the cast tick, chosen at cast only if the player is adjacent; otherwise the attack is grub volley. Autos roll 60–100% of Medium; all mechanic damage (eruptions, Rot Burst, pools) is fixed.
 
 **Board economy:** pools last 20 ticks, then expire into scorch; hard cap 8 concurrent pools (oldest converts early). Scorch tiles persist 40 ticks, then revert to clean floor.
 

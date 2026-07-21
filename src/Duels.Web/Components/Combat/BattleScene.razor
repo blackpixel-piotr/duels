@@ -452,6 +452,12 @@
             // Swarm adds (m1-plan Workstream C.7).
             await JS.InvokeVoidAsync("voxel.setBattleAdds", "battle-canvas",
                 s.Adds.Select(a => new { id = a.Id, x = a.Tile.X, z = a.Tile.Z, hpPct = a.MaxHp > 0 ? a.CurrentHp * 100 / a.MaxHp : 0, discontinuous = false }).ToArray());
+            // Sim-authoritative boss projectiles (Global Combat Grammar:
+            // homing, ~3 tiles/tick) — position-synced every render, same
+            // shape as the adds above, through the renderer's generic NPC
+            // interpolation layer.
+            await JS.InvokeVoidAsync("voxel.setBattleProjectiles", "battle-canvas",
+                s.Projectiles.Select(p => new { id = p.Id, x = p.X, z = p.Z, style = StyleClass(p.Attack.Style) }).ToArray());
         }
 
         // Overhead prayer icons (billboarded in-world sprite); send only on change.
@@ -481,24 +487,15 @@
                 continue;
             }
             // Impact-resolution prayer (Global Combat Grammar): a ranged/magic
-            // attack's cast tick fires this — the windup animation AND the
-            // doctrine-colored projectile launch — well before its hitsplat
-            // shows up (that lands ProjectileFlightTicks ticks later, at
-            // impact). Reuses the same 'enemyAttack' JS handler a melee hit
-            // uses for its (instant, same-tick) swing; toon.js tells them
-            // apart by style, spawning a projectile only for ranged/magic.
+            // attack's cast tick fires this — just the windup animation now;
+            // the projectile itself is driven by the sim-authoritative
+            // entity sync (setBattleProjectiles), not this event. Reuses the
+            // same 'enemyAttack' JS handler a melee hit uses for its
+            // (instant, same-tick) swing — toon.js tells them apart by style.
             if (e.Kind == LogEntryKind.BossCast)
             {
-                var castParts = e.Message.Split(':');
                 await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
-                    new
-                    {
-                        type = "enemyAttack",
-                        style = castParts[0],
-                        tier = "normal",
-                        weapon = (string?)null,
-                        ticks = castParts.Length > 1 && int.TryParse(castParts[1], out var ct) ? ct : 2,
-                    });
+                    new { type = "enemyAttack", style = e.Message, tier = "normal", weapon = (string?)null });
                 continue;
             }
             if (e.Kind is not (LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)) continue;
@@ -522,12 +519,11 @@
             string? npcStyle = !onEnemy && parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
 
             // A ranged/magic NPC hitsplat is this attack's IMPACT — its swing
-            // + projectile already played back at the earlier BossCast event
-            // (ProjectileFlightTicks ticks ago), so re-firing 'enemyAttack'
-            // here would double the animation and spawn a second projectile
-            // right on top of the first one landing. Melee never has a cast
-            // phase (impact tick == cast tick), so it still fires here as
-            // its only trigger, unchanged.
+            // already played back at the earlier BossCast event (however
+            // many ticks of flight ago the projectile actually took), so
+            // re-firing 'enemyAttack' here would double the animation.
+            // Melee never has a cast phase (impact tick == cast tick), so it
+            // still fires here as its only trigger, unchanged.
             bool alreadyAnimatedAtCast = !onEnemy && npcStyle is "ranged" or "magic";
 
             // DoT ticks and ground hazards aren't attacks — no swing, just

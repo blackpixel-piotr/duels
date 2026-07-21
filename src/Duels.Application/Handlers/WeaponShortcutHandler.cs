@@ -57,8 +57,6 @@ public sealed class WeaponShortcutHandler : ICommandHandler<WeaponShortcutComman
             // if a prior move order left the player holding position.
             state.Engage();
             state.SetQueuedAction("attack");
-            // If mid-duel weapon swap, schedule a revert to the previous weapon after this tick
-            state.SetRevertWeapon(switching ? previousWeapon : null);
         }
 
         await _stateRepo.SaveAsync(state, ct);

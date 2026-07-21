@@ -129,17 +129,6 @@ public sealed class GameTickService : IDisposable
             await ExecutePlayerAction(state, player, npc, action);
             state.ResetPlayerCooldown(GetPlayerWeaponSpeed(player));
             state.SetQueuedAction(null);
-
-            if (state.RevertWeaponId is { } revertId)
-            {
-                if (player.HasItem(revertId))
-                {
-                    player.Equip(revertId, EquipmentSlot.Weapon);
-                    var revertName = _items.GetItemName(revertId) ?? revertId;
-                    state.AppendLog($"You switch back to your {revertName}.", LogEntryKind.Info);
-                }
-                state.SetRevertWeapon(null);
-            }
         }
 
         if (!npc.IsAlive)
@@ -154,13 +143,15 @@ public sealed class GameTickService : IDisposable
         if (!state.EnemyFrozen)
         {
             // Impact-resolution prayer (Global Combat Grammar): in-flight
-            // ranged/magic attacks land here, against THIS tick's fresh
-            // TickStartProtection — before ProcessBossScript can queue a
-            // brand new one this same tick, same reasoning as TickForecast
-            // below (a freshly-cast 2-tick attack must not immediately
-            // decrement on its own casting tick).
+            // ranged/magic projectiles advance/arrive here, against THIS
+            // tick's fresh TickStartProtection and this tick's already-
+            // updated PlayerTile (movement ran earlier, above) — before
+            // ProcessBossScript can spawn a brand new one this same tick,
+            // same reasoning as TickForecast below (a projectile cast this
+            // tick must not immediately advance on its own casting tick —
+            // that's what guarantees at least 1 tick of flight).
             int logCountBeforeRotation = state.CombatLog.Count;
-            foreach (var impact in state.TickPendingAttacks())
+            foreach (var impact in state.AdvanceProjectiles(state.PlayerTile))
                 ResolveBossAttack(state, player, npc, impact);
 
             // Forecast countdown must land before the boss script can set a
@@ -527,7 +518,7 @@ public sealed class GameTickService : IDisposable
         // first swarm pair spawns; the phase's board economy (pool cap) applies.
         npc.StartRoar(3);
         state.ClearHazardWarnings();
-        state.ClearPendingAttacks();
+        state.ClearProjectiles();
         state.SetPoolCap(phase.PoolCap);
         if (state.IsMechanicEnabled(BossMechanic.Swarms))
             SpawnSwarmsUpTo(state, phase, phase.SwarmMaxAlive);
@@ -600,7 +591,7 @@ public sealed class GameTickService : IDisposable
         var attackId = ResolveAttackId(state, styleId);
         var attack = npc.Template.Script!.Attacks[attackId];
         if (attack.Style is AttackType.Ranged or AttackType.Magic)
-            LaunchProjectileAttack(state, attack);
+            SpawnProjectileAttack(state, attack);
         else
             ResolveBossAttack(state, player, npc, attack);
     }
@@ -666,28 +657,30 @@ public sealed class GameTickService : IDisposable
         if (!state.IsMechanicEnabled(BossMechanic.BossAutos)) return;
 
         // Global Combat Grammar "impact-resolution prayer": ranged/magic
-        // attacks travel as a 2-tick doctrine-colored projectile — damage
-        // (and the protection-prayer check) lands on the impact tick, not
-        // this cast tick. Melee has no travel time and still resolves here,
-        // instantly, exactly as before.
+        // attacks travel as a homing doctrine-colored projectile — damage
+        // (and the protection-prayer check) lands on the tick it actually
+        // arrives, not this cast tick. Melee has no travel time and still
+        // resolves here, instantly, exactly as before.
         if (attack.Style is AttackType.Ranged or AttackType.Magic)
-            LaunchProjectileAttack(state, attack);
+            SpawnProjectileAttack(state, attack);
         else
             ResolveBossAttack(state, player, npc, attack);
     }
 
-    // Boss Bible: "Ranged/magic boss attacks travel as doctrine-colored
-    // projectiles with 2 ticks of flight; the projectile is the primary
-    // flick cue." Cast-time only queues the impact and fires the visual —
-    // no damage, no prayer check, no hitsplat yet. ResolveBossAttack (and
-    // therefore GetPrayerReduction's read of TickStartProtection) doesn't
-    // run until the impact tick, via ProcessTick's TickPendingAttacks loop.
-    private const int ProjectileFlightTicks = 2;
-
-    private void LaunchProjectileAttack(GameState state, BossAttackDef attack)
+    // Boss Bible: "Ranged/magic attacks travel as simulated doctrine-colored
+    // projectiles at ~3 tiles/tick, homing; impact and prayer evaluation
+    // occur on the arrival tick, so flight time scales with distance." Cast
+    // time only spawns the sim-authoritative projectile (at the caster's
+    // nearest footprint tile) and fires the cast visual — no damage, no
+    // prayer check, no hitsplat yet. ResolveBossAttack (and therefore
+    // GetPrayerReduction's read of TickStartProtection) doesn't run until
+    // the projectile actually arrives, via ProcessTick's AdvanceProjectiles
+    // loop.
+    private void SpawnProjectileAttack(GameState state, BossAttackDef attack)
     {
-        state.QueuePendingAttack(attack, ProjectileFlightTicks);
-        state.AppendLog($"{StyleToken(attack.Style)}:{ProjectileFlightTicks}", LogEntryKind.BossCast);
+        var spawnTile = NearestFootprintTileEuclidean(state, state.PlayerTile);
+        state.SpawnProjectile(spawnTile, attack);
+        state.AppendLog(StyleToken(attack.Style), LogEntryKind.BossCast);
     }
 
     private static string ResolveAttackId(GameState state, string action)
@@ -714,9 +707,9 @@ public sealed class GameTickService : IDisposable
     }
 
     // Actually lands the damage — called synchronously for melee (cast tick
-    // == impact tick) and from ProcessTick's TickPendingAttacks loop for a
-    // ranged/magic attack's impact tick, 2 ticks after LaunchProjectileAttack
-    // queued it. Either way, ResolveIncomingDamage reads whatever
+    // == impact tick) and from ProcessTick's AdvanceProjectiles loop for a
+    // ranged/magic attack, on whichever tick its projectile actually travels
+    // far enough to arrive. Either way, ResolveIncomingDamage reads whatever
     // TickStartProtection is fresh THIS tick — that's the whole point.
     private void ResolveBossAttack(GameState state, Player player, NpcInstance npc, BossAttackDef attack)
     {
@@ -1184,6 +1177,15 @@ public sealed class GameTickService : IDisposable
 
     private static int Chebyshev((int X, int Z) a, (int X, int Z) b) =>
         Math.Max(Math.Abs(a.X - b.X), Math.Abs(a.Z - b.Z));
+
+    // A projectile's own motion is Euclidean (a real speed in tiles/tick),
+    // so its spawn point should be the Euclidean-nearest footprint tile to
+    // the caster, not the Chebyshev-nearest DistanceToNpc already uses for
+    // range gating — the two can diverge on an off-axis approach to an
+    // irregular footprint (moot for Maggot King's symmetric 2x2, but keeps
+    // this correct for a future boss with an asymmetric one).
+    private static (int X, int Z) NearestFootprintTileEuclidean(GameState state, (int X, int Z) from) =>
+        state.NpcFootprintTiles().OrderBy(t => Math.Pow(from.X - t.X, 2) + Math.Pow(from.Z - t.Z, 2)).First();
 
     private static List<(int X, int Z)>? Bfs(GameState state, (int X, int Z) from,
                                              (int X, int Z) goal, (int X, int Z) avoid)

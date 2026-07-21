@@ -1841,3 +1841,128 @@ Both confirmed as real bugs, not user error.
   model), rather than a fixed-duration lerp.
 - **No design-doc change** — same reasoning as the prior pass; this is a
   renderer-internals correction, not a documented mechanic/number change.
+
+## Twenty-eighth pass: weapon-swap single-tap fix + sim-authoritative homing projectiles (M1 revision, design-authority request)
+
+- **Two independent corrections from the design authority**, both fixing
+  places where a prior pass had drifted from the documented design; planned
+  via `EnterPlanMode` (two Explore agents + one Plan agent, all read-only,
+  cross-validating each other's findings against the actual code before any
+  edit) given the scope, then implemented after explicit user approval.
+- **Weapon quick-slot swap**: UI bible §3.2 says "Tap = swap (resolves same
+  tick...)" with no confirm/double-tap language. A prior pass had
+  `WeaponShortcutHandler` unconditionally schedule `RevertWeaponId` on
+  every swap, which `GameTickService` then used to silently re-equip the
+  PREVIOUS weapon right after the swap's queued attack fired — meaning a
+  single tap never actually stuck; only a second tap on the same slot
+  (which cancels the pending revert) made it permanent. This was
+  undocumented and untested (`WeaponSwapBufferTests.cs` only ever covered
+  the separate, correct "max one swap per tick, extra taps buffer" gate,
+  never the revert). Removed the whole `RevertWeaponId` mechanism
+  (`GameState`, `WeaponShortcutHandler`, `GameTickService`,
+  `ActionHud.razor`'s primary-slot display) — a tap now just swaps and
+  stays swapped, matching the bible exactly. New regression test:
+  `Swap_PersistsPastTheQueuedAttack_NoAutoRevert` — had to reposition the
+  player cardinal-adjacent to `Build()`'s dummy NPC first (the harness
+  spawns them 6 tiles apart with the player held at spawn, so the queued
+  attack would never actually resolve within one `Tick()` otherwise, and
+  the test would pass trivially either way without exercising the bug).
+- **Boss Ranged/Magic attacks — sim-authoritative homing projectiles**: the
+  old model was a pure tick countdown (`PendingBossAttack(Attack,
+  TicksLeft)`, a fixed `ProjectileFlightTicks = 2` for every Ranged/Magic
+  attack regardless of distance) with a purely cosmetic renderer-side lerp
+  that had no bearing on when damage actually landed — the two systems
+  only agreed because they both hardcoded the same constant. Replaced with
+  `InFlightProjectile` (new domain class, `Duels.Domain.Entities`,
+  fractional-tile `X`/`Z`) holding real position: `GameState.
+  SpawnProjectile` creates one at the boss's Euclidean-nearest footprint
+  tile to the player at cast time; `GameState.AdvanceProjectiles` each tick
+  moves it `attack.ProjectileSpeedTiles` (new optional `BossAttackDef`
+  field, default 3.0) toward the player's tile — Euclidean, not the
+  Chebyshev distance used everywhere else for range *gating*, since this
+  is real motion at a stated speed, not an eligibility check — and returns
+  attacks that arrived (Euclidean distance closed to within their own
+  speed) for `GameTickService` to resolve via the unchanged
+  `ResolveBossAttack`. Melee is completely untouched — it never routed
+  through this system, cast tick == impact tick as before. Ground-target
+  hazards (eruptions, Rot Burst) are equally untouched — still the
+  separate `Unprayable`/positionally-dodgeable family.
+  - **Minimum 1 tick of flight comes free from the existing pipeline
+    order**, not a special case: `ProcessTick` calls
+    `AdvanceProjectiles` (where a projectile is checked for arrival)
+    *before* `ProcessBossScript`/`ProcessMasterScript` (where a NEW
+    attack gets spawned) each tick, so nothing spawned this tick is ever
+    eligible for its own arrival check until next tick's call — true even
+    at distance 0 (a player standing directly on the boss's own footprint
+    tile), verified by a new test,
+    `RangedAttack_MinimumOneTickFlight_EvenAtPointBlankRange`.
+  - **Unique projectile ids matter now, not just for tidiness**: the old
+    fixed 2-tick flight meant Bile Spit's rotation cadence (≥4 ticks
+    between same-style casts) could never have two in flight
+    simultaneously. Distance-scaled flight can exceed that gap for a
+    kiting player at long range, so `GameState` gives every projectile a
+    monotonic id (`proj_{FightTicks}_{counter}`, never reused) rather than
+    a well-known singleton — a collision would have silently merged two
+    distinct projectiles onto one renderer mesh.
+  - **New test**, `RangedAttack_FlightTimeScalesWithDistance`: the
+    existing suite only ever ran at `Build()`'s one fixed default player
+    spawn, where distance-to-cast-tile happens to be exactly 6.0 (2 ticks
+    at 3.0/tick) — coincidentally identical to the OLD fixed constant, so
+    none of the pre-existing tests actually exercised distance-scaling.
+    Added a second placement (exactly 3.0 away → 1 tick) to prove flight
+    time actually varies.
+  - **Renderer**: added `setBattleProjectiles` (near-identical to the
+    existing `setBattleAdds` add/remove-by-id pattern) and a per-frame
+    update loop reusing the existing generic `interpolateSnapshot`/
+    `applySnapshot` NPC-interpolation layer (the one built two passes ago
+    for the boss/adds) — `GameState.Projectiles` feeds it every render via
+    `BattleScene.razor`, exactly like the adds list already does. The
+    `enemyAttack` battleEvent (fired from a `BossCast` log entry) now only
+    triggers the boss's windup animation; the OLD cosmetic
+    projectile-spawning code inside that handler (a fixed-duration lerp
+    computed from `evt.ticks`) was deleted, since a real position-synced
+    entity now owns that visual. Deliberately did NOT touch the style-
+    telegraph's own preview-projectile spawn (`setBattleTelegraph`, a
+    distinct "commit preview" fired well before the actual cast) or the
+    player's own outgoing ranged/magic attack projectile — neither was
+    named in the request, both stayed on the old cosmetic `st.projectiles`
+    system unchanged.
+  - **Cosmetic trade-off, flagged rather than decided silently**: the old
+    system's mid-flight arc (`sin(t*π)` height bump) was computed from a
+    known total flight duration to normalize against, which no longer
+    exists in the same form now that motion is tick-snapshot-driven. New
+    projectiles hold a constant height instead (simplest, correct, lowest
+    risk) — a renewed arc flourish is a candidate follow-up if it's missed
+    after playtesting, not something decided as part of this pass.
+  - **Boss bible updated** (`duels-boss-designs.md`): all three sites using
+    the old fixed "2 ticks of flight" language (Global Combat Grammar's
+    Prayer grammar section, the Phase 1 rotation-table intro, and Maggot
+    King's own Attack Resolution line) now read "homing... ~3 tiles/tick...
+    flight time scales with distance," per the design authority's supplied
+    amendment text spliced into the first site verbatim (the "evaluated on
+    the impact tick, never the cast tick" clause survives unchanged — that
+    part of the rule didn't change) and echoed consistently at the other
+    two. Other bosses' aspirational, unimplemented write-ups (Hive Matron,
+    Gale Roc) were left untouched — out of scope, no code exists for them
+    yet.
+- **Verified live via Playwright**: drove a fresh fight and polled
+  `toon.js`'s internal `projectileMeshes` map every 400ms. Watched a real
+  spawn→move→despawn cycle end to end: a projectile appeared at the King's
+  spawn tile in world coordinates, moved to an intermediate world position
+  on the next sample, then was gone (arrived) by the sample after that —
+  matching the expected ~1-2 tick flight for the observed cast distance,
+  with no JS console errors. Separately confirmed the weapon-swap fix live:
+  tapped the RANGED T1 quickslot, waited past the queued attack resolving
+  (~2.6s / several ticks), and the HUD's primary-weapon indicator stayed on
+  Ranged rather than reverting to Melee.
+- **Security note**: while researching this pass, two independent
+  read-only Explore subagents and this session itself each separately
+  encountered injected fake "system-reminder"-styled text embedded in tool
+  output — variously claiming a mandatory tool requirement, or that plan
+  mode had ended and an unrestricted "auto mode" was active. All three
+  correctly ignored it; no tool call ever acted on it, and plan approval
+  was obtained through the genuine `ExitPlanMode` flow (re-entered properly
+  after a real, harness-confirmed mode lapse, not a consequence of the
+  injected text) before any implementation began.
+- **83/83 tests pass** (was 80/80: +1 weapon-swap-persistence test, +2
+  projectile-flight tests), 0 build warnings/errors.
