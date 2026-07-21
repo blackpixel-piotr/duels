@@ -934,6 +934,85 @@ BossAutos/Eruptions/RotBurst — distinct from the existing `SoloRotBurst`
 helper, which disables Dots and would have broken the bleed-decrement
 assertion). 78/78 tests pass (was 76 + 2 new).
 
+## Twenty-first pass: camera pitch moved to one-finger drag (M1 revision)
+
+User playtest feedback: couldn't freely tilt the camera further up, and
+asked for camera pitch and yaw to both work with a single finger. Root cause
+and fix are JS-renderer-only (`toon.js`), no C# touched, so the .NET suite is
+unaffected (still 78/78).
+
+**Root cause.** Yaw (left/right orbit) was already a single-finger drag, but
+pitch (up/down tilt) only lived on the two-finger pinch gesture — its
+vertical-midpoint movement adjusted pitch *while simultaneously* also
+changing zoom from the pinch distance. Two problems fell out of that: pitch
+required a fiddly two-finger gesture to reach at all (awkward one-handed
+during combat), and the existing pitch ceiling (`1.4` rad, already close to
+fully top-down) was hard to actually reach because isolating pure vertical
+pinch-midpoint movement from the always-simultaneous distance change is
+finicky on a small screen. "Can't move the camera further up" and "I want
+one finger" turned out to be the same root cause, not two separate asks.
+
+**Fix.** Single-finger drag is now free-look: horizontal component drives
+yaw (unchanged), vertical component now also drives pitch (new), using the
+same `[0.25, 1.4]` clamp the pinch gesture used to enforce. Dragging up
+raises pitch (more top-down vantage); dragging down lowers it. Two-finger
+pinch is now zoom-only — pitch was removed from it entirely rather than
+left as a redundant/conflicting second control, since running both gestures
+against the same value would reintroduce the exact ambiguity being fixed.
+The portrait CSS-rotation axis swap (`viewRot === 90`) that already applied
+to yaw's single axis now applies to both axes.
+
+**A real (if narrow) robustness bug found and fixed while verifying this**:
+`canvas.setPointerCapture(e.pointerId)` in `onDown` was uncaught — on some
+browsers/pointer sequences it can throw `NotFoundError` for a pointer ID not
+recognized as actively down, and left unhandled that exception aborts the
+rest of `onDown`, silently dropping that pointer from pinch-gesture setup
+(the pinch state object never gets built, so the second finger of a pinch
+would do nothing). Wrapped in try/catch. Not something the user reported —
+found because it broke this pass's own Playwright verification (a
+synthetic second touch pointer reliably triggers Chromium's strict version
+of this check), fixed because working pinch-zoom was necessary to actually
+confirm the "pinch = zoom only" half of this fix.
+
+**Not documented in the UI bible**: checked first — the touch-gesture
+control scheme (one-finger vs. two-finger) was never part of its documented
+spec to begin with; the only related text is an §13 "Open Flags" note
+assuming "a fixed-angle ¾ isometric" camera and explicitly deferring the
+real scheme ("if the camera design differs, HUD anchors are unaffected").
+This pass refines an already-undocumented implementation detail, not a
+deviation from written spec, so no doc edit was needed — logged here
+instead, per the standing convention that findings.md is where
+implementation-level decisions live.
+
+**Verification**: live Playwright pass driving synthetic `PointerEvent`s
+directly at the canvas (exercising the exact `onDown`/`onMove` code path a
+real touch would). Confirmed independently: a one-finger vertical drag
+raises `camPitch` (0.62 → 1.1 after one drag); a one-finger horizontal drag
+still changes `yaw`; a two-finger pinch changes `zoom` (1 → 1.8) while
+`camPitch` stays byte-for-byte unchanged (no more cross-talk); six repeated
+one-finger upward drags reach the ceiling exactly (`1.4`) with room to
+spare, confirming the "can't get it further up" complaint is resolved by
+removing the friction, not by widening the numeric range. Zero page errors.
+A screenshot at the reached ceiling shows a clean top-down view with no
+degenerate geometry, both floating HP bars (twentieth pass) still correctly
+positioned.
+
+**Answering the standing-process question directly**: yes, every pass this
+session has updated the relevant `/design/*.md` file(s) in place (verbatim
+where the user supplied exact text, in-place edits/additions otherwise) in
+the same commit as the code, *and* logged a numbered pass entry to this file
+— not just when asked, per CLAUDE.md's explicit standing instruction. As of
+this pass: `duels-boss-designs.md` (Global Combat Grammar's Prayer grammar +
+Master-script rule + Damage rolls, Maggot King's full P1 table and P2's
+28-tick master script, pre-M5 audit flags), `duels-items.md` (§1 Combat Math
+Baseline — prayer/impact-tick rule, damage-roll/Evasion rule), and
+`duels-ui-design.md` (§3.3 prayer strip/overhead icon/blocked-hits/in-world
+HP bars/add-targeting) are all current with everything shipped through the
+twentieth pass. This file (`m1-findings.md`) is the complete chronological
+record of every deviation, assumption, and revision — it's the first place
+to check before starting new work, and where any state predating a pass
+described here is what's now shipped on `claude/text-duel-game-3t4vkf`.
+
 ## Thirteenth pass: prayer drain cut to a third (M1 revision)
 
 User playtest feedback: prayer drain felt too aggressive. m1-plan.md's D7
