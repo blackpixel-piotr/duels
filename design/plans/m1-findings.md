@@ -1088,7 +1088,79 @@ within 0.0001 rad after 300ms (proving the easing settles quickly rather
 than drifting or getting stuck lagging). Repeated the same before/after
 lag check for wheel-driven zoom with the same result. Zero page errors.
 
-User playtest feedback: prayer drain felt too aggressive. m1-plan.md's D7
+## Twenty-fourth pass: inverted touch yaw drag, added camera-follow smoothing (M1 revision + one real fix caught during verification)
+
+Two-part user request, immediate follow-up to the twenty-third pass: (1)
+invert left/right yaw drag direction for touch, and (2) clarifying that the
+"lerp" ask two passes ago was actually about the camera's FOLLOW of the
+player's *position* while running — not the yaw/pitch/zoom rotation easing
+already shipped (which the user explicitly said to keep). "Run one way, spin
+180°, run back — the camera should smooth that, but catch up fast enough
+that it doesn't compound." JS-renderer-only, no C# touched (78/78 .NET suite
+unaffected).
+
+**Yaw inversion**: one-line sign flip. `st.yawTarget = st.drag.yaw0 -
+alongYaw * 0.010` (was `+`) — dragging right now orbits the camera the
+opposite way from the twenty-first pass's behavior. Verified live: an
+identical 100px rightward drag that previously produced `yawTarget` delta
+`+1.0` now produces `-1.0`, exactly inverted.
+
+**Camera-follow smoothing**: new `st.camFocus = {wx, wz}` — the camera's
+OWN tracked anchor point, distinct from `st.player.pos` (the character's
+already-smoothly-animated world position, driven by its own
+constant-*velocity* pursuit of `st.player.target`). The camera used to read
+`st.player.pos` directly every frame; now it reads `st.camFocus`, which
+itself eases toward `st.player.pos` each frame via the same `Math.min(1,
+dt*rate)` idiom used for yaw/pitch/zoom. This is a second, independent layer
+of smoothing on top of the character's own already-smooth position — the
+character's constant-speed pursuit means POSITION never jumps, but its
+DIRECTION (velocity vector) can reverse instantly the moment a new move
+order arrives; the camera pivoting on that raw position was still whipping
+around exactly as hard as the reversal itself, one derivative removed from
+the pre-twenty-first-pass yaw/pitch problem but the same underlying
+complaint. `camFocus` initialized to the player's spawn position (avoids an
+initial swoop-in on mount).
+
+**A real bug in my own first cut, caught during verification, not by the
+user**: chose rate `20` initially (deliberately faster than yaw/pitch's
+`16`, reasoning "this needs to feel snappier since it's a position the
+player is actively watching themselves control"). Testing exposed that at
+the render loop's *existing* dt cap (`0.05`s — pre-existing, guards frame
+hitches, untouched by me), `rate*dt = 20*0.05 = 1.0` exactly — meaning a
+single capped frame (a real possibility on the mobile hardware this
+mobile-first game targets, not just a test-environment quirk) fully
+resolves the gap in one step, an instant snap dressed up as easing. Yaw/
+pitch's rate of `16` doesn't have this problem (`16*0.05=0.8`, always
+leaves a remainder) — that's *why* it was chosen there, a constraint I
+hadn't consciously carried over when picking a different rate for a
+different value. Fixed by lowering to `18` (`18*0.05=0.9` — always leaves a
+10% remainder even in the worst case, while still resolving faster than
+yaw/pitch under normal frame timing, matching "quick enough that it
+doesn't compound"). General lesson for this codebase, worth remembering for
+any *future* per-frame damping constant: rate must stay under `1/capDt`
+(here, under 20) or the cap silently turns "ease toward" into "snap to" on
+any frame slow enough to hit it.
+
+**Verification methodology note**: this headless CDP-driven test
+environment's own `requestAnimationFrame` runs far slower than a real 60fps
+device (observed 40–150ms between frames, confirmed by timestamping my own
+`rAF` samples) — meaning *every* frame here hits the dt cap regardless of
+rate, which is exactly what exposed the rate-20 bug above but also means
+naive multi-frame sampling doesn't show gradual real-device decay, only the
+worst-case-repeated-every-frame case. Used that property productively: with
+the corrected rate, froze `player.pos`/`target` (avoiding Blazor's real
+render-diff loop reassigning `target` mid-test) and displaced `camFocus` by
+`10` units, then sampled 20 consecutive rAF frames inside one `evaluate`
+call (no Playwright IPC gap between samples, unlike an earlier attempt that
+falsely showed a mid-test jump — that was `setBattlePositions` reassigning
+`player.target` to a fresh object, a test-setup gap, not a code bug).
+Result: frame 0 = `1.0000` (exactly the predicted worst-case 10% remainder,
+`10*(1-0.9)`), then a clean geometric decay each subsequent frame — `0.1,
+0.01, 0.001, 0.0001`, converging to `0` by frame 5 — textbook first-order
+lag behavior, monotonic, no overshoot, no snap. On a real 60fps device
+(dt≈0.0167s, `focusK≈0.3`), this converges over several genuinely-visible
+frames rather than in one worst-case step. Final smoke screenshot confirms
+the battle scene renders normally post-fix with zero page errors.
 decision explicitly flagged the 2 pts/tick (protection) and 1 pt/tick
 (boost) numbers as "provisional/tunable" going in — this is exactly that
 tuning pass, not a bug fix, so it's logged here rather than by editing the
