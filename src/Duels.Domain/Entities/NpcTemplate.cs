@@ -60,7 +60,18 @@ public sealed record BossPhaseDef(
     EruptionDef Eruption,
     RotBurstDef? RotBurst = null,
     IReadOnlyList<SwarmWaveDef>? Swarms = null,
-    int TelegraphLeadTicks = 2);
+    int TelegraphLeadTicks = 2,
+    // Master-script phase (Global Combat Grammar "Master-script rule"): the
+    // whole phase runs on one fixed-tick clock with no independent mechanic
+    // timers. When true, GameTickService drives it via ProcessMasterScript and
+    // the fields below apply; the independent Eruption/RotBurst/Swarm timers are
+    // skipped. Numbers still come from Eruption/RotBurst here.
+    bool MasterScript = false,
+    int PoolCap = int.MaxValue,      // max concurrent pools (oldest → scorch early)
+    int ScorchTicks = -1,            // scorch lifetime before reverting to clean floor (<0 = permanent)
+    int SwarmHp = 2,                 // per-swarm HP (P2 master script: 1)
+    int SwarmMaxAlive = 2,           // cap on concurrent swarms
+    int RotBurstEveryNCycles = 3);   // Rot Burst fires on every Nth master cycle
 
 /// <summary>Boss footprint in tiles (plain record, not a ValueTuple — System.Text.Json
 /// has no built-in ValueTuple converter).</summary>
@@ -134,6 +145,32 @@ public sealed class NpcInstance
     public int Phase { get; private set; } = 1;
     public int RotationTick { get; private set; }
     public BossPhaseDef ActivePhaseDef => Phase == 1 ? Template.Script!.Phase1 : Template.Script!.Phase2;
+
+    // Master-script (P2) state: one fixed-tick clock, no independent timers.
+    // CycleCount increments each LoopLength wrap; the every-Nth cycle is the Rot
+    // Burst cycle. StyleA/B are rolled per cycle (B always differs from A).
+    public int CycleCount { get; private set; }
+    public int RoarTicksLeft { get; private set; } // phase-2 transition roar
+    public string StyleAId { get; private set; } = "";
+    public string StyleBId { get; private set; } = "";
+    public bool UsesMasterScript => Template.Script is not null && ActivePhaseDef.MasterScript;
+    public bool IsRotBurstCycle => ActivePhaseDef.RotBurstEveryNCycles > 0
+        && CycleCount % ActivePhaseDef.RotBurstEveryNCycles == ActivePhaseDef.RotBurstEveryNCycles - 1;
+    public void StartRoar(int ticks) => RoarTicksLeft = ticks;
+    public void TickRoar() { if (RoarTicksLeft > 0) RoarTicksLeft--; }
+    public void SetCycleStyles(string a, string b) { StyleAId = a; StyleBId = b; }
+
+    /// <summary>Advance the master-script cursor one tick; wrapping past
+    /// LoopLength starts the next cycle (drives the every-Nth-cycle Rot Burst).</summary>
+    public void AdvanceMasterTick()
+    {
+        RotationTick++;
+        if (RotationTick >= ActivePhaseDef.LoopLength)
+        {
+            RotationTick = 0;
+            CycleCount++;
+        }
+    }
 
     // Style-shift telegraph (2-tick warning) — forecast state for the HUD
     public string? ForecastAttackId { get; private set; }
@@ -229,6 +266,7 @@ public sealed class NpcInstance
         {
             Phase = 2;
             RotationTick = 0;
+            CycleCount = 0; // master-script cycle counter starts fresh in P2
             EruptionCooldown = script.Phase2.Eruption.CooldownTicks;
             RotBurstCooldown = script.Phase2.RotBurst?.CadenceTicks ?? 0;
             return true;

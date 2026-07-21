@@ -343,42 +343,58 @@ public sealed class MaggotKingTests
     }
 
     [Fact]
-    public async Task Phase2_TriggersAtHalfHp_AndCompressesLoop()
+    public async Task Phase2_TriggersAtHalfHp_BecomesMasterScript_WithRoar()
     {
         var (svc, state, npc) = Build();
         npc.TakeDamage(npc.MaxHp / 2);
 
-        await Tick(svc); // detects the threshold, flips phase, resets the cursor
+        await Tick(svc); // detects the threshold, flips to the P2 master script
 
         Assert.Equal(2, npc.Phase);
+        Assert.True(npc.UsesMasterScript);
+        Assert.Equal(28, npc.ActivePhaseDef.LoopLength);
+        Assert.Equal(3, npc.RoarTicksLeft); // 3-tick transition roar
         Assert.Equal(0, npc.RotationTick);
-        Assert.Equal(14, npc.ActivePhaseDef.LoopLength);
     }
 
     [Fact]
-    public async Task Swarms_SpawnOncePhase2Begins_AndContactAppliesBleed()
+    public async Task Phase2_TransitionSpawnsFirstSwarmPair_At1Hp_AndContactBleeds()
     {
         var (svc, state, npc) = Build();
-        npc.TakeDamage(npc.MaxHp / 2); // exactly the 50% swarm threshold
+        npc.TakeDamage(npc.MaxHp / 2);
 
-        await Tick(svc);
+        await Tick(svc); // enter P2 — the transition spawns the first pair
 
         Assert.Equal(2, state.Adds.Count);
-        Assert.All(state.Adds, a => Assert.Equal(2, a.MaxHp));
+        Assert.All(state.Adds, a => Assert.Equal(1, a.MaxHp)); // 1 HP each in P2
 
-        for (int i = 0; i < 20 && state.BleedTicksLeft == 0; i++) await Tick(svc);
+        // They crawl in from the corners; contact applies a bleed stack.
+        for (int i = 0; i < 30 && state.BleedTicksLeft == 0; i++) await Tick(svc);
         Assert.True(state.BleedTicksLeft > 0);
+    }
+
+    // Isolate the Rot Burst mechanic from the other master-script mechanics
+    // (they'd add incidental damage across the ticks these tests span).
+    private static void SoloRotBurst(GameState state)
+    {
+        state.ToggleMechanic(BossMechanic.Swarms);
+        state.ToggleMechanic(BossMechanic.Eruptions);
+        state.ToggleMechanic(BossMechanic.Dots);
+        state.ToggleMechanic(BossMechanic.BossAutos);
     }
 
     [Fact]
     public async Task RotBurst_DealsSevereUnprayableDamage_AndOpensPunishWindow()
     {
         var (svc, state, npc) = Build();
+        SoloRotBurst(state);
         npc.TakeDamage(npc.MaxHp / 2);
-        await Tick(svc); // enter Phase 2 (Rot Burst only exists there)
+        await Tick(svc); // enter P2 (Rot Burst only exists there)
         Assert.Equal(2, npc.Phase);
+        for (int i = 0; i < 3; i++) await Tick(svc); // tick past the transition roar
 
-        npc.StartRotBurstInhale(1); // resolves on the very next tick
+        state.ClearPendingAttacks();
+        npc.StartRotBurstInhale(1); // resolves on the next master tick
         int hpBefore = state.Player.CurrentHp;
 
         await Tick(svc);
@@ -392,29 +408,18 @@ public sealed class MaggotKingTests
     public async Task RotBurst_NegatedForPlayerStandingOnScorch()
     {
         var (svc, state, npc) = Build();
+        SoloRotBurst(state);
         npc.TakeDamage(npc.MaxHp / 2);
-        await Tick(svc); // also crosses the 50% swarm threshold
+        await Tick(svc); // enter P2
+        for (int i = 0; i < 3; i++) await Tick(svc); // past the roar
 
-        // Swarm adds are incidental to this test (which is only about Rot
-        // Burst vs. scorch shelter) but crawl toward the player every tick
-        // and can land a contact bleed by coincidence of timing. Neutralize
-        // them so their movement can't add noise to the HP assertion below.
-        foreach (var add in state.Adds) add.TakeDamage(add.MaxHp);
-        state.RemoveDeadAdds();
-
+        // Build a scorch tile under the player (its own permanent scorch).
         state.AddHazardWave([state.PlayerTile], warningTicks: 1, poolTicks: 1);
         await Tick(svc); // warning -> pool
         await Tick(svc); // pool -> scorch
         Assert.True(state.IsScorch(state.PlayerTile));
 
-        // Same reasoning as the swarm adds: the Phase 1->2 transition and
-        // the ticks spent building the scorch tile both cast an incidental
-        // Bile Spit (ranged/magic attacks are now 2-tick projectiles, not
-        // instant — see impact-resolution prayer), which could otherwise
-        // land on the very tick this test measures for Rot Burst. Flush
-        // any in-flight attacks so only Rot Burst itself is under test.
         state.ClearPendingAttacks();
-
         npc.StartRotBurstInhale(1);
         int hpBefore = state.Player.CurrentHp;
 
@@ -422,6 +427,29 @@ public sealed class MaggotKingTests
 
         Assert.Equal(hpBefore, state.Player.CurrentHp); // sheltered
         Assert.True(npc.InPunishWindow); // the boss still slumps regardless
+    }
+
+    [Fact]
+    public async Task RotBurstInhale_BurnsActivePoolsToScorch()
+    {
+        // The inhale's signature safety guarantee: every active pool instantly
+        // dries into scorch, so safe ground exists from the inhale's first tick.
+        var (svc, state, npc) = Build();
+        SoloRotBurst(state);
+        npc.TakeDamage(npc.MaxHp / 2);
+        await Tick(svc); // enter P2
+        for (int i = 0; i < 3; i++) await Tick(svc); // past the roar
+
+        // Make a pool away from the player.
+        var poolTile = (state.PlayerTile.X + 2, state.PlayerTile.Z);
+        state.AddHazardWave([poolTile], warningTicks: 1, poolTicks: 20, scorchTicks: 40);
+        await Tick(svc); // warning -> pool
+        Assert.True(state.IsPool(poolTile));
+
+        // BeginRotBurstInhale performs this the instant the inhale starts.
+        state.BurnPoolsToScorch();
+        Assert.True(state.IsScorch(poolTile));
+        Assert.False(state.IsPool(poolTile));
     }
 
     [Fact]
