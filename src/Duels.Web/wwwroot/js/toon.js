@@ -34,10 +34,48 @@ const TILE_MS = 600;
 // input-friction issue (unlike the pitch fix). 0.22 -> dist ~83, comfortably
 // wider than the whole arena with margin. Ceiling (zoom-in) untouched.
 const ZOOM_MIN = 0.22, ZOOM_MAX = 2.5;
-const MOVE_SPEED = { player: 2 * TILE / TILE_MS, enemy: TILE / TILE_MS };
 const SNAP_DIST = 4.5 * TILE;
 
 const battles = new Map();    // canvasId → battle state
+
+// ── Generic movement-interpolation layer ────────────────────────────────
+// The simulation stays a discrete ~600ms (TILE_MS) tick — this is the
+// renderer's job of turning a sequence of tick snapshots into smooth
+// on-screen motion, never the other way around. Every moving entity
+// (player, enemy, swarm adds) goes through these same two functions;
+// snapFrom/snapTo/snapT0 live directly on whatever object represents that
+// entity (an actor, or an add's mesh) rather than a parallel lookup table.
+//
+// interpolateSnapshot reads "where is it RIGHT NOW" for the current frame.
+// applySnapshot records a newly-received tick snapshot: a continuous update
+// (an ordinary step) starts the new lerp from wherever the entity is
+// CURRENTLY rendered — ticks don't always land exactly TILE_MS apart, so
+// starting from the last COMMANDED target (rather than the live position)
+// would either stutter-skip ahead or, worse, snap backward. A discontinuous
+// update (dash/teleport/knockback — see the PlayerTeleport/NpcTeleport log
+// kinds) snaps instantly instead: snapFrom = snapTo = the new position, no
+// lerp window at all. SNAP_DIST is kept as a defensive fallback beneath the
+// explicit flag — if a "continuous" update is ever absurdly far from where
+// the entity currently renders (a bug, not a designed mechanic), snap rather
+// than have it slide visibly across the arena.
+function interpolateSnapshot(entity, now) {
+    if (!entity.snapTo) return null; // no snapshot received yet
+    const frac = Math.min(1, Math.max(0, (now - entity.snapT0) / TILE_MS));
+    return {
+        wx: entity.snapFrom.wx + (entity.snapTo.wx - entity.snapFrom.wx) * frac,
+        wz: entity.snapFrom.wz + (entity.snapTo.wz - entity.snapFrom.wz) * frac,
+        frac,
+        dx: entity.snapTo.wx - entity.snapFrom.wx,
+        dz: entity.snapTo.wz - entity.snapFrom.wz,
+    };
+}
+function applySnapshot(entity, wx, wz, discontinuous, now) {
+    const cur = interpolateSnapshot(entity, now);
+    const tooFar = cur && Math.hypot(wx - cur.wx, wz - cur.wz) > SNAP_DIST;
+    entity.snapFrom = (discontinuous || !cur || tooFar) ? { wx, wz } : { wx: cur.wx, wz: cur.wz };
+    entity.snapTo = { wx, wz };
+    entity.snapT0 = now;
+}
 
 // UI bible §1 doctrine palette — melee red-orange / ranged green / magic
 // blue. RGB (0-1 floats) for OutlineEffect's per-material color override;
@@ -931,8 +969,9 @@ async function initBattle(canvasId, opts) {
         // loop eases the displayed value toward its target every frame
         // (playtest request: reversing drag direction used to snap the camera
         // instantly, since input drove the on-screen value 1:1 with zero
-        // damping). Same "authoritative target + trailing display" split
-        // already used for actor.pos/actor.target below.
+        // damping). Same "authoritative target + trailing display" shape as
+        // the generic snapshot-interpolation layer's snapFrom/snapTo/snapT0
+        // (below) uses for actor/add positions.
         yaw: 0.6, zoom: 1, camPitch: 0.62,
         yawTarget: 0.6, zoomTarget: 1, camPitchTarget: 0.62,
         viewRot: 0, // 0 or 90: CSS view rotation of the portrait fight
@@ -971,7 +1010,12 @@ async function initBattle(canvasId, opts) {
     ]);
     st.player.pos = { wx: 0, wz: 3 * TILE }; st.player.facing = Math.PI;
     st.enemy.pos = { wx: TILE, wz: -3 * TILE };
-    st.player.target = { ...st.player.pos }; st.enemy.target = { ...st.enemy.pos };
+    // Seed each actor's interpolation state at rest — snapFrom == snapTo == spawn
+    // position, so the very first frame renders motionless instead of lerping in
+    // from some undefined prior point before the first real snapshot arrives.
+    for (const a of [st.player, st.enemy]) {
+        a.snapFrom = { ...a.pos }; a.snapTo = { ...a.pos }; a.snapT0 = performance.now();
+    }
     // Camera's OWN follow point (playtest request, distinct from the yaw/
     // pitch/zoom easing above): the player runs one way, reverses 180°, and
     // the camera — which pivots on the player's position every frame — used
@@ -1136,33 +1180,40 @@ async function initBattle(canvasId, opts) {
         st.yaw += (st.yawTarget - st.yaw) * camK;
         st.camPitch += (st.camPitchTarget - st.camPitch) * camK;
         st.zoom += (st.zoomTarget - st.zoom) * camK;
-        // movement: constant-speed pursuit of the sim tile (same law as voxel.js)
+        // movement: snapshot interpolation (generic layer above) — position
+        // is derived from the entity's own snapFrom/snapTo/snapT0, written by
+        // setBattlePositions via applySnapshot. Replaces the old fixed-speed
+        // pursuit; see the layer's own comment for why.
         for (const actor of [st.player, st.enemy]) {
             let instSpeed = 0;
             if (!actor.crumbled) {
                 const other = actor === st.player ? st.enemy : st.player;
-                const rx = actor.target.wx - actor.pos.wx, rz = actor.target.wz - actor.pos.wz;
-                let rem = Math.hypot(rx, rz);
-                if (rem > SNAP_DIST) { actor.pos.wx = actor.target.wx; actor.pos.wz = actor.target.wz; rem = 0; }
+                const snap = interpolateSnapshot(actor, now);
+                const moving = snap && snap.frac < 1 && Math.hypot(snap.dx, snap.dz) > 0.03;
                 let destFacing;
-                if (rem > 0.03) {
-                    const sp = MOVE_SPEED[actor.key] * 1000; // wu/s
-                    const step = Math.min(rem, sp * dt);
-                    actor.pos.wx += rx / rem * step; actor.pos.wz += rz / rem * step;
-                    destFacing = Math.atan2(rx, rz);
-                    instSpeed = step / dt;
-                } else if (actor === st.enemy || !st.flags.holdPosition) {
-                    // Face the target while actively engaging it. The player
-                    // only reaches this stationary branch already attacking
-                    // or about to (holdPosition false means Engage() has run —
-                    // see GameState's targeting model), so this doubles as
-                    // "queued or attacking" without a separate flag.
-                    destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+                if (moving) {
+                    actor.pos.wx = snap.wx; actor.pos.wz = snap.wz;
+                    // Face along the WINDOW's overall direction (snapTo -
+                    // snapFrom), not a per-frame delta — stable throughout the
+                    // lerp instead of getting noisy as the remaining distance
+                    // shrinks toward the end of the window.
+                    destFacing = Math.atan2(snap.dx, snap.dz);
+                    instSpeed = Math.hypot(snap.dx, snap.dz) / (TILE_MS / 1000); // wu/s for this window
                 } else {
-                    // Holding position (walked away, not re-engaged): keep
-                    // whatever facing the walk left the player with instead
-                    // of snapping back to stare at the still-targeted enemy.
-                    destFacing = actor.facing;
+                    if (snap) { actor.pos.wx = snap.wx; actor.pos.wz = snap.wz; }
+                    if (actor === st.enemy || !st.flags.holdPosition) {
+                        // Face the target while actively engaging it. The player
+                        // only reaches this stationary branch already attacking
+                        // or about to (holdPosition false means Engage() has run —
+                        // see GameState's targeting model), so this doubles as
+                        // "queued or attacking" without a separate flag.
+                        destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+                    } else {
+                        // Holding position (walked away, not re-engaged): keep
+                        // whatever facing the walk left the player with instead
+                        // of snapping back to stare at the still-targeted enemy.
+                        destFacing = actor.facing;
+                    }
                 }
                 let da = destFacing - actor.facing;
                 while (da > Math.PI) da -= Math.PI * 2;
@@ -1229,9 +1280,28 @@ async function initBattle(canvasId, opts) {
             st.punishRing.material.opacity = 0.5 + 0.35 * Math.sin(now * 0.012);
         }
 
-        // swarm adds: small bob so they read as alive
-        for (const [id, m] of st.addMeshes)
+        // swarm adds: same generic interpolation layer as player/enemy (their
+        // crawl-toward-you used to snap tile-to-tile with zero smoothing —
+        // now a genuine lerp across the tick, facing the direction they're
+        // heading). The invisible hitbox stays snapped to the sim's current
+        // tile, not interpolated — a tap should always target where the add
+        // really is, not a lagging visual.
+        for (const [id, m] of st.addMeshes) {
+            const snap = interpolateSnapshot(m, now);
+            if (snap) {
+                m.position.x = snap.wx; m.position.z = snap.wz;
+                const moving = snap.frac < 1 && Math.hypot(snap.dx, snap.dz) > 0.03;
+                if (moving) {
+                    const destFacing = Math.atan2(snap.dx, snap.dz);
+                    let da = destFacing - (m.facing ?? 0);
+                    while (da > Math.PI) da -= Math.PI * 2;
+                    while (da < -Math.PI) da += Math.PI * 2;
+                    m.facing = (m.facing ?? 0) + da * Math.min(1, dt * 14);
+                    m.rotation.y = m.facing;
+                }
+            }
             m.position.y = 0.3 + Math.sin(now * 0.006 + id.length) * 0.05;
+        }
 
         // StyleTelegraphSystem: pulsing doctrine-color rim glow while a
         // telegraph is live (boss bible "weapon glow / stance").
@@ -1391,8 +1461,9 @@ const api = {
     setBattlePositions(canvasId, pos) {
         const st = battles.get(canvasId);
         if (!st) return;
-        if (pos.player) st.player.target = { wx: pos.player.x * TILE, wz: pos.player.z * TILE };
-        if (pos.enemy) st.enemy.target = { wx: pos.enemy.x * TILE, wz: pos.enemy.z * TILE };
+        const now = performance.now();
+        if (pos.player) applySnapshot(st.player, pos.player.x * TILE, pos.player.z * TILE, !!pos.player.discontinuous, now);
+        if (pos.enemy) applySnapshot(st.enemy, pos.enemy.x * TILE, pos.enemy.z * TILE, !!pos.enemy.discontinuous, now);
     },
     setBattleObstacles(canvasId, tiles) {
         const st = battles.get(canvasId);
@@ -1468,7 +1539,13 @@ const api = {
                 hb.position.y = 0.7;
                 st.scene.add(hb); st.addHitboxes.set(a.id, hb);
             }
-            m.position.x = a.x * TILE; m.position.z = a.z * TILE;
+            // Visible sphere goes through the generic interpolation layer
+            // (a brand-new add with no prior snapshot snaps in at its spawn
+            // tile automatically — interpolateSnapshot returns null until a
+            // snapTo exists). The hitbox stays snapped directly to the sim's
+            // current tile — a tap should always target where the add
+            // really is, not a lagging visual mid-lerp.
+            applySnapshot(m, a.x * TILE, a.z * TILE, !!a.discontinuous, performance.now());
             hb.position.x = a.x * TILE; hb.position.z = a.z * TILE;
             const hpPct = Math.max(0, Math.min(100, a.hpPct ?? 100));
             m.material.color.set(hpPct <= 50 ? '#b23a3a' : '#7a9e3a');

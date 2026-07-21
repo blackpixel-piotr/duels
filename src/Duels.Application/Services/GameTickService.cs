@@ -438,6 +438,10 @@ public sealed class GameTickService : IDisposable
         var nearest = state.NpcFootprintTiles().OrderBy(t => Chebyshev(state.PlayerTile, t)).First();
         var adjacent = ApproachSlot(state.PlayerTile, nearest);
         state.SetPlayerTile(adjacent.X, adjacent.Z);
+        // Renderer interpolation layer: this is a genuine teleport (closes
+        // the gap instantly, not a walked step) — mark it so the on-screen
+        // position snaps instead of smoothly lerping across the gap.
+        state.AppendLog("lunge", LogEntryKind.PlayerTeleport);
         ExecuteSpecialHit(state, player, npc, weapon, "Lunge");
     }
 
