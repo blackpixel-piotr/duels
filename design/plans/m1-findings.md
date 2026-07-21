@@ -1046,7 +1046,47 @@ development.
 comfortably in frame with margin on every side, both HP bars (twentieth
 pass) still correctly positioned, no degenerate geometry. Zero page errors.
 
-## Thirteenth pass: prayer drain cut to a third (M1 revision)
+## Twenty-third pass: camera easing (lerp) so direction reversals don't snap (M1 revision)
+
+User playtest request: "add a lerp to camera... when you switch directions,
+it doesn't jump so hard... ease in/out but subtle." JS-renderer-only, no C#
+touched (78/78 .NET suite unaffected).
+
+**Root cause**: the twenty-first pass moved camera pitch onto the
+single-finger drag, but neither yaw, pitch, nor zoom had ever had any
+smoothing — input handlers wrote directly to the values the camera-position
+formula reads every frame, so any change (including a sharp direction
+reversal mid-drag) showed up on screen exactly one frame later with zero
+damping. Fine for a steady drag; reads as a hard snap on a reversal.
+
+**Fix — authoritative target + trailing display**, the same split pattern
+already used elsewhere in this file for `actor.pos`/`actor.target`: `yaw`,
+`camPitch`, and `zoom` are now the smoothed, on-screen values; new
+`yawTarget`/`camPitchTarget`/`zoomTarget` fields are what every input
+handler actually writes (drag, pinch, wheel — same clamps as before, just
+retargeted). Each render-loop frame eases the displayed value toward its
+target: `st.yaw += (st.yawTarget - st.yaw) * Math.min(1, dt * 16)` — the
+identical per-frame damping idiom the file already uses for the character's
+own facing-turn smoothing (`da * Math.min(1, dt * 14)`), just applied to the
+camera and tuned slightly snappier (rate 16 vs. 14) to stay responsive to
+direct touch input rather than reading as laggy. A fresh drag's baseline
+(`yaw0`/`pitch0`) is captured from the *Target* fields, not the trailing
+display — regrabbing after a release must resume exactly where input left
+off, never wherever the smoothing happened to still be catching up to.
+
+**Dev tooling kept exempt from the easing on purpose**: `setCameraDebug`
+(the admin CAM panel, itself dead code per the sixth pass's finding, but
+harmless to keep correct) now sets both the live and target fields
+atomically — a debug slider drag should apply instantly, not lag behind
+itself, since it's a precision tool, not a touch gesture.
+
+**Verification**: live Playwright pass driving synthetic `PointerEvent`s.
+Dragged, then sharply reversed direction — confirmed `yaw` was measurably
+behind `yawTarget` immediately after the reversal (a real 0.384 rad gap,
+proving it didn't snap in a single frame), then confirmed it converged to
+within 0.0001 rad after 300ms (proving the easing settles quickly rather
+than drifting or getting stuck lagging). Repeated the same before/after
+lag check for wheel-driven zoom with the same result. Zero page errors.
 
 User playtest feedback: prayer drain felt too aggressive. m1-plan.md's D7
 decision explicitly flagged the 2 pts/tick (protection) and 1 pt/tick
