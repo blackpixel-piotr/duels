@@ -476,7 +476,8 @@ public sealed class GameTickService : IDisposable
 
         npc.TickRotBurstCooldown();
         var rb = npc.ActivePhaseDef.RotBurst;
-        if (rb is not null && npc.RotationTick == 0 && npc.RotBurstCooldown <= 0)
+        if (rb is not null && npc.RotationTick == 0 && npc.RotBurstCooldown <= 0
+            && state.IsMechanicEnabled(BossMechanic.RotBurst))
         {
             npc.StartRotBurstInhale(rb.InhaleTicks);
             state.AppendLog("⚠ The Maggot King's body swells — ROT BURST incoming!", LogEntryKind.BossSpecial);
@@ -498,6 +499,10 @@ public sealed class GameTickService : IDisposable
 
         var attackId = ResolveAttackId(state, step.Action);
         var attack = npc.Template.Script!.Attacks[attackId];
+
+        // Dev toggle (M1 playtest tooling): boss autos off → the King telegraphs
+        // but lands no direct attack, so a hazard interaction can be isolated.
+        if (!state.IsMechanicEnabled(BossMechanic.BossAutos)) return;
 
         // Global Combat Grammar "impact-resolution prayer": ranged/magic
         // attacks travel as a 2-tick doctrine-colored projectile — damage
@@ -597,6 +602,7 @@ public sealed class GameTickService : IDisposable
     private void ProcessEruptionTimer(GameState state, NpcInstance npc, bool rotationEventThisTick)
     {
         if (!npc.IsAlive || npc.Template.Script is null) return;
+        if (!state.IsMechanicEnabled(BossMechanic.Eruptions)) return; // dev toggle
         npc.TickEruptionCooldown();
         if (npc.EruptionCooldown > 0) return;
 
@@ -660,11 +666,12 @@ public sealed class GameTickService : IDisposable
                 state.AppendLog("The writhing mass poisons you!", LogEntryKind.System);
             }
         }
-        else if (player.IsAlive && state.IsPool(state.PlayerTile))
+        else if (player.IsAlive && state.IsPool(state.PlayerTile) && state.IsMechanicEnabled(BossMechanic.Pools))
         {
             int dmg = ResolveIncomingDamage(state, player, npc, e.PoolDamagePerTick, style: null, unprayable: true);
             player.TakeDamage(dmg);
             state.RecordDamageTaken(dmg);
+            if (dmg > 0) state.SetKilledBy("Poison pool (unprayable)");
             state.AppendLog($"{dmg}:poison", LogEntryKind.HitsplatNpc);
             state.AppendLog($"Acrid slime burns at your feet. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
         }
@@ -708,6 +715,7 @@ public sealed class GameTickService : IDisposable
     private void ProcessSwarmSpawns(GameState state, NpcInstance npc)
     {
         if (!npc.IsAlive || npc.Template.Script is null) return;
+        if (!state.IsMechanicEnabled(BossMechanic.Swarms)) return; // dev toggle
         var swarms = npc.ActivePhaseDef.Swarms;
         if (swarms is null) return;
 
@@ -732,10 +740,13 @@ public sealed class GameTickService : IDisposable
 
     private static void ApplyDots(GameState state, Player player, NpcInstance npc)
     {
+        if (!state.IsMechanicEnabled(BossMechanic.Dots)) return; // dev toggle
+
         if (state.BleedTicksLeft > 0 && player.IsAlive)
         {
             player.TakeDamage(state.BleedPerTick);
             state.RecordDamageTaken(state.BleedPerTick);
+            if (state.BleedPerTick > 0) state.SetKilledBy("Bleed");
             state.AppendLog($"{state.BleedPerTick}:poison", LogEntryKind.HitsplatNpc);
             state.AppendLog($"You bleed for {state.BleedPerTick} damage. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
             state.TickBleed();
@@ -745,6 +756,7 @@ public sealed class GameTickService : IDisposable
         {
             player.TakeDamage(3);
             state.RecordDamageTaken(3);
+            state.SetKilledBy("Poison");
             state.AppendLog("3:poison", LogEntryKind.HitsplatNpc);
             state.AppendLog($"The poison courses through you. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
         }
@@ -930,6 +942,11 @@ public sealed class GameTickService : IDisposable
     private async Task HandleDefeat(GameState state, Player player, NpcInstance npc)
     {
         state.AppendLog($"You have been defeated by {npc.Template.Name}!", LogEntryKind.System);
+        // Damage-source death logging: name the mechanic that actually landed
+        // the killing blow (every player-damage source now sets KilledBy), so a
+        // death to a pool/bleed/eruption reads distinctly from a boss auto.
+        if (state.KilledBy is { } cause)
+            state.AppendLog($"Slain by: {cause}", LogEntryKind.System);
         state.AppendLog("═══ DUEL LOST ═══", LogEntryKind.System);
 
         state.SetDuelSummary(new DuelSummary(

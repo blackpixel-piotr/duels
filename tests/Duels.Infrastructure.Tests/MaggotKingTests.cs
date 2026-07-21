@@ -216,6 +216,42 @@ public sealed class MaggotKingTests
     }
 
     [Fact]
+    public async Task MechanicToggle_DisablingEruptions_SuppressesTheWave()
+    {
+        // Dev per-mechanic kill switch: with Eruptions off, a wave that is due
+        // this tick does not spawn (contrast Eruption_FiresOnCooldown, same
+        // setup minus the toggle, which spawns 3).
+        var (svc, state, npc) = Build();
+        state.ToggleMechanic(BossMechanic.Eruptions);
+        npc.ResetEruptionCooldown(1); // would be due next tick
+
+        await Tick(svc);
+
+        Assert.False(state.IsMechanicEnabled(BossMechanic.Eruptions));
+        Assert.Empty(state.Hazards);
+    }
+
+    [Fact]
+    public async Task DamageSourceDeathLogging_BleedKill_NamesBleed()
+    {
+        // Every player-damage source now sets KilledBy, so a death to a DoT
+        // reads as the DoT, not a stale boss auto. Bleed the player to death
+        // and confirm the summary + the "Slain by" log line both name it.
+        var (svc, state, _) = Build();
+        state.Player.TakeDamage(state.Player.MaxHp - 3); // 3 HP left
+        state.ApplyBleed(1, 5);                           // one lethal 5-dmg bleed tick
+
+        await Tick(svc);
+
+        // (HandleDefeat restores HP for the next fight, so assert on the duel
+        // summary + log line, not the now-revived player.)
+        Assert.NotNull(state.LastDuelSummary);
+        Assert.False(state.LastDuelSummary!.Won);
+        Assert.Equal("Bleed", state.LastDuelSummary.KilledBy);
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.System && e.Message == "Slain by: Bleed");
+    }
+
+    [Fact]
     public async Task Eruption_FiresOnCooldown_MarkingPlayerTilePlusExtras()
     {
         var (svc, state, npc) = Build();

@@ -47,6 +47,7 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ICommandHandler<MoveToCommand>, MoveToHandler>();
         services.AddSingleton<ICommandHandler<EngageCommand>, EngageHandler>();
         services.AddSingleton<ICommandHandler<FreezeEnemyCommand>, FreezeEnemyHandler>();
+        services.AddSingleton<ICommandHandler<ToggleMechanicCommand>, ToggleMechanicHandler>();
         services.AddSingleton<ICommandHandler<SipFlaskCommand>, SipFlaskHandler>();
         services.AddSingleton<ICommandHandler<SetTargetCommand>, SetTargetHandler>();
         services.AddSingleton<ICommandHandler<BindWeaponSlotCommand>, BindWeaponSlotHandler>();

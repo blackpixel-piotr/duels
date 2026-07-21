@@ -534,22 +534,22 @@ html, body {
 }
 .cam-debug-reset:hover { background: rgba(130, 74, 30, 0.85); }
 
-/* Test-fight "what hit me" readout — plain text of the last boss-attack log
-   line plus live distance-to-boss, so a suspected mismatch between the
-   visual swing and the actual attack style/range can be confirmed at a glance. */
-.last-hit-debug {
-    top: 6px;
-    left: 50%;
-    transform: translateX(-50%);
-    bottom: auto;
-    right: auto;
-    width: max-content;
-    max-width: 90%;
+/* Dev per-mechanic kill switches (M1 playtest tooling) — top-right, clear of
+   the bottom action bar and the left prayer strip. Reuses .cam-toggle-btn /
+   .cam-debug-panel base styling; only position + row layout differ. Always
+   visible in M1 (every fight is a dev fight). */
+.mech-toggle-btn { top: 6px; right: 6px; bottom: auto; color: var(--green); }
+.mech-debug-panel { top: 26px; right: 6px; bottom: auto; width: 116px; gap: 4px; }
+.mech-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 9px;
-    color: var(--west-cream);
-    white-space: normal;
-    text-align: center;
+    color: var(--west-gold);
+    letter-spacing: 0.3px;
+    cursor: pointer;
 }
+.mech-toggle-row input[type="checkbox"] { accent-color: var(--west-orange); margin: 0; }
 
 /* Telegraphed special — wanted-poster warning banner above the enemy */
 .telegraph-bubble {

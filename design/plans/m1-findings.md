@@ -1099,6 +1099,101 @@ a real non-zero value beyond the unit test — first non-neutral boss in a
 later milestone is where it earns its keep. The full item-card stat panel is
 deferred (above).
 
+## Eighteenth pass: per-mechanic debug toggles, damage-source death logging, master-script doctrine (M1 revision + one part BLOCKED)
+
+Multi-part request: (1) per-mechanic debug toggles for Maggot King, (2)
+damage-source death logging, (3) rebuild P2 as a single 28-tick master
+script "per the revised design (attached)", (4) remove the last-damage-source
+notification, (5) add a boss-bible doctrine line forbidding independent
+mechanic timers, and flag Gale Roc / Unblinking for a pre-M5 audit against it.
+Parts 1, 2, 4, 5 shipped this pass; **part 3 (P2 rebuild) is blocked** — see
+the end of this entry.
+
+**Per-mechanic debug toggles.** New `BossMechanic` flags enum (BossAutos /
+Eruptions / Pools / Swarms / RotBurst / Dots) on `GameState.EnabledMechanics`
+(default All), with `IsMechanicEnabled`/`ToggleMechanic` and a
+`ToggleMechanicCommand`/`Handler` mirroring the existing FreezeEnemy CQRS
+path. Each mechanic's processing in `GameTickService` is gated on its flag
+(rotation autos in `ResolveRotationStep`, the Rot Burst trigger in
+`ProcessBossScript`, `ProcessEruptionTimer`, `ProcessSwarmSpawns`, the pool
+branch of `ProcessHazardResolution`, and `ApplyDots`). Toggles deliberately do
+NOT reset on `StartDuel` so a playtester's choices survive retries.
+- **Reachability decision (flagged):** the existing debug panels (freeze/cam/
+  move) gate on `State.TestScene`, which the sixth pass found is dead code
+  (never set true in the reachable app). I did NOT revive TestScene for the
+  mechanic panel, because TestScene is overloaded — it also switches the
+  battle *scene visual* ("field" vs "arena", BattleScene.razor's canvas init),
+  so enabling it would change the battlefield background as a side effect. The
+  mechanic panel is instead a dedicated, always-present control in BattleScene
+  (a small top-right "MECH ▾" button + checkbox panel), reachable in every M1
+  fight — acceptable because every M1 fight is a dev fight (reached only via
+  the DEV loadout cards). If M1 ever ships non-dev fights, this button needs a
+  real dev gate. The freeze/cam/move panels remain unreachable (out of scope
+  here — still the sixth pass's flagged gap).
+
+**Damage-source death logging.** `KilledBy` tracking already existed
+(GameState + shown on DuelResultOverlay), but three player-damage sources
+never set it — poison pools, bleed DoT, and poison DoT — so a death to any of
+them left `KilledBy` stale (whatever boss auto last hit) or null. Added
+`SetKilledBy` at each ("Poison pool (unprayable)", "Bleed", "Poison"), so the
+last damage source before death is always the true killer. Also added an
+explicit "Slain by: {cause}" combat-log line in `HandleDefeat` (the "logging"
+half — the result overlay already displayed it).
+- **Test caveat noted:** `HandleDefeat` calls `player.RestoreHp()` (readies
+  the player for a retry), so a post-defeat `Player.IsAlive` is `true` — the
+  new death-logging test asserts on `LastDuelSummary` + the log line, not live
+  HP. Cost me one red test before I spotted the restore.
+
+**Removed the last-hit notification.** The always-on `.last-hit-debug` panel
+("Last hit: … | dist …", added in the fifth pass, ungated since the sixth)
+and its `_lastHitDebug` plumbing are gone from BattleScene, plus its now-dead
+CSS rule. The distinct new "Slain by" death log covers the "what killed me"
+need more precisely and only when it matters.
+
+**Boss bible doctrine.** Global Combat Grammar gained a **"Master tick
+script"** subsection carrying the requested rule verbatim ("Every phase runs
+on one master tick script. Independent mechanic timers are forbidden —
+overlapping demands must be authored deliberately, never produced by timer
+drift."). This *contradicts* the prior "Independent-timer stagger" section
+(which assumed independent timers by design), so I reframed that section as
+**legacy/superseded** — a transitional mitigation only for fights not yet
+folded into a master script, with the master-script rule named as the
+preferred fix. Added the requested pre-M5 audit flags inline at Gale Roc's
+ambient lightning and the Unblinking's gravel crawlers (cadence must be
+script rows, not free-running timers; only target/pathing stays reactive),
+plus a roll-up list of latent offenders (incl. Maggot King's own
+Eruption/Rot Burst) in the doctrine paragraph.
+- **Self-inconsistency now visible (intended):** the code and the doc's P1/P2
+  sections still run Eruption and Rot Burst on independent timers with the
+  stagger band-aid — i.e. Maggot King currently *violates* the new doctrine.
+  That's the whole point of the P2-rebuild request, and reconciling P1 is
+  implied follow-on. Flagged rather than silently rewritten, since the fix is
+  the master-script migration, not a doc edit.
+
+**Tests**: +2 (mechanic toggle suppresses its mechanic; bleed death names the
+source). 75/75 pass (was 73).
+
+### BLOCKED: P2 28-tick master-script rebuild
+
+The request says to rebuild P2 "as a single 28-tick master script per the
+revised design **(attached)**" with pools 20 ticks capped at 8 concurrent,
+swarms max 2 alive at 1 HP, and Rot Burst every 3rd cycle. **No attachment
+arrived with the message, and the boss designs doc still holds the OLD P2**
+(14-tick loop, eruption every 12, Rot Burst ~40 — all independent timers). The
+inline text gives the mechanic *parameters* but not the one thing a "single
+master tick script" fundamentally is: the tick-by-tick placement of every
+Bile Spit / Lash / Grub Volley / style telegraph / eruption across the 28
+ticks. Authoring that layout myself would be inventing boss choreography,
+which CLAUDE.md explicitly forbids ("Never invent mechanics, numbers, or
+names. Flag design ambiguities as questions; never resolve them silently").
+So P2 is deliberately NOT rebuilt this pass — it needs either the attached
+28-tick table or explicit sign-off to author it from the constraints for
+review. The doctrine, toggles, death logging, and notification removal all
+landed independently and don't depend on it. (The pool-concurrency cap of 8,
+swarm cap of 2 @1 HP, and Rot-Burst-every-3rd-cycle are also not yet
+implemented — they belong to the same master-script rebuild and are gated on
+the same missing table.)
+
 ## Sixteenth pass: ambiguous telegraph misread as "ranged," projectiles not tracking live position (M1 revision)
 
 User playtest feedback: the King's style-shift rim glow shows green during

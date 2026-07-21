@@ -46,9 +46,25 @@
     {
         <div class="telegraph-bubble">@bubble</div>
     }
-    @if (_lastHitDebug is { } lastHit)
+    @* Dev-only per-mechanic kill switches (M1 playtest tooling) — isolate one
+       mechanic at a time. Reachable in every M1 fight (all fights are dev
+       fights); not gated behind TestScene, which also swaps the scene visual. *@
+    <button class="cam-toggle-btn mech-toggle-btn" @onclick="() => _mechPanelOpen = !_mechPanelOpen"
+            title="Dev: toggle individual boss mechanics">
+        @(_mechPanelOpen ? "MECH ▲" : "MECH ▼")
+    </button>
+    @if (_mechPanelOpen)
     {
-        <div class="cam-debug-panel last-hit-debug">Last hit: @lastHit</div>
+        <div class="cam-debug-panel mech-debug-panel">
+            @foreach (var (label, mech) in MechToggles)
+            {
+                <label class="mech-toggle-row">
+                    <input type="checkbox" checked="@(State?.IsMechanicEnabled(mech) ?? true)"
+                           @onchange="() => ToggleMechanic(mech)" />
+                    <span>@label</span>
+                </label>
+            }
+        </div>
     }
     @if (State?.TestScene == true)
     {
@@ -142,7 +158,6 @@
     [Parameter] public string? WeaponId { get; set; }
 
     private int _lastCount;
-    private string? _lastHitDebug;
     private bool _inited;
     private DotNetObjectReference<BattleScene>? _selfRef;
     private bool _lastTelegraph;
@@ -155,6 +170,25 @@
     private string _enemyName = "";
     private int _enemyMaxHp = 1;
     private bool EnemyFrozen => State?.EnemyFrozen ?? false;
+
+    // Dev-only per-mechanic kill switches (M1 playtest tooling): each checkbox
+    // dispatches a ToggleMechanicCommand, reflecting live GameState toggle flags.
+    private bool _mechPanelOpen;
+    private static readonly (string Label, BossMechanic Mech)[] MechToggles =
+    [
+        ("Boss autos", BossMechanic.BossAutos),
+        ("Eruptions", BossMechanic.Eruptions),
+        ("Pools", BossMechanic.Pools),
+        ("Swarms", BossMechanic.Swarms),
+        ("Rot Burst", BossMechanic.RotBurst),
+        ("DoTs", BossMechanic.Dots),
+    ];
+    private async Task ToggleMechanic(BossMechanic mech)
+    {
+        if (GameSvc.PlayerId is { } pid)
+            await GameSvc.DispatchAsync(new ToggleMechanicCommand(pid, mech));
+        StateHasChanged();
+    }
 
     // Admin camera debug panel (test fights only) — mirrors the JS defaults
     // in voxel.js (CAM_FOV, TILT, POS_TILT, camZoom=1) so the sliders start
@@ -455,9 +489,6 @@
                     });
                 continue;
             }
-            if (e.Kind == LogEntryKind.NpcHit)
-                _lastHitDebug = $"{e.Message} | dist {State?.DistanceToNpc}";
-
             if (e.Kind is not (LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)) continue;
             var parts = e.Message.Split(':');
             int dmg = int.TryParse(parts[0], out var d) ? d : 0;
