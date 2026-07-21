@@ -28,6 +28,12 @@ import * as SkeletonUtils from '../lib/SkeletonUtils.js';
 const TILE = 1.75;            // must match voxel.js — sim tiles are shared
 const WALK_R = 5;
 const TILE_MS = 600;
+// Zoom clamp (dist = 18.3/zoom below): playtest request for more zoom-out
+// room. The old floor (0.4 -> dist 45.75) barely framed the 9x9 arena's ~14wu
+// width at this camera's narrow 15° FOV — a real numeric ceiling, not just an
+// input-friction issue (unlike the pitch fix). 0.22 -> dist ~83, comfortably
+// wider than the whole arena with margin. Ceiling (zoom-in) untouched.
+const ZOOM_MIN = 0.22, ZOOM_MAX = 2.5;
 const MOVE_SPEED = { player: 2 * TILE / TILE_MS, enemy: TILE / TILE_MS };
 const SNAP_DIST = 4.5 * TILE;
 
@@ -1027,7 +1033,7 @@ async function initBattle(canvasId, opts) {
         if (st.pointers.size >= 2 && st.pinch) {
             const pts = [...st.pointers.values()];
             const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-            st.zoom = Math.max(0.4, Math.min(2.5, st.pinch.zoom0 * dist / st.pinch.dist0));
+            st.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, st.pinch.zoom0 * dist / st.pinch.dist0));
         } else if (st.drag && st.pointers.size === 1) {
             st.drag.moved = Math.max(st.drag.moved,
                 Math.hypot(e.clientX - st.drag.x, e.clientY - st.drag.y));
@@ -1079,7 +1085,7 @@ async function initBattle(canvasId, opts) {
         }
     };
     st.onCancel = e => { st.pointers.delete(e.pointerId); if (st.pointers.size < 2) st.pinch = null; st.drag = null; };
-    st.onWheel = e => { e.preventDefault(); st.zoom = Math.max(0.4, Math.min(2.5, st.zoom * (e.deltaY > 0 ? 0.92 : 1.08))); };
+    st.onWheel = e => { e.preventDefault(); st.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, st.zoom * (e.deltaY > 0 ? 0.92 : 1.08))); };
     canvas.addEventListener('pointerdown', st.onDown);
     canvas.addEventListener('pointermove', st.onMove);
     canvas.addEventListener('pointerup', st.onUp);
