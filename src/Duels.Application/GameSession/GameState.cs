@@ -237,6 +237,13 @@ public sealed class GameState
     public bool EnemyFrozen { get; private set; }
     public void FreezeEnemy(bool frozen) => EnemyFrozen = frozen;
 
+    // Dev-only per-mechanic toggles (M1 playtest tooling). Everything live by
+    // default; deliberately NOT reset in StartDuel so a playtester's choice
+    // survives retries. Each flag gates one mechanic's processing this tick.
+    public BossMechanic EnabledMechanics { get; private set; } = BossMechanic.All;
+    public bool IsMechanicEnabled(BossMechanic m) => (EnabledMechanics & m) == m;
+    public void ToggleMechanic(BossMechanic m) => EnabledMechanics ^= m;
+
     // Damage-over-time (duel-scoped). Reused for both Rend's bleed and
     // Scorch's burn (m1-plan Workstream B: "deliberately simplified" single
     // DoT track for M1 — a second application refreshes rather than stacks).
