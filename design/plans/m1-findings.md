@@ -845,6 +845,95 @@ the T0 Bile Spit cast produces a magic-colored, 1200ms-duration projectile
 visible in-scene mid-flight, matching both the JS-level mesh properties and
 a direct screenshot.
 
+## Twentieth pass: swarm movement/contact bugs, floating HP bars, click-to-target confirmed (M1 revision)
+
+User playtest report: a swarm add "spawns on me and is literally under me,
+it's as fast as me," dealing constant damage with no way to run or fight
+back — plus a request for click-to-target/attack on both bosses and adds
+(with re-engage on move-away), and floating HP bars above both fighters
+in-world. Two real bugs confirmed and fixed; click-to-target turned out to
+already be fully implemented; the HP bars are new.
+
+**Bug 1 — swarm add movement had no stopping distance.** `ProcessAdds`
+called `StepToward(add.Tile, state.PlayerTile)` unconditionally every tick,
+which walks the add one tile closer to the player's *exact* tile with
+nothing checking "already close enough — stop." Only the *contact* check
+(`Chebyshev <= 1`) respected adjacency; movement itself had no such floor,
+so the add's simulated position converged all the way onto the player's own
+tile and sat there — not a rendering artifact, a real simulation bug. Fixed:
+`ProcessAdds` now only steps when `Chebyshev(add.Tile, state.PlayerTile) > 1`,
+holding at adjacency instead of walking through it.
+
+**Bug 2 — contact bleed refreshed every tick of adjacency instead of once
+per contact.** `ApplyBleed(4, 2)` fired unconditionally every tick the add
+remained within contact range, resetting the DoT's `BleedTicksLeft` back to
+4 each time — so as long as the add stayed adjacent (trivial once bug 1 let
+it park on the player), the bleed's own countdown (`ApplyDots`'s
+`TickBleed()`, -1/tick) could never outpace the reset, meaning damage never
+actually stopped. The boss bible says contact "applies 1 bleed stack," not
+"reapplies while touching." Fixed: `AddInstance` gained an edge-triggered
+`HasBitten` latch — `MarkBitten()` on the tick adjacency begins, `ResetBite()`
+the tick it's lost — so contact damage fires once per approach, not once per
+tick of proximity. Combined with bug 1's fix, this also makes the add
+naturally clickable/visible again: it's never buried under the player model.
+
+**Click-to-target/attack — already fully implemented, verified live, no
+code change.** Traced the full command chain before assuming a gap:
+`BattleScene.razor`'s raycast click handler already resolves boss vs. add vs.
+ground hits and dispatches accordingly (`OnEnemyClick` → clear target +
+`EngageCommand`; `OnAddClick` → `SetTargetCommand`). `SetTargetHandler`
+already calls `state.Engage()` itself (clears `HoldPosition` + any move
+order) — so tapping an add already triggers auto-chase-then-attack via the
+same fallback movement logic the boss uses, matching the codebase's own
+documented contract ("re-engaged via the target, a weapon, or ATTACK — all
+three call Engage()"). `AttackHandler` separately re-engages on the ATTACK
+button per its own existing test
+(`Attack_WhileHoldingPosition_ReEngages`). Verified live by invoking the
+same `OnEnemyClick`/`OnAddClick` JSInvokable entry points the raycast calls:
+clicking the boss dropped its HP over the next few ticks with zero further
+input, and clicking a swarm add (post bug-1/2 fixes) auto-chased and killed
+it in ~1s (`addMeshes.size` dropped and "The maggot swarm dies." logged).
+The user not discovering this wasn't a missing feature — see the verification
+note below for a likely contributing factor.
+
+**New: floating HP bars above player and enemy, in-world.** Reuses the
+skeleton-attachment pattern the overhead prayer icon established (ninth/tenth
+passes): two plain `THREE.Sprite`s (a dark backdrop + a colored fill) parented
+directly to each actor's head bone, positioned above the overhead icon so the
+two never collide. No per-frame canvas redraw — `Sprite.center` is set to the
+sprite's own left edge (`(0, 0.5)`, not the default `(0.5, 0.5)`), so the fill
+only needs `scale.x` updated to grow/shrink from a fixed anchor, like a
+conventional 2D bar widget. Wired into the *existing* `setBattleVitals` call
+(already fired every render frame with `player`/`enemy` HP fractions for the
+voxel-erosion effect — no new C# plumbing needed) via a new
+`updateActorHealthBar(actor, frac)`: color shifts green→amber→red at 50%/25%
+thresholds (matching the swarm-add HP tint convention already in the file),
+and the fill hides at 0 rather than showing an empty husk. Created once,
+right after both actors finish loading.
+
+**Verification note, flagged for future live-testing passes**: a real
+production duel starts already-engaged — `HoldPosition` defaults to `false`
+and nothing in the shipped app calls `HoldPositionAtSpawn()` (it exists but
+its only caller is the test harness, `MaggotKingTests.Build()`, which calls it
+explicitly specifically so unit tests don't auto-engage). So combat begins the
+instant the battle scene mounts, with no grace period — which made this
+pass's live verification riskier than earlier passes (an unprayed live test
+run can lose real HP within the first few real-time seconds; the Playwright
+script had to disable the dangerous mechanic toggles with zero delay, before
+any other setup step, to safely reach a controlled state). Not a bug — matches
+"click boss/ATTACK to *re*-engage after moving away" framing, since the fight
+is already engaged by default and only needs re-engaging once you deliberately
+disengage — but worth knowing for whoever next drives a live verification
+pass against this fight.
+
+**Tests**: 2 new regression tests
+(`SwarmAdd_StopsAtAdjacency_NeverWalksOntoThePlayerTile`,
+`SwarmAdd_ContactBleed_AppliesOncePerContact_NotEveryTickOfAdjacency`), plus a
+new `SoloAdds` isolation helper (leaves Dots/Swarms on, disables
+BossAutos/Eruptions/RotBurst — distinct from the existing `SoloRotBurst`
+helper, which disables Dots and would have broken the bleed-decrement
+assertion). 78/78 tests pass (was 76 + 2 new).
+
 ## Thirteenth pass: prayer drain cut to a third (M1 revision)
 
 User playtest feedback: prayer drain felt too aggressive. m1-plan.md's D7

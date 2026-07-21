@@ -816,6 +816,45 @@ function setActorOverhead(actor, styleKey) {
     actor.overheadSprite = sprite;
 }
 
+// Floating HP bar (in-world, above enemy AND player during a fight — a
+// playtest request separate from the corner HUD boxes, which stay too). Built
+// once from two plain Sprites (a dark backdrop + a colored fill), each parented
+// directly to the head bone — same "ride the skeleton, always billboard"
+// pattern as the overhead icon above, positioned a notch higher so the two
+// never overlap. No per-frame canvas redraw: `center` is set to the sprite's
+// LEFT edge (THREE.Sprite.center, default 0.5/0.5 = middle) so the fill only
+// needs its scale.x updated each vitals tick to grow/shrink from a fixed left
+// anchor, exactly like a conventional 2D health-bar widget.
+function setActorHealthBar(actor) {
+    const headBone = actor.ch.bones?.Head ?? actor.ch.bones?.head ?? actor.ch.group;
+    const barY = 0.62, barWidth = 0.5, barHeight = 0.08, fillHeight = 0.05, fillMaxWidth = 0.46;
+    const leftX = -barWidth / 2; // centers the bar over the head
+
+    const bg = new THREE.Sprite(new THREE.SpriteMaterial({ color: '#0c0a08', transparent: true, opacity: 0.75, depthTest: false }));
+    bg.center.set(0, 0.5);
+    bg.scale.set(barWidth, barHeight, 1);
+    bg.position.set(leftX, barY, 0);
+    bg.renderOrder = 13;
+    headBone.add(bg);
+
+    const fill = new THREE.Sprite(new THREE.SpriteMaterial({ color: '#3ecf5a', transparent: true, depthTest: false }));
+    fill.center.set(0, 0.5);
+    fill.scale.set(fillMaxWidth, fillHeight, 1);
+    fill.position.set(leftX + (barWidth - fillMaxWidth) / 2, barY, 0.001); // tiny z so it never z-fights the backdrop
+    fill.renderOrder = 14;
+    headBone.add(fill);
+
+    actor.hpBar = { fill, fillMaxWidth };
+}
+
+function updateActorHealthBar(actor, frac) {
+    if (!actor?.hpBar) return;
+    frac = Math.max(0, Math.min(1, frac ?? 1));
+    actor.hpBar.fill.visible = frac > 0; // hide the sliver at 0 rather than show an empty husk
+    actor.hpBar.fill.scale.x = actor.hpBar.fillMaxWidth * frac;
+    actor.hpBar.fill.material.color.set(frac > 0.5 ? '#3ecf5a' : frac > 0.25 ? '#e0a83a' : '#d8382a');
+}
+
 // Per-frame locomotion blending: ease the displayed speed (the sim moves at
 // constant velocity — easing is what makes starts/stops read naturally),
 // distribute triangular weights, duck under overlays, and advance one shared
@@ -919,6 +958,8 @@ async function initBattle(canvasId, opts) {
     st.player.pos = { wx: 0, wz: 3 * TILE }; st.player.facing = Math.PI;
     st.enemy.pos = { wx: TILE, wz: -3 * TILE };
     st.player.target = { ...st.player.pos }; st.enemy.target = { ...st.enemy.pos };
+    setActorHealthBar(st.player);
+    setActorHealthBar(st.enemy);
 
     // enemy target tile ring (red) — drawn as a thin square outline
     const mkTileOutline = color => {
@@ -1219,7 +1260,10 @@ const api = {
     },
     setBattleVitals(canvasId, v) {
         const st = battles.get(canvasId);
-        if (st) { st.player.hp = v.player; st.enemy.hp = v.enemy; }
+        if (!st) return;
+        st.player.hp = v.player; st.enemy.hp = v.enemy;
+        updateActorHealthBar(st.player, v.player);
+        updateActorHealthBar(st.enemy, v.enemy);
     },
     setBattleWeapon(canvasId, weaponId) {
         // The id picks the swing clip family; ids in WEAPON_ASSETS also get

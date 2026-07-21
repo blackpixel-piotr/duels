@@ -122,6 +122,14 @@ public sealed class AddInstance
     public int CurrentHp { get; private set; }
     public bool IsAlive => CurrentHp > 0;
 
+    // Contact bleed is edge-triggered (bible: "contact applies 1 bleed
+    // stack" — one stack per contact, not a continuous refresh): HasBitten
+    // latches true the tick adjacency begins and blocks re-biting until the
+    // add loses adjacency and regains it.
+    public bool HasBitten { get; private set; }
+    public void MarkBitten() => HasBitten = true;
+    public void ResetBite() => HasBitten = false;
+
     public AddInstance(string id, (int X, int Z) tile, int hp)
     {
         Id = id;

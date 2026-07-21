@@ -309,12 +309,29 @@ public sealed class GameTickService : IDisposable
         foreach (var add in state.Adds)
         {
             if (!add.IsAlive) continue;
-            var step = StepToward(add.Tile, state.PlayerTile);
-            add.MoveTo(step);
-            if (Chebyshev(add.Tile, state.PlayerTile) <= 1)
+
+            // Stop at adjacency — the add only needs Chebyshev<=1 for contact,
+            // walking onto the player's exact tile was a real bug (playtest
+            // report: "it's literally under me"), not the intended crawl-and-
+            // menace read.
+            if (Chebyshev(add.Tile, state.PlayerTile) > 1)
+                add.MoveTo(StepToward(add.Tile, state.PlayerTile));
+
+            bool adjacent = Chebyshev(add.Tile, state.PlayerTile) <= 1;
+            if (adjacent && !add.HasBitten)
             {
+                // Edge-triggered: one bleed stack per contact (boss bible
+                // "contact applies 1 bleed stack"), not a continuous refresh
+                // for every tick it stays adjacent — that was the "constant
+                // damage" bug (ApplyBleed unconditionally on every tick in
+                // range never let the DoT actually expire).
+                add.MarkBitten();
                 state.ApplyBleed(4, 2);
                 state.AppendLog("A maggot sinks its jaws in — you're bleeding!", LogEntryKind.NpcHit);
+            }
+            else if (!adjacent)
+            {
+                add.ResetBite();
             }
         }
         state.RemoveDeadAdds();

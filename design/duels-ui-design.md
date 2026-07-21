@@ -99,11 +99,13 @@ resting position of the right thumb.)
 
 - **Tap a tile** → move (pathing dots preview the route for multi-tile paths, one dot per tick of travel).
 - **Tap the boss** → engage/attack.
+- **Tap an add** (e.g. a maggot swarm) → switches target to it and engages; basic attacks route to the add until it dies, then target reverts to the boss automatically. Same tap-to-(re)engage contract as the boss, per target.
 - **Tap elsewhere while engaged** → move there and disengage (per combat rules).
 - Tap feedback: tapped tile flashes an ink ring; invalid tiles (rubble, walls) show a red X stamp.
 - **Telegraphs on tiles:** hazard tiles fill with hatched purple ink as the fuse burns, one hatch band per tick; the final fuse tick flashes the tile's outline white — that white flash is the universal "Perfect Dodge now" signal across every boss. Safe tiles (Rot Burst scorch, Downdraft corners) glow gold.
 - **Damage numbers:** comic pops. Player hits in white with style-colored outline; crits/specials 150% size with a starburst; DoT ticks small and muted; damage *taken* in red drifting down. Perfect Dodge triggers a gold "+15" glint at the player's feet.
 - **Blocked hits:** a hit fully negated by a matching protection prayer (per the Global Combat Grammar's 100%-block rule) never shows a "0" numeral — that reads as a weak hit, not a save. It shows a slashed ring instead, colored in the doctrine that blocked it (the same color already carrying that meaning on the prayer strip, the overhead icon, and the telegraph glow), slightly smaller than a real hitsplat and without the hit-flinch reaction, since nothing actually landed.
+- **In-world HP bars:** a small bar floats above both the player's and the boss's head at all times during a fight (above the overhead prayer icon, never overlapping it), fill color stepping green → amber → red as HP crosses 50%/25% — a second, always-visible read of health beyond the boss plate/player HUD box, since a mobile screen at combat zoom doesn't always keep the corner UI in the same glance as the action.
 
 ### 3.4 HUD states
 
