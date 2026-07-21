@@ -1161,6 +1161,50 @@ lag behavior, monotonic, no overshoot, no snap. On a real 60fps device
 (dt≈0.0167s, `focusK≈0.3`), this converges over several genuinely-visible
 frames rather than in one worst-case step. Final smoke screenshot confirms
 the battle scene renders normally post-fix with zero page errors.
+
+## Twenty-fifth pass: swarm add tap target enlarged to the whole tile (M1 revision)
+
+User playtest feedback: "poison pod has too small hitbox... cannot hit him
+on mobile its too difficult" (a swarm add — the user's own term for it). JS-
+renderer-only, no C# touched (78/78 .NET suite unaffected).
+
+**Root cause**: the swarm add's tap raycast (`onUp`'s add-hit branch)
+checked the same small visible sphere mesh (`SphereGeometry(TILE * 0.22,
+...)`, radius ≈`0.385`) used for rendering — so the tappable area was
+exactly the tiny cosmetic blob, not the tile it occupies. Confirmed the
+magnitude live: a tap just `0.6` world units off the add's tile center
+(well within what should read as "still basically on the tile," given
+`TILE=1.75`) already missed the old sphere entirely.
+
+**Fix**: added a second, invisible per-add mesh (`st.addHitboxes`, parallel
+Map to the existing `st.addMeshes`) — a `BoxGeometry(TILE*0.92, 1.4,
+TILE*0.92)` column, not a flat ground plane (a flat plane would go
+nearly edge-on and hard to hit at this camera's lower pitch angles; a
+column with real height stays easy to hit across the whole pitch range).
+`hb.visible = false`, which is enough on its own: three.js's `Raycaster`
+only checks `.layers`, never `.visible`, when deciding what to test against
+— an invisible mesh is still fully raycastable, costs nothing extra to
+render, and needed no workaround. The tap raycast (`onUp`) now checks
+`st.addHitboxes` instead of `st.addMeshes`; the visible sphere, its color-
+by-HP tinting, and its idle bob animation are all completely untouched —
+purely a hit-test change, zero visual difference.
+`setBattleAdds` creates/positions/removes the hitbox in lockstep with the
+existing sphere.
+
+**Bible updated** (`duels-ui-design.md` §3.3): the existing "Tap an add"
+bullet gained a clause noting the tap target is the whole tile, not the
+model, with the playtest reasoning attached.
+
+**Verification**: live Playwright pass. Read the actual constructor
+parameters three.js stores on each mesh (not hand-rederived constants) to
+confirm: old sphere radius `0.385` (would have missed the reported `0.6`-
+off-center tap — reproduces the bug exactly), new hitbox half-width `0.805`
+(catches it comfortably, close to a true half-tile). Confirmed the hitbox
+stays `visible: false` (no cosmetic change) while the sphere stays
+`visible: true` (unchanged). End-to-end regression check: click-to-target-
+kill via the real `OnAddClick` JSInvokable path still works after the
+swap (add count dropped 2→1). Screenshot confirms the add still renders as
+the same small sphere, no visible box artifact. Zero page errors.
 decision explicitly flagged the 2 pts/tick (protection) and 1 pt/tick
 (boost) numbers as "provisional/tunable" going in — this is exactly that
 tuning pass, not a bug fix, so it's logged here rather than by editing the
