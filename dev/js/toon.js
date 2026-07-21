@@ -972,6 +972,13 @@ async function initBattle(canvasId, opts) {
     st.player.pos = { wx: 0, wz: 3 * TILE }; st.player.facing = Math.PI;
     st.enemy.pos = { wx: TILE, wz: -3 * TILE };
     st.player.target = { ...st.player.pos }; st.enemy.target = { ...st.enemy.pos };
+    // Camera's OWN follow point (playtest request, distinct from the yaw/
+    // pitch/zoom easing above): the player runs one way, reverses 180°, and
+    // the camera — which pivots on the player's position every frame — used
+    // to whip around exactly as hard as the reversal itself. camFocus trails
+    // st.player.pos with its own fast damping (see the loop below) instead of
+    // the camera reading the player's raw position directly.
+    st.camFocus = { wx: st.player.pos.wx, wz: st.player.pos.wz };
     setActorHealthBar(st.player);
     setActorHealthBar(st.enemy);
 
@@ -1057,7 +1064,11 @@ async function initBattle(canvasId, opts) {
                     ? (e.clientY - st.drag.y) : (e.clientX - st.drag.x);
                 const alongPitch = st.viewRot === 90
                     ? (e.clientX - st.drag.x) : (e.clientY - st.drag.y);
-                st.yawTarget = st.drag.yaw0 + alongYaw * 0.010;
+                // Inverted (playtest request): dragging right now orbits the
+                // camera the opposite way from before — the natural feel for
+                // a touch drag on this camera is "drag the world," not "drag
+                // the camera."
+                st.yawTarget = st.drag.yaw0 - alongYaw * 0.010;
                 // Drag up the screen -> camera rises to a higher, more
                 // top-down vantage (pitch increases); drag down -> lower,
                 // flatter angle. Same [0.25, 1.4] range the old pinch control
@@ -1160,9 +1171,23 @@ async function initBattle(canvasId, opts) {
             actor.mixer.update(dt);
         }
 
-        // camera: rigid lock on the player, orbit by yaw. 18.3 wu at FOV 15
-        // frames the same scene the old 14 wu / FOV 38 did, at twice the size.
-        const p = st.player.pos;
+        // camera: trails the player (not a rigid lock — see camFocus above),
+        // orbit by yaw. 18.3 wu at FOV 15 frames the same scene the old 14 wu
+        // / FOV 38 did, at twice the size. Rate 18: quicker than the
+        // yaw/pitch/zoom easing (16) above in normal frame conditions (this
+        // is smoothing a POSITION the player is actively watching themselves
+        // control, so it needs to round off a 180° reversal's hard whip
+        // without ever reading as "the camera is dragging behind me while I
+        // run"), but deliberately kept BELOW 20 — at the loop's existing dt
+        // cap (0.05s, guards frame hitches), rate*0.05 must stay under 1.0 or
+        // a single capped frame fully resolves the gap in one step (an
+        // instant snap masquerading as easing) instead of leaving a visible
+        // remainder to keep smoothing over the next frame. 18*0.05=0.9 always
+        // leaves a small remainder even in the worst case; 20 did not.
+        const focusK = Math.min(1, dt * 18);
+        st.camFocus.wx += (st.player.pos.wx - st.camFocus.wx) * focusK;
+        st.camFocus.wz += (st.player.pos.wz - st.camFocus.wz) * focusK;
+        const p = st.camFocus;
         const dist = 18.3 / st.zoom;
         st.camera.position.set(
             p.wx + Math.sin(st.yaw) * dist * Math.cos(st.camPitch),
