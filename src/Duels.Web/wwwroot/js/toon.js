@@ -987,8 +987,11 @@ async function initBattle(canvasId, opts) {
     // Pointer input, mirroring voxel.js's contract exactly: the fight is
     // CSS-rotated 90° in portrait (see watchOrientation/viewRot), so every
     // client coordinate passes through the same rotation-undo the classic
-    // renderer uses (clientToCanvas), and the orbit axis is screen-Y when
-    // rotated. Single drag = orbit yaw; two-finger pinch = zoom + pitch;
+    // renderer uses (clientToCanvas), and the orbit axes swap when rotated.
+    // Single drag = free-look (horizontal = yaw, vertical = pitch — playtest
+    // request: pitch used to live only on the two-finger pinch, which was
+    // both fiddly to execute one-handed mid-combat and made the existing
+    // pitch ceiling hard to actually reach); two-finger pinch = zoom only;
     // tap (< 6px travel) = ground/enemy click via raycast.
     const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
     st.pointers = new Map();
@@ -1001,17 +1004,21 @@ async function initBattle(canvasId, opts) {
     };
     st.onDown = e => {
         st.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        canvas.setPointerCapture?.(e.pointerId);
+        // Guards a real (if rare) failure mode, not just "method missing":
+        // some browsers throw NotFoundError for a pointerId they don't
+        // recognize as actively down (seen with certain rapid multi-touch
+        // sequences) — left uncaught, that exception would abort the rest of
+        // this handler and silently drop the second finger of a pinch.
+        try { canvas.setPointerCapture?.(e.pointerId); } catch { /* non-fatal */ }
         if (st.pointers.size === 2) {
             const pts = [...st.pointers.values()];
             st.pinch = {
                 dist0: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
-                midY0: (pts[0].y + pts[1].y) / 2,
-                zoom0: st.zoom, pitch0: st.camPitch,
+                zoom0: st.zoom,
             };
             st.drag = null;
         } else if (st.pointers.size === 1) {
-            st.drag = { x: e.clientX, y: e.clientY, yaw0: st.yaw, moved: 0 };
+            st.drag = { x: e.clientX, y: e.clientY, yaw0: st.yaw, pitch0: st.camPitch, moved: 0 };
         }
     };
     st.onMove = e => {
@@ -1020,17 +1027,25 @@ async function initBattle(canvasId, opts) {
         if (st.pointers.size >= 2 && st.pinch) {
             const pts = [...st.pointers.values()];
             const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-            const midY = (pts[0].y + pts[1].y) / 2;
             st.zoom = Math.max(0.4, Math.min(2.5, st.pinch.zoom0 * dist / st.pinch.dist0));
-            st.camPitch = Math.max(0.25, Math.min(1.4,
-                st.pinch.pitch0 + (st.pinch.midY0 - midY) * 0.004));
         } else if (st.drag && st.pointers.size === 1) {
             st.drag.moved = Math.max(st.drag.moved,
                 Math.hypot(e.clientX - st.drag.x, e.clientY - st.drag.y));
             if (st.drag.moved > 6) {
-                const along = st.viewRot === 90
+                // viewRot=90 (portrait) swaps which client axis is "along the
+                // screen" vs "up the screen" — same swap the yaw-only version
+                // of this code already applied to its one axis.
+                const alongYaw = st.viewRot === 90
                     ? (e.clientY - st.drag.y) : (e.clientX - st.drag.x);
-                st.yaw = st.drag.yaw0 + along * 0.010;
+                const alongPitch = st.viewRot === 90
+                    ? (e.clientX - st.drag.x) : (e.clientY - st.drag.y);
+                st.yaw = st.drag.yaw0 + alongYaw * 0.010;
+                // Drag up the screen -> camera rises to a higher, more
+                // top-down vantage (pitch increases); drag down -> lower,
+                // flatter angle. Same [0.25, 1.4] range the old pinch control
+                // used, just reachable with one thumb now.
+                st.camPitch = Math.max(0.25, Math.min(1.4,
+                    st.drag.pitch0 - alongPitch * 0.006));
             }
         }
     };
