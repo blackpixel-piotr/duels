@@ -1013,6 +1013,39 @@ record of every deviation, assumption, and revision — it's the first place
 to check before starting new work, and where any state predating a pass
 described here is what's now shipped on `claude/text-duel-game-3t4vkf`.
 
+## Twenty-second pass: zoom-out floor widened (M1 revision)
+
+User playtest feedback: "can I zoom out more?" JS-renderer-only, no C#
+touched (78/78 .NET suite unaffected).
+
+**Confirmed as a real numeric limit, not an input-friction issue** (unlike
+the twenty-first pass's pitch fix — checked this distinction explicitly
+before touching anything, since the fix shape differs for each). Camera
+distance is `18.3 / zoom`; the old floor (`zoom = 0.4`) capped distance at
+`45.75` world units. At this camera's narrow 15° FOV, that's roughly 12
+world units of horizontal frame width by a plain trig projection — barely
+covering the 9×9 arena's ~14-unit span before even accounting for the boss's
+2×2 footprint or off-center positioning. The zoom gestures themselves
+(pinch-distance ratio, wheel) were already working correctly and easy to
+reach their clamp, unlike pitch's pinch-midpoint entanglement — this was
+genuinely a "the number itself is too tight" case.
+
+**Fix**: extracted `ZOOM_MIN`/`ZOOM_MAX` named constants (were duplicated
+magic numbers at the pinch and wheel clamp sites) and lowered `ZOOM_MIN`
+from `0.4` to `0.22` — distance ~83 world units, comfortably wider than the
+whole arena with margin. `ZOOM_MAX` (zoom-in ceiling) untouched — not what
+was asked. `0.22` isn't arbitrary: the admin CAM debug panel's own zoom
+slider (dead code in the shipped app per the sixth pass's finding, but still
+informative as prior art) already anticipated a floor around `0.2`,
+suggesting that range was already considered reasonable during earlier
+development.
+
+**Verification**: live Playwright pass — wheel-zoomed out repeatedly until
+`st.zoom` stabilized, confirmed it lands exactly on the new `0.22` floor
+(was `0.4`). Screenshot at the new floor shows the full 9×9 arena grid
+comfortably in frame with margin on every side, both HP bars (twentieth
+pass) still correctly positioned, no degenerate geometry. Zero page errors.
+
 ## Thirteenth pass: prayer drain cut to a third (M1 revision)
 
 User playtest feedback: prayer drain felt too aggressive. m1-plan.md's D7
