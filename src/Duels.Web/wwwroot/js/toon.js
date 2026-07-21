@@ -926,7 +926,15 @@ async function initBattle(canvasId, opts) {
 
     const st = {
         canvas, renderer, effect, scene, camera,
+        // yaw/camPitch/zoom are the SMOOTHED, on-screen values; the matching
+        // *Target fields are what input handlers actually write — the render
+        // loop eases the displayed value toward its target every frame
+        // (playtest request: reversing drag direction used to snap the camera
+        // instantly, since input drove the on-screen value 1:1 with zero
+        // damping). Same "authoritative target + trailing display" split
+        // already used for actor.pos/actor.target below.
         yaw: 0.6, zoom: 1, camPitch: 0.62,
+        yawTarget: 0.6, zoomTarget: 1, camPitchTarget: 0.62,
         viewRot: 0, // 0 or 90: CSS view rotation of the portrait fight
         player: null, enemy: null, dotnet: opts.dotnetRef ?? null,
         splats: [], hazardQuads: new Map(), marker: null, targetTile: null,
@@ -1020,11 +1028,15 @@ async function initBattle(canvasId, opts) {
             const pts = [...st.pointers.values()];
             st.pinch = {
                 dist0: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
-                zoom0: st.zoom,
+                zoom0: st.zoomTarget,
             };
             st.drag = null;
         } else if (st.pointers.size === 1) {
-            st.drag = { x: e.clientX, y: e.clientY, yaw0: st.yaw, pitch0: st.camPitch, moved: 0 };
+            // Baseline off the *Target* fields, not the trailing displayed
+            // value — a fresh drag must pick up exactly where input left off,
+            // never from wherever the smoothing happened to be mid-catch-up
+            // (that would read as the camera "jumping to align" on regrab).
+            st.drag = { x: e.clientX, y: e.clientY, yaw0: st.yawTarget, pitch0: st.camPitchTarget, moved: 0 };
         }
     };
     st.onMove = e => {
@@ -1033,7 +1045,7 @@ async function initBattle(canvasId, opts) {
         if (st.pointers.size >= 2 && st.pinch) {
             const pts = [...st.pointers.values()];
             const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-            st.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, st.pinch.zoom0 * dist / st.pinch.dist0));
+            st.zoomTarget = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, st.pinch.zoom0 * dist / st.pinch.dist0));
         } else if (st.drag && st.pointers.size === 1) {
             st.drag.moved = Math.max(st.drag.moved,
                 Math.hypot(e.clientX - st.drag.x, e.clientY - st.drag.y));
@@ -1045,12 +1057,12 @@ async function initBattle(canvasId, opts) {
                     ? (e.clientY - st.drag.y) : (e.clientX - st.drag.x);
                 const alongPitch = st.viewRot === 90
                     ? (e.clientX - st.drag.x) : (e.clientY - st.drag.y);
-                st.yaw = st.drag.yaw0 + alongYaw * 0.010;
+                st.yawTarget = st.drag.yaw0 + alongYaw * 0.010;
                 // Drag up the screen -> camera rises to a higher, more
                 // top-down vantage (pitch increases); drag down -> lower,
                 // flatter angle. Same [0.25, 1.4] range the old pinch control
                 // used, just reachable with one thumb now.
-                st.camPitch = Math.max(0.25, Math.min(1.4,
+                st.camPitchTarget = Math.max(0.25, Math.min(1.4,
                     st.drag.pitch0 - alongPitch * 0.006));
             }
         }
@@ -1085,7 +1097,7 @@ async function initBattle(canvasId, opts) {
         }
     };
     st.onCancel = e => { st.pointers.delete(e.pointerId); if (st.pointers.size < 2) st.pinch = null; st.drag = null; };
-    st.onWheel = e => { e.preventDefault(); st.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, st.zoom * (e.deltaY > 0 ? 0.92 : 1.08))); };
+    st.onWheel = e => { e.preventDefault(); st.zoomTarget = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, st.zoomTarget * (e.deltaY > 0 ? 0.92 : 1.08))); };
     canvas.addEventListener('pointerdown', st.onDown);
     canvas.addEventListener('pointermove', st.onMove);
     canvas.addEventListener('pointerup', st.onUp);
@@ -1095,6 +1107,19 @@ async function initBattle(canvasId, opts) {
     const loop = () => {
         const dt = Math.min(0.05, st.clock.getDelta());
         const now = performance.now();
+        // Camera easing (playtest request): the displayed yaw/pitch/zoom trail
+        // their *Target counterparts instead of snapping to them 1:1 every
+        // input event — same per-frame damping idiom the facing-turn below
+        // already uses (Math.min(1, dt*rate)), just applied to the camera.
+        // Subtle and fast (rate 16 -> ~95% caught up in ~0.19s) so it reads as
+        // "the hard reversal got a little rounder," not "the camera feels
+        // laggy" — direct 1:1 response is still what makes a touch-drag
+        // camera feel controllable; this only smooths what the eye actually
+        // perceives as a jump.
+        const camK = Math.min(1, dt * 16);
+        st.yaw += (st.yawTarget - st.yaw) * camK;
+        st.camPitch += (st.camPitchTarget - st.camPitch) * camK;
+        st.zoom += (st.zoomTarget - st.zoom) * camK;
         // movement: constant-speed pursuit of the sim tile (same law as voxel.js)
         for (const actor of [st.player, st.enemy]) {
             let instSpeed = 0;
@@ -1328,8 +1353,10 @@ const api = {
     setCameraDebug(canvasId, d) {
         const st = battles.get(canvasId);
         if (!st) return;
-        if (typeof d.pitch === 'number') st.camPitch = Math.max(0.2, Math.min(1.4, d.pitch));
-        if (typeof d.zoom === 'number') st.zoom = d.zoom;
+        // Dev precision tool: apply instantly (both the displayed value AND
+        // its target), not eased — a slider drag shouldn't lag behind itself.
+        if (typeof d.pitch === 'number') st.camPitch = st.camPitchTarget = Math.max(0.2, Math.min(1.4, d.pitch));
+        if (typeof d.zoom === 'number') st.zoom = st.zoomTarget = d.zoom;
     },
     setBattlePositions(canvasId, pos) {
         const st = battles.get(canvasId);
