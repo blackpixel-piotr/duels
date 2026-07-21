@@ -16,7 +16,6 @@ public sealed class GameState
     public int PlayerCooldown { get; private set; }
     public int NpcCooldown { get; private set; }
     public string? QueuedAction { get; private set; }
-    public string? RevertWeaponId { get; private set; }
     public ProtectionPrayer TickStartProtection { get; set; }
 
     // Prayer drain cadence (playtest revision, twice now: original was
@@ -179,38 +178,52 @@ public sealed class GameState
 
     private void ClearHazards() => _hazards.Clear();
 
-    // In-flight boss attacks (Boss Bible "impact-resolution prayer"):
-    // ranged/magic attacks travel as a doctrine-colored projectile instead
-    // of resolving on the cast tick, so a protection prayer raised any time
-    // before impact — not just at cast — still blocks it. Melee never uses
-    // this; it has no travel time, so cast tick == impact tick already.
-    private readonly List<PendingBossAttack> _pendingAttacks = new();
-    public void QueuePendingAttack(BossAttackDef attack, int ticksUntilImpact) =>
-        _pendingAttacks.Add(new PendingBossAttack(attack, ticksUntilImpact));
+    // In-flight boss attacks (Boss Bible "Global Combat Grammar" — simulated
+    // homing projectiles, sim-authoritative position, not a fixed tick
+    // countdown): a Ranged/Magic attack travels toward the player's LIVE
+    // tile every tick at its own ProjectileSpeedTiles, so a protection
+    // prayer raised any time before it actually arrives — not just at cast —
+    // still blocks it, and flight time scales with cast-time distance
+    // instead of being a fixed constant. Melee never uses this; it has no
+    // travel time, so cast tick == impact tick already.
+    private readonly List<InFlightProjectile> _projectiles = new();
+    private int _nextProjectileId;
+    public IReadOnlyList<InFlightProjectile> Projectiles => _projectiles;
 
-    /// <summary>Advance every in-flight attack one tick; returns the ones
-    /// impacting THIS tick (their flight just ran out) for the caller to
-    /// resolve against this tick's fresh <see cref="TickStartProtection"/>.</summary>
-    public List<BossAttackDef> TickPendingAttacks()
+    public void SpawnProjectile((int X, int Z) spawnTile, BossAttackDef attack) =>
+        _projectiles.Add(new InFlightProjectile($"proj_{FightTicks}_{_nextProjectileId++}", spawnTile.X, spawnTile.Z, attack));
+
+    /// <summary>Advance every in-flight projectile one tick toward
+    /// targetTile (the player's tile, already updated for THIS tick by the
+    /// time this runs); returns the attacks that arrived (Euclidean distance
+    /// closed to within their own speed) for the caller to resolve against
+    /// this tick's fresh <see cref="TickStartProtection"/>. A projectile
+    /// spawned this same tick is never in this list — cast happens later in
+    /// ProcessTick than this call runs — which is what guarantees at least
+    /// one tick of flight even for a point-blank cast.</summary>
+    public List<BossAttackDef> AdvanceProjectiles((int X, int Z) targetTile)
     {
         var impacting = new List<BossAttackDef>();
-        for (int i = _pendingAttacks.Count - 1; i >= 0; i--)
+        for (int i = _projectiles.Count - 1; i >= 0; i--)
         {
-            var p = _pendingAttacks[i] with { TicksLeft = _pendingAttacks[i].TicksLeft - 1 };
-            if (p.TicksLeft <= 0)
+            var p = _projectiles[i];
+            double dx = targetTile.X - p.X, dz = targetTile.Z - p.Z;
+            double dist = Math.Sqrt(dx * dx + dz * dz);
+            double speed = p.Attack.ProjectileSpeedTiles;
+            if (dist <= speed)
             {
                 impacting.Add(p.Attack);
-                _pendingAttacks.RemoveAt(i);
+                _projectiles.RemoveAt(i);
             }
             else
             {
-                _pendingAttacks[i] = p;
+                p.MoveTo(p.X + dx / dist * speed, p.Z + dz / dist * speed);
             }
         }
         return impacting;
     }
 
-    public void ClearPendingAttacks() => _pendingAttacks.Clear();
+    public void ClearProjectiles() => _projectiles.Clear();
 
     // Swarm adds (m1-plan Workstream C.7)
     private readonly List<AddInstance> _adds = new();
@@ -333,7 +346,7 @@ public sealed class GameState
         KilledBy = null;
         TargetId = null;
         _adds.Clear();
-        ClearPendingAttacks();
+        ClearProjectiles();
         _poolCap = int.MaxValue; // master-script P2 raises this on phase entry
         ProtectionDrainTickCounter = 0;
         BoostDrainTickCounter = 0;
@@ -392,7 +405,6 @@ public sealed class GameState
     }
 
     public void SetQueuedAction(string? action) => QueuedAction = action;
-    public void SetRevertWeapon(string? weaponId) => RevertWeaponId = weaponId;
 
     // Weapon-swap input buffer (UI bible §3.2): "max one swap per tick;
     // extra taps buffer" to the following tick.
@@ -433,7 +445,7 @@ public sealed class GameState
         ClearDots();
         ClearHazards();
         _adds.Clear();
-        ClearPendingAttacks();
+        ClearProjectiles();
     }
 
     public void AppendLog(string message, LogEntryKind kind = LogEntryKind.Info)
@@ -455,10 +467,6 @@ public enum HazardState { Warning, Pool, Scorch }
 /// &lt; 0 means permanent scorch (P1's original behavior; the master-script P2
 /// passes a finite lifetime).</summary>
 public readonly record struct HazardTile(int X, int Z, HazardState State, int TicksLeft, int PoolDurationTicks, int ScorchDurationTicks = -1);
-
-/// <summary>A boss attack in flight — cast, not yet landed. See
-/// <see cref="GameState.TickPendingAttacks"/>.</summary>
-public readonly record struct PendingBossAttack(BossAttackDef Attack, int TicksLeft);
 
 /// <summary>Snapshot of a finished duel for the end-of-fight result overlay
 /// (m1-plan Workstream H).</summary>

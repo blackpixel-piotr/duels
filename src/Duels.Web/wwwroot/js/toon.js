@@ -984,6 +984,7 @@ async function initBattle(canvasId, opts) {
         player: null, enemy: null, dotnet: opts.dotnetRef ?? null,
         splats: [], hazardQuads: new Map(), marker: null, targetTile: null,
         obstacles: [], flags: {}, projectiles: [], addMeshes: new Map(), addHitboxes: new Map(), telegraph: null,
+        projectileMeshes: new Map(),
         clock: new THREE.Clock(), raf: 0, drag: null,
         enemyId: opts.enemyId,
     };
@@ -1338,6 +1339,19 @@ async function initBattle(canvasId, opts) {
             m.position.y = 0.3 + Math.sin(now * 0.006 + id.length) * 0.05;
         }
 
+        // Sim-authoritative boss projectiles: same generic interpolation
+        // layer, position-synced from GameState.Projectiles every tick (see
+        // setBattleProjectiles) rather than a cosmetic cast-time lerp with a
+        // guessed duration. Height is held constant at spawn (no arc) — the
+        // old cosmetic system's sin(t*pi) arc needed a known total flight
+        // duration to normalize against, which no longer exists in this
+        // form now that motion is tick-snapshot-driven; a renewed arc
+        // flourish can be a follow-up if it's missed after playtesting.
+        for (const [, m] of st.projectileMeshes) {
+            const snap = interpolateSnapshot(m, now);
+            if (snap) { m.position.x = snap.wx; m.position.z = snap.wz; }
+        }
+
         // StyleTelegraphSystem: pulsing doctrine-color rim glow while a
         // telegraph is live (boss bible "weapon glow / stance").
         if (st.telegraph?.active && st.telegraph.style) {
@@ -1591,6 +1605,31 @@ const api = {
         for (const [id, hb] of st.addHitboxes)
             if (!seen.has(id)) { st.scene.remove(hb); st.addHitboxes.delete(id); }
     },
+    setBattleProjectiles(canvasId, projectiles) {
+        // Sim-authoritative boss projectiles (Boss Bible "Global Combat
+        // Grammar": homing, ~3 tiles/tick, arrival-tick impact) — the same
+        // add/remove-by-id + generic interpolation layer as setBattleAdds
+        // above, minus the hitbox (a projectile is never a tap target).
+        // discontinuous is always false: a projectile's own motion is
+        // continuous by construction, there's no teleport case for it.
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const seen = new Set();
+        for (const p of projectiles ?? []) {
+            seen.add(p.id);
+            let m = st.projectileMeshes.get(p.id);
+            if (!m) {
+                m = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8),
+                    new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX[p.style] ?? '#ffffff' }));
+                m.userData = { id: p.id };
+                m.position.y = 1.25; // constant spawn/travel height — see the render loop below
+                st.scene.add(m); st.projectileMeshes.set(p.id, m);
+            }
+            applySnapshot(m, p.x * TILE, p.z * TILE, false, performance.now());
+        }
+        for (const [id, m] of st.projectileMeshes)
+            if (!seen.has(id)) { st.scene.remove(m); st.projectileMeshes.delete(id); }
+    },
     battleEvent(canvasId, evt) {
         const st = battles.get(canvasId);
         if (!st) return;
@@ -1638,23 +1677,11 @@ const api = {
             }
             case 'enemyAttack': {
                 const style = evt.style ?? 'melee';
+                // The projectile visual itself (Ranged/Magic) is now driven
+                // by the sim-authoritative entity sync (setBattleProjectiles
+                // / GameState.Projectiles), not spawned here — this event's
+                // only remaining job is the windup/swing animation trigger.
                 playOverlay(st.enemy, attackRole(st.enemy, style, true, evt.tier), { ts: 1.1 });
-                // Impact-resolution prayer (Global Combat Grammar): ranged/
-                // magic boss attacks travel as a doctrine-colored projectile
-                // — "the projectile is the primary flick cue," not a text
-                // popup. Duration matches evt.ticks (the real cast->impact
-                // delay from GameTickService), not a cosmetic guess, so the
-                // projectile lands exactly on the tick the hitsplat does.
-                if (style === 'ranged' || style === 'magic') {
-                    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8),
-                        new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX[style] ?? '#ffffff' }));
-                    st.scene.add(mesh);
-                    st.projectiles.push({
-                        mesh, t0: now, dur: (evt.ticks ?? 2) * TILE_MS,
-                        from: new THREE.Vector3(st.enemy.pos.wx, 1.3, st.enemy.pos.wz),
-                        toActor: st.player, toY: 1.2,
-                    });
-                }
                 break;
             }
             case 'enemyHit':
