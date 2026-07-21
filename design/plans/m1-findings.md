@@ -1711,3 +1711,89 @@ Both confirmed as real bugs, not user error.
   (only `BattleScene.razor`'s telegraph-color mapping, a markup/computed-
   property change), so 68/68 tests are unaffected — reconfirmed by running
   the full suite after the edits.
+
+## Twenty-sixth pass: generic snapshot-interpolation layer, all entities (M1 revision, playtest request)
+
+- **Request**: renderer stores each entity's last snapshot position and
+  lerps toward the current one over the tick duration (~0.6s), applied
+  uniformly to player, boss, and adds — not three separate implementations.
+  Simulation stays discrete; interpolation is renderer-only. Snapshots gain
+  a per-entity discontinuous flag for dashes/teleports/knockbacks, which
+  snaps instead of lerping. Entities face their movement direction while
+  lerping. The request used the terms "ThreeBridge" and "a locked
+  invariant"; neither exists anywhere in this codebase (checked via grep
+  and `graphify query`). The renderer is `toon.js`, and the discrete-sim /
+  smooth-renderer split it describes was already this codebase's de facto
+  architecture, just never named that literally — implemented against the
+  real files/names rather than inventing new ones to match the phrasing.
+- **Replaced model**: the old renderer moved player/enemy at a fixed
+  wu/s (`MOVE_SPEED.player`/`.enemy`) toward a `.target`, so a move's
+  wall-clock duration scaled with distance. The new model always lerps
+  over a fixed window (`TILE_MS`, the same 600ms tick constant the sim
+  already uses — no new constant invented) and derives instantaneous
+  speed from distance/window, so a longer tile-hop moves faster rather
+  than taking longer. Hand-verified this doesn't change steady-state feel
+  for the cases that exist in M1: a player's typical 2-tile/tick cruise
+  works out to `2×TILE/(TILE_MS/1000) ≈ 5.83 wu/s`, exactly the old
+  `MOVE_SPEED.player`; the (currently dormant, Maggot King is stationary)
+  1-tile/tick enemy case matches `MOVE_SPEED.enemy` the same way. No
+  animation-blend regression risk in the common path.
+- **Discontinuous signal — chose a `CombatLog` entry over a state flag**:
+  `GameTickService`'s tick loop and `BattleScene.razor`'s Blazor render-diff
+  run on independent schedules, so a boolean flag reset at tick-start could
+  be cleared before the renderer ever reads it depending on exact timing.
+  A durable, append-only log entry (the codebase's existing pattern for
+  other one-off tick events like `BossCast`) has no such race, since the
+  diff cursor only advances past an entry once it's actually been read.
+  Added `LogEntryKind.PlayerTeleport`/`NpcTeleport`; traced every
+  `SetPlayerTile`/`SetNpcTile`/`AddInstance.MoveTo` call site in
+  `GameTickService.cs` and found exactly one genuine teleport in M1's
+  shipped content — `ExecuteLunge` (closes the gap instantly, not a walked
+  step) — now logs `PlayerTeleport`. Everything else (`KickMoveAsync`,
+  both `ProcessPlayerMovement` branches, the dormant `ProcessNpcMovement`,
+  the adds' crawl step) is an ordinary continuous step and was left alone.
+  `NpcTeleport` has no trigger yet (Maggot King never dashes) but the
+  renderer-side plumbing (`BattleScene.razor`'s `npcTeleported` diff,
+  `setBattlePositions`'s `enemy.discontinuous`) is wired symmetrically so
+  a future dashing boss needs no second wiring pass.
+- **Pre-existing `SNAP_DIST` heuristic kept, not replaced**: `toon.js`
+  already had a coarse "jump distance too large, snap instead" fallback.
+  The new explicit flag sits on top of it (`applySnapshot`'s `tooFar`
+  check still fires independently of `discontinuous`), so a future bug
+  that produces an absurd jump without setting the flag still degrades
+  gracefully instead of lerping across the whole arena.
+- **Add hitboxes deliberately NOT interpolated**: `setBattleAdds`' visible
+  sphere now lerps through `applySnapshot` like every other entity, but
+  the invisible tap-target hitbox still snaps straight to the sim tile
+  every update. A tap target should always reflect where the simulation
+  actually says the add is (fairness/correctness for input); only the
+  cosmetic mesh needs smoothing. Interpolating the hitbox too would risk
+  a brief "what you see" / "what you can tap" mismatch for no benefit.
+- **Verified live via Playwright**: drove the dev T1 loadout into a real
+  fight, then read `toon.js`'s internal per-entity snapshot state
+  (`snapFrom`/`snapTo`/`pos`/`facing`) directly every ~100-150ms across an
+  ordered move. Confirmed `pos` advances monotonically from `snapFrom`
+  toward `snapTo` over roughly the `TILE_MS` window rather than jumping,
+  and that `facing` rotates while `pos` is still moving then holds once
+  the move completes. Separately called the real `voxel.setBattlePositions`
+  interop entrypoint directly with `discontinuous: true` (the same
+  function `BattleScene.razor` calls on a Lunge tick) and confirmed the
+  very first sampled frame already had `pos === snapTo` — no lerp window
+  at all, a true instant snap — before the live game's own tick loop
+  overwrote the injected debug position with real state (expected, not a
+  bug: the dev server was mid-fight in the background the whole time).
+  This, together with the two new C# tests below, covers the full
+  pipeline: sim marks the teleport → Blazor diffs it into a flag → the
+  renderer snaps on that flag.
+- **New tests**: `Lunge_LogsPlayerTeleport_ForTheRendererInterpolationLayer`
+  (positions the player cardinal-adjacent to the King's footprint edge —
+  satisfies the melee-range gate without already being on Lunge's exact
+  approach-slot tile — queues `spec`, ticks once, asserts a
+  `PlayerTeleport` log entry plus the expected `Lunge` spec-hit) and
+  `NormalMovement_NeverLogsPlayerTeleport` (an ordinary `OrderMove` across
+  three ticks never logs one). 80/80 tests pass (78 + these 2); full
+  solution build is clean at 0 warnings/0 errors.
+- **No design-doc change**: this is a rendering-implementation detail with
+  no player-facing mechanic, number, or doctrine-color change documented
+  in `duels-ui-design.md`/`duels-boss-designs.md` — same determination as
+  the camera-easing pass two revisions prior. Left both untouched.

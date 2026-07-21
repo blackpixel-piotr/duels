@@ -410,6 +410,15 @@
             await JS.InvokeVoidAsync("voxel.setBattleEquipment", "battle-canvas", EquippedGearIds());
         }
 
+        // Log diff computed up front (not after the position send below) so
+        // this tick's teleport marker, if any, is known before building the
+        // position snapshot — the renderer's interpolation layer needs to
+        // know NOW whether to snap or lerp, not on the next diff.
+        var newEntries = LogEntries.Count > _lastCount ? LogEntries.Skip(_lastCount).ToList() : [];
+        _lastCount = LogEntries.Count;
+        bool playerTeleported = newEntries.Any(e => e.Kind == LogEntryKind.PlayerTeleport);
+        bool npcTeleported = newEntries.Any(e => e.Kind == LogEntryKind.NpcTeleport);
+
         // HP fractions drive voxel erosion (damage chips the model, food regrows it).
         await JS.InvokeVoidAsync("voxel.setBattleVitals", "battle-canvas", new
         {
@@ -418,12 +427,18 @@
         });
 
         // Sim tile positions — the scene walks the actors toward these.
+        // Renderer interpolation layer: `discontinuous` tells toon.js whether
+        // this tick's move should snap (dash/teleport/knockback) or lerp
+        // (an ordinary step) — see the PlayerTeleport/NpcTeleport log kinds.
+        // Adds are always continuous in M1 (they only ever crawl); enemy is
+        // always continuous too (Maggot King is stationary) but wired
+        // symmetrically for whenever a future boss dashes.
         if (State is { } s)
         {
             await JS.InvokeVoidAsync("voxel.setBattlePositions", "battle-canvas", new
             {
-                player = new { x = s.PlayerTile.X, z = s.PlayerTile.Z },
-                enemy = new { x = s.NpcTile.X, z = s.NpcTile.Z },
+                player = new { x = s.PlayerTile.X, z = s.PlayerTile.Z, discontinuous = playerTeleported },
+                enemy = new { x = s.NpcTile.X, z = s.NpcTile.Z, discontinuous = npcTeleported },
             });
             // Tile hazards v2 (boss mechanic): warning fuse -> pool -> scorch
             // (permanent, safe). JS diffs pending→gone itself to fire the
@@ -436,7 +451,7 @@
             });
             // Swarm adds (m1-plan Workstream C.7).
             await JS.InvokeVoidAsync("voxel.setBattleAdds", "battle-canvas",
-                s.Adds.Select(a => new { id = a.Id, x = a.Tile.X, z = a.Tile.Z, hpPct = a.MaxHp > 0 ? a.CurrentHp * 100 / a.MaxHp : 0 }).ToArray());
+                s.Adds.Select(a => new { id = a.Id, x = a.Tile.X, z = a.Tile.Z, hpPct = a.MaxHp > 0 ? a.CurrentHp * 100 / a.MaxHp : 0, discontinuous = false }).ToArray());
         }
 
         // Overhead prayer icons (billboarded in-world sprite); send only on change.
@@ -447,9 +462,6 @@
             await JS.InvokeVoidAsync("voxel.setBattleOverheads", "battle-canvas",
                 new { player = PlayerOverhead, enemy = NpcOverhead });
         }
-
-        var newEntries = LogEntries.Count > _lastCount ? LogEntries.Skip(_lastCount).ToList() : [];
-        _lastCount = LogEntries.Count;
 
         foreach (var e in newEntries)
         {

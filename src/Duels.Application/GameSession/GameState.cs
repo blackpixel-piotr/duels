@@ -489,4 +489,14 @@ public enum LogEntryKind
     HitsplatPlayer,
     HitsplatNpc,
     BossCast,
+    // Discontinuous-movement markers (renderer interpolation layer): a
+    // one-tick signal that this tick's tile change should SNAP on-screen,
+    // not lerp — the sim itself doesn't distinguish "a step" from "a jump"
+    // beyond distance, so the mechanic that causes the jump (currently only
+    // Lunge) is the one that knows and logs it. NpcTeleport has no trigger
+    // yet in M1 (Maggot King is stationary) — kept for a future
+    // dash/knockback mechanic so the renderer-side plumbing stays symmetric
+    // per entity rather than needing a second wiring pass later.
+    PlayerTeleport,
+    NpcTeleport,
 }

@@ -518,7 +518,46 @@ public sealed class MaggotKingTests
 
         await Tick(svc); // boss skips its rotation entirely while slumped
 
-        Assert.Equal(hpBefore, state.Player.CurrentHp); // no boss attack landed
+        Assert.Equal(hpBefore, state.Player.CurrentHp); // no boss attack taken
         Assert.True(npc.InPunishWindow);
+    }
+
+    [Fact]
+    public async Task Lunge_LogsPlayerTeleport_ForTheRendererInterpolationLayer()
+    {
+        // Renderer interpolation layer (playtest request): the sim doesn't
+        // distinguish "a step" from "a jump" beyond distance, so a mechanic
+        // that genuinely teleports the player must say so explicitly — Lunge
+        // is the only one that exists in M1. Position the player one tile
+        // outside the King's footprint (cardinal-adjacent to its near edge,
+        // not inside it) so the normal melee-range gate that guards queued
+        // actions is satisfied.
+        var (svc, state, _) = Build();
+        state.Player.Equip("wpn_melee_t1", EquipmentSlot.Weapon); // Rustcleaver — carries Lunge
+        var footprint = state.NpcFootprintTiles().ToList();
+        int nearZ = footprint.Min(t => t.Z);
+        var edgeTile = footprint.First(t => t.Z == nearZ);
+        state.SetPlayerTile(edgeTile.X, edgeTile.Z - 1); // cardinal-adjacent, outside the footprint
+        state.Engage(); // clears HoldPosition — Build()'s harness starts it true
+        state.SetQueuedAction("spec");
+
+        await Tick(svc);
+
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.PlayerTeleport);
+        Assert.Contains(state.CombatLog, e => e.Kind == LogEntryKind.SpecHit && e.Message.Contains("Lunge"));
+    }
+
+    [Fact]
+    public async Task NormalMovement_NeverLogsPlayerTeleport()
+    {
+        // Negative case for the same renderer signal: an ordinary walked step
+        // must NOT be mistaken for a discontinuous jump, or the renderer
+        // would snap instead of smoothly lerping every routine move order.
+        var (svc, state, _) = Build();
+        state.OrderMove(state.PlayerTile.X + 2, state.PlayerTile.Z);
+
+        for (int i = 0; i < 3; i++) await Tick(svc);
+
+        Assert.DoesNotContain(state.CombatLog, e => e.Kind == LogEntryKind.PlayerTeleport);
     }
 }
