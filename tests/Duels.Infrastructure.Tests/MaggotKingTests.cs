@@ -358,6 +358,51 @@ public sealed class MaggotKingTests
     }
 
     [Fact]
+    public async Task SwarmAdd_StopsAtAdjacency_NeverWalksOntoThePlayerTile()
+    {
+        // Playtest report: "it's literally under me." Place an add 3 tiles
+        // away and tick — it should approach and then HOLD at Chebyshev 1,
+        // never converging onto the player's exact tile.
+        var (svc, state, npc) = Build();
+        SoloAdds(state); // isolate: no other mechanic should move the player or add HP
+        var playerTile = state.PlayerTile;
+        state.SpawnAdd(new AddInstance("test_add", (playerTile.X + 3, playerTile.Z), 5));
+
+        for (int i = 0; i < 6; i++) await Tick(svc);
+
+        var add = state.Adds.Single(a => a.Id == "test_add");
+        int dist = Math.Max(Math.Abs(add.Tile.X - state.PlayerTile.X), Math.Abs(add.Tile.Z - state.PlayerTile.Z));
+        Assert.Equal(1, dist); // adjacent, never 0 (never on the player's own tile)
+    }
+
+    [Fact]
+    public async Task SwarmAdd_ContactBleed_AppliesOncePerContact_NotEveryTickOfAdjacency()
+    {
+        // Playtest report: "deals constant damage." Bible: "contact applies 1
+        // bleed stack" — one application per contact, not a continuous
+        // refresh for every tick the add happens to stay adjacent.
+        var (svc, state, npc) = Build();
+        SoloAdds(state);
+        var playerTile = state.PlayerTile;
+        state.SpawnAdd(new AddInstance("test_add", (playerTile.X + 1, playerTile.Z), 5)); // spawns adjacent
+
+        // ApplyBleed(4, ...) sets BleedTicksLeft=4, but ApplyDots' own TickBleed()
+        // runs later in this SAME tick, so a fresh bite already reads as 3, not
+        // 4. The assertion that matters is what happens NEXT: without the fix,
+        // remaining adjacent would re-trigger ApplyBleed and reset back to 4
+        // (then tick to 3) every tick — a flat, never-decreasing 3. With the
+        // fix, it strictly counts down: 3, 2, 1.
+        await Tick(svc); // first contact tick — bites once
+        Assert.Equal(3, state.BleedTicksLeft);
+
+        await Tick(svc); // still adjacent (add has no reason to move away) — must NOT re-bite
+        Assert.Equal(2, state.BleedTicksLeft); // ticked down, not refreshed back to 4→3
+
+        await Tick(svc);
+        Assert.Equal(1, state.BleedTicksLeft);
+    }
+
+    [Fact]
     public async Task Phase2_TransitionSpawnsFirstSwarmPair_At1Hp_AndContactBleeds()
     {
         var (svc, state, npc) = Build();
@@ -381,6 +426,18 @@ public sealed class MaggotKingTests
         state.ToggleMechanic(BossMechanic.Eruptions);
         state.ToggleMechanic(BossMechanic.Dots);
         state.ToggleMechanic(BossMechanic.BossAutos);
+    }
+
+    // Isolate a manually-spawned add's own movement/contact from the rest of
+    // the master script. Dots stays ON (bleed needs to tick down to observe
+    // the fix); Swarms stays ON too — that flag only gates auto-spawning
+    // (ProcessAdds itself has no mechanic gate), irrelevant to an add spawned
+    // directly via state.SpawnAdd.
+    private static void SoloAdds(GameState state)
+    {
+        state.ToggleMechanic(BossMechanic.BossAutos);
+        state.ToggleMechanic(BossMechanic.Eruptions);
+        state.ToggleMechanic(BossMechanic.RotBurst);
     }
 
     [Fact]
