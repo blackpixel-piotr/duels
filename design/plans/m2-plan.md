@@ -68,22 +68,22 @@ Concretely, as of `claude/text-duel-game-3t4vkf`:
   **"Three.js preview"** for §8.1 — see Workstream C's flagged decision.
 - **No shop, no bank, no buyback UI exist** — `HubMenu.razor` only has
   Fight / Retry / Loadout Editor / two dev-loadout buttons / Anim Editor.
-- **No non-boss attack behavior exists.** `GameTickService` early-returns
-  out of every rotation/hazard/master-script/DoT method when
-  `npc.Template.Script is null` (lines 477, 781, 827, 894). A `Script`-less
-  NPC currently only *moves* (chase-to-range via `DummyStyle`,
-  `GameTickService.cs:302`) — it never attacks. "Regular duels" (economy §3)
-  have no opponent roster and no combat behavior to drive them. See
-  Workstream F.
+- **`GameTickService` has no attack behavior for `Script == null` NPCs**
+  (early-returns out of every rotation/hazard/master-script/DoT method at
+  lines 477, 781, 827, 894 — a `Script`-less NPC currently only *moves* via
+  `DummyStyle`, `GameTickService.cs:302`). **This is not a gap to fill for
+  M2**: per explicit direction during this plan's review, there is no
+  separate non-boss NPC category, now or ever — every fightable thing in
+  the game is a boss NPC (`NpcTemplate` + `BossScript`), including whatever
+  "regular duels" turns out to mean. See the resolved note under
+  Workstream F below (F is folded into E).
 - **A pre-M1 regular-duel roster existed and was deleted** in the M1 ladder
   sweep (commit `e604884`, `NpcLadderModal.razor` + old `npcs.json` rows:
   `goblin`, `swashbuckler`, `barbarian`, `desert_bandit`, `gladiator`,
-  `corsair`, `berserker`, …). Their flavor (names, `ExamineText`) is reusable
-  set-dressing; their stats are not — they're OSRS-model
-  Attack/Strength/Defence/`Modifiers` numbers plus a `MaxWager` field for a
-  wagering system the design-decisions doc doesn't carry forward (wagers
-  aren't mentioned anywhere in the new economy; "win streaks" and the old
-  ladder are explicitly retired). Do not resurrect wagering.
+  `corsair`, `berserker`, …), each with OSRS-model stats and a `MaxWager`
+  field for a wagering/ladder system the design-decisions doc doesn't carry
+  forward. Noted for history only — **not being resurrected in any form**,
+  not even as reskinned boss-shaped content; see Workstream F.
 - **`SaveData`** (`src/Duels.Web/Models/SaveData.cs`) is schema v2. It has no
   field for bank contents. `System.Text.Json` ignores unknown properties on
   load and defaults missing ones, so a v3 field is additive/backward
@@ -315,51 +315,48 @@ fallback.
 
 ---
 
-## 7. Workstream F — Regular duels as gold on-ramp (economy §3)
+## 7. Workstream F — "Regular duels as gold on-ramp" (economy §3) — RESOLVED, folded into E
 
-- **F.1 — Opponent roster: flagging, needs design input.** The economy doc
-  gives only the *reward* shape ("50g early opponents → 150g late opponents
-  per win") — no roster, no count, no stats, no styles exist anywhere in
-  /design for regular-duel opponents. The pre-M1 ladder had 7+ named
-  opponents with full OSRS-model stats and a wager system that's explicitly
-  retired (design-decisions doc: win streaks retired, no wager mechanic
-  survives into the new economy). Their **names/flavor** are safe to reuse
-  wholesale (Arena Goblin, Swashbuckler Pete, Iron Barbarian, Desert
-  Bandit, Arena Gladiator, Pirate Corsair, Frenzied Berserker, …) but their
-  **stats need a from-scratch combat-math-v2 pass**, which is real design
-  work (how much HP, what gold reward maps to which name, what style each
-  uses) that the docs don't specify. Recommend: propose a small roster (3–5
-  opponents spanning the 50g→150g band, simple fixed HP/style, no
-  telegraphs/mechanics — true warm-up content) as a reviewable content
-  draft *before* writing it into `npcs.json`, rather than inventing final
-  numbers unilaterally.
-- **F.2 — Attack engine for non-scripted NPCs (architecture decision).**
-  Per the current-state audit, `Script == null` NPCs have zero attack
-  behavior today. Two ways to give regular-duel opponents a basic attack
-  without violating working-agreement #4 ("boss mechanics build on shared
-  systems... never one-off code"):
-  1. **Recommended**: give each regular-duel NPC a **trivial `BossScript`**
-     — one `BossAttackDef`, a `Phase1` rotation that repeats it every N
-     ticks, and an `EruptionDef` with `TilesPerWave: 0` (the shape already
-     supports "no hazard" — `EruptionDef` isn't nullable on `BossPhaseDef`,
-     but zero tiles per wave is a legitimate empty-hazard encoding with no
-     engine change needed). No `RotBurst`/`Swarms`. This reuses the fully
-     general, already-tested boss engine with zero new C# — purely a data
-     shape, matching working-agreement #4 by construction.
-  2. Add a genuine lightweight non-scripted-attack path to
-     `GameTickService` (extend the `Script is null` branch instead of
-     early-returning). More "correct" separation of concerns (a mook
-     shouldn't need a fake boss script) but touches the shared tick service
-     for content the economy doc itself calls "never the best rate" —
-     disproportionate engineering spend for warm-up content. Flagging (1)
-     as the pragmatic default; open to reviewer preference.
-- **F.3 — Hub wiring**: a duel-opponent picker (simplest form: a list, not
-  the old modal's exact UI) replacing/extending `HubMenu`'s single "FIGHT
-  THE MAGGOT KING" card with a section for regular opponents. `StartDuelCommand`
-  already takes an arbitrary `NpcId` — no handler changes needed, just new
-  `npcs.json` rows (F.1) and a UI entry point.
-- **F.4 — No wager, no streaks.** Confirmed retired per the design-decisions
-  doc; not re-adding either, even as an option.
+**Resolved during this plan's review**: there is no separate non-boss NPC
+roster. Every fightable opponent is, and will only ever be, a boss NPC
+(`NpcTemplate` + `BossScript`) drawn from the 8-boss roster. This corrects
+this plan's original Workstream F, which read the brief's "regular duels as
+gold on-ramp" line and the economy doc's §3 "Regular duels (warm-up
+content): 50g→150g per win" / design-decisions doc's "Regular duels serve
+as warm-up and gear source, not the core content" as implying a *separate*
+category of lightweight mob opponents (reusing the retired pre-M1 ladder's
+shape) — a plausible reading of those docs taken alone, but the wrong one.
+
+Consequences:
+
+- **No opponent roster, no roster stats, no new `npcs.json` mook rows, no
+  duel-opponent picker UI.** Delete this entirely from scope — there was
+  never anything here beyond a roster draft, which is now moot.
+- **No non-scripted attack engine needed either.** The `Script == null`
+  early-return behavior in `GameTickService` (audit, §1) is fine as-is;
+  nothing in M2 exercises it, and nothing should be built to fix it.
+- **What "gold on-ramp" actually means for M2 is now an open question, not
+  a closed one** — flagging squarely rather than guessing: with only
+  Maggot King fightable in M2 (M3 adds the rest of the roster), does the
+  economy doc's §3 "regular duels" paragraph:
+  1. describe content that simply doesn't exist yet and won't until there's
+     a roster of *bosses* spanning a 50g–150g-per-win difficulty band below
+     Tier 1 (i.e., is it actually talking about easy/early bosses, not a
+     separate mob category, and the wording is just imprecise)?
+  2. describe a feature that's been cut from the redesign and the economy
+     doc's §3 section is stale, superseded by design-decisions.md's boss-
+     only structure and simply never trimmed?
+  3. describe something else entirely that hasn't come up in this review?
+  Either way, **M2's actual on-ramp is Maggot King's own kill-gold rate**
+  (economy §3's Tier-1 table: ~300g/kill, ~4,500g/h at-tier, per Workstream
+  E.1) — there is nothing else to farm until M3. This plan makes no further
+  assumption about what "regular duels" means; resolving it is a design
+  decision for whoever owns the economy doc, not an implementation detail
+  for Claude Code to infer.
+- This resolution, and the corrected reading of the brief's "regular duels
+  as gold on-ramp" line, belongs in the findings record — see the
+  "Findings addendum" the user requested, written out at the end of this
+  planning pass.
 
 ---
 
@@ -395,12 +392,12 @@ CLAUDE.md's "after every completed step, not just when asked" instruction.
    to show) and benefits from B/D existing (things to compare against);
    **C.1's renderer decision blocks C.2–C.4** and should be confirmed with
    the reviewer before this step starts, not discovered mid-implementation.
-6. **F** (regular duels) — depends on F.1's roster draft being reviewed
-   first (content, not code, is the blocker); F.2's engine choice should
-   land alongside the first roster row as a working example.
-7. **E.2–E.5** (Maggot King's real drop table) — blocked on the same kind
-   of content-review step as F.1; sequenced last because the mechanism
-   (RollLoot) already works and doesn't block anything else.
+6. ~~F (regular duels)~~ — cut; resolved as "no separate roster," folded
+   into E. Nothing to sequence.
+7. **E.2–E.5** (Maggot King's real drop table) — blocked on a content-review
+   step (no concrete Common/Uncommon rows exist in any doc); sequenced last
+   because the mechanism (RollLoot) already works and doesn't block
+   anything else.
 8. **G** (save schema bump + hub wiring) — threads through every prior
    step; land incrementally as each workstream's UI entry point is ready
    rather than as one final integration step.
@@ -433,13 +430,19 @@ CLAUDE.md's "after every completed step, not just when asked" instruction.
 8. **E.2 — Maggot King's Common/Uncommon loot rows**: no concrete item list
    exists in any design doc. Blocks Workstream E until resolved — see
    Workstream E.2 for the specific open sub-questions.
-9. **F.1 — Regular-duel roster**: names can be reused from the retired
-   ladder; stats/count/gold curve need a fresh combat-math-v2 pass that
-   isn't in any doc yet. Blocks Workstream F.
-10. **F.2 — Non-scripted attack engine**: trivial-`BossScript` reuse
-    (recommended, zero engine changes) vs. a real lightweight non-scripted
-    attack path in `GameTickService`.
-11. **A.6 — Fence vs. buyback split**: confirmed as a real modeling gap
+9. ~~F.1 — Regular-duel roster~~ **RESOLVED**: no separate roster exists or
+   will exist; see Workstream F.
+10. ~~F.2 — Non-scripted attack engine~~ **RESOLVED (moot)**: nothing in M2
+    needs it.
+11. **What does economy §3's "regular duels" paragraph actually refer to?**
+    Newly opened by F's resolution (not the same question as #9/#10 above)
+    — with no non-boss NPCs, M2's gold on-ramp is just Maggot King's kill
+    rate. Whether the doc's §3 language describes a future easy-boss band,
+    stale pre-redesign wording, or something else is unresolved — see
+    Workstream F's three numbered readings. Does not block any M2
+    workstream (all of M2's income already resolves to boss kill-gold
+    either way); flagging for whoever next edits the economy doc.
+12. **A.6 — Fence vs. buyback split**: confirmed as a real modeling gap
     (see audit) — needs the split described in A.6/D.3, not a design
     ambiguity so much as an implementation task, but flagging since it
     changes `IItemRepository`'s contract.
@@ -456,6 +459,9 @@ CLAUDE.md's "after every completed step, not just when asked" instruction.
 - Cosmetic/transmog override tab (§8.1) — no content exists to populate it
   until the minigame/Emporium ship (M6/M7).
 - Wager system, win streaks — retired, not returning.
+- Separate non-boss/mook NPC roster ("regular duel opponents") — resolved
+  during this plan's review as never existing; all fightable content is
+  boss NPCs. See Workstream F.
 - Bank tabs/search/favorites/placeholders/Prepare-Loadout bridge — real
   UX value, deliberately deferred past the core loop (see B.4).
 - Shop buyback's exact session-tracking shape — flagged (D.3) for
