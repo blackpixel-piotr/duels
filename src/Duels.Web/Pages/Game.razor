@@ -12,6 +12,8 @@
 @using Duels.Web.Components.Hub
 @using Duels.Web.Components.Bag
 @using Duels.Web.Components.Loadout
+@using Duels.Web.Components.Bank
+@using Duels.Web.Components.Shop
 
 @if (!GameSvc.IsStarted)
 {
@@ -34,6 +36,16 @@ else
         {
             <LoadoutEditor State="@_state"
                            OnClose="@(() => { _loadoutOpen = false; StateHasChanged(); })" />
+        }
+        @if (_bankOpen)
+        {
+            <BankSheet State="@_state"
+                       OnClose="@(() => { _bankOpen = false; StateHasChanged(); })" />
+        }
+        @if (_shopOpen)
+        {
+            <ShopSheet State="@_state"
+                       OnClose="@(() => { _shopOpen = false; StateHasChanged(); })" />
         }
 
         @if (_state?.InDuel == true || _duelResult is not null)
@@ -71,6 +83,8 @@ else
                      OnFight="StartMaggotKingFight"
                      OnRetry="RetryDuel"
                      OnOpenLoadout="@(() => { _loadoutOpen = true; StateHasChanged(); })"
+                     OnOpenBank="@(() => { _bankOpen = true; StateHasChanged(); })"
+                     OnOpenShop="@(() => { _shopOpen = true; StateHasChanged(); })"
                      OnGrantDevLoadout="GrantDevLoadout" />
 
             <ActionHud State="@_state" Layout="dock"
@@ -85,6 +99,8 @@ else
     private bool _bagOpen     = false;
     private bool _charOpen    = false;
     private bool _loadoutOpen = false;
+    private bool _bankOpen    = false;
+    private bool _shopOpen    = false;
     private bool _processing  = false;
     private bool _wasDueling  = false;
     private DuelSummary? _duelResult;

@@ -1,5 +1,10 @@
 # M2 — Progression Spine: Technical Plan
 
+**Status: implemented.** See `m2-findings.md` for what actually shipped,
+what stayed blocked (Rotfang, E.2's loot rows, T3/T4 special mechanics,
+shop buyback), and where reality diverged from this plan's assumptions —
+this document is what was intended, not a record of what happened.
+
 Per the implementation brief: "Bank (UI bible §7), equipment paper-doll +
 Three.js preview (§8.1), gold shop, item tables ingested from the items doc,
 drop tables + kill gold (economy §3–5), regular duels as gold on-ramp."

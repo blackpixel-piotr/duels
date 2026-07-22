@@ -67,6 +67,8 @@ public sealed class DefinitionItemRepository : IItemRepository
     /// (uniques: 15% of a T4 piece per items doc §4; rares: 0, never
     /// sellable). An item with neither a shop price nor an override falls
     /// back to 0 rather than an invented flat number.</summary>
+    public int? GetShopPrice(string itemId) => _shopPrices.TryGetValue(itemId, out var price) ? price : null;
+
     public int GetFenceValue(string itemId)
     {
         if (_shopPrices.TryGetValue(itemId, out var price)) return (int)Math.Round(price * 0.15);

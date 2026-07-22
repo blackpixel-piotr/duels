@@ -125,6 +125,153 @@
       "ExamineText": "A gnarled staff humming with a dull curse.",
       "AttackLevelRequired": 1,
       "Range": 7
+    },
+    {
+      "Id": "wpn_melee_t3",
+      "Name": "Doombringer Maul",
+      "AttackType": "Crush",
+      "Doc": {
+        "Power": 25,
+        "Precision": 0.04,
+        "DefPoints": 0,
+        "Line": "Warbound",
+        "Tier": 3,
+        "Special": {
+          "Id": "quake",
+          "Cost": 60,
+          "Description": "Hits all adjacent tiles, heavy."
+        }
+      },
+      "AttackSpeed": 4,
+      "ExamineText": "A warhammer heavy enough to crack the ground it lands on.",
+      "AttackLevelRequired": 1,
+      "Range": 1
+    },
+    {
+      "Id": "wpn_ranged_t3",
+      "Name": "Longfang",
+      "AttackType": "Ranged",
+      "Doc": {
+        "Power": 19,
+        "Precision": 0.04,
+        "DefPoints": 0,
+        "Line": "Stalker",
+        "Tier": 3,
+        "Special": {
+          "Id": "piercing_arrow",
+          "Cost": 60,
+          "Description": "Line shot, ignores 25% Def."
+        }
+      },
+      "AttackSpeed": 3,
+      "ExamineText": "A longbow strung for range over rate.",
+      "AttackLevelRequired": 1,
+      "Range": 7
+    },
+    {
+      "Id": "wpn_magic_t3",
+      "Name": "Stormbrand",
+      "AttackType": "Magic",
+      "Doc": {
+        "Power": 19,
+        "Precision": 0.04,
+        "DefPoints": 0,
+        "Line": "Occult",
+        "Tier": 3,
+        "Special": {
+          "Id": "arc",
+          "Cost": 60,
+          "Description": "Hit plus a chained half-damage hit next tick."
+        }
+      },
+      "AttackSpeed": 3,
+      "ExamineText": "A battlestaff that crackles between casts.",
+      "AttackLevelRequired": 1,
+      "Range": 7
+    },
+    {
+      "Id": "wpn_melee_t4",
+      "Name": "Kingsplitter",
+      "AttackType": "Slash",
+      "Doc": {
+        "Power": 33,
+        "Precision": 0.06,
+        "DefPoints": 0,
+        "Line": "Warbound",
+        "Tier": 4,
+        "Special": {
+          "Id": "executioner",
+          "Cost": 75,
+          "Description": "+100% damage vs targets under 30% HP."
+        }
+      },
+      "AttackSpeed": 4,
+      "ExamineText": "A greatsword scaled for one purpose.",
+      "AttackLevelRequired": 1,
+      "Range": 1
+    },
+    {
+      "Id": "wpn_ranged_t4",
+      "Name": "Siegepiercer",
+      "AttackType": "Ranged",
+      "Doc": {
+        "Power": 33,
+        "Precision": 0.06,
+        "DefPoints": 0,
+        "Line": "Stalker",
+        "Tier": 4,
+        "Special": {
+          "Id": "ballista_bolt",
+          "Cost": 75,
+          "Description": "Massive single hit, 1-tick self-root."
+        }
+      },
+      "AttackSpeed": 4,
+      "ExamineText": "A war crossbow built to punch through plate at range.",
+      "AttackLevelRequired": 1,
+      "Range": 7
+    },
+    {
+      "Id": "wpn_magic_t4",
+      "Name": "Archon's Rod",
+      "AttackType": "Magic",
+      "Doc": {
+        "Power": 25,
+        "Precision": 0.06,
+        "DefPoints": 0,
+        "Line": "Occult",
+        "Tier": 4,
+        "Special": {
+          "Id": "annihilate",
+          "Cost": 75,
+          "Description": "Huge hit, 2-tick cast, interruptible."
+        }
+      },
+      "AttackSpeed": 3,
+      "ExamineText": "A scepter that hums louder the longer it channels.",
+      "AttackLevelRequired": 1,
+      "Range": 7
+    },
+    {
+      "Id": "wpn_rare_mk",
+      "Name": "Carrion Edge",
+      "AttackType": "Slash",
+      "Doc": {
+        "Power": 28,
+        "Precision": 0.06,
+        "DefPoints": 0,
+        "Line": "None",
+        "Tier": 4,
+        "Special": {
+          "Id": "fester",
+          "Cost": 50,
+          "Description": "Heavy hit that detonates all poison on the target for instant damage."
+        }
+      },
+      "AttackSpeed": 3,
+      "ExamineText": "Maggot King's rare (items doc §4): RL 150+ gated, best-in-slot melee weapon. Data-ingested ahead of its drop source — no Rare loot-table slot exists until M4 adds raid level, so this cannot drop yet. Its passive (20% of hits apply poison) and Fester's poison-detonation are NOT wired up: both depend on a boss-side poison DoT track that doesn't exist in the engine (the existing GameState.PlayerPoisoned system only poisons the player, never an NpcInstance) — flagged in m2-findings.md, not implemented this pass.",
+      "AttackLevelRequired": 1,
+      "Range": 1
     }
   ],
   "gear": [
@@ -157,6 +304,34 @@
       "ExamineText": "Warbound-line helmet armor, tier 2."
     },
     {
+      "Id": "arm_warbound_helmet_t3",
+      "Name": "Warbound Helmet (T3)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 6,
+        "Line": "Warbound",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line helmet armor, tier 3."
+    },
+    {
+      "Id": "arm_warbound_helmet_t4",
+      "Name": "Warbound Helmet (T4)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 10,
+        "Line": "Warbound",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line helmet armor, tier 4."
+    },
+    {
       "Id": "arm_warbound_body_t1",
       "Name": "Warbound Body (T1)",
       "Slot": "Body",
@@ -183,6 +358,34 @@
         "Special": null
       },
       "ExamineText": "Warbound-line body armor, tier 2."
+    },
+    {
+      "Id": "arm_warbound_body_t3",
+      "Name": "Warbound Body (T3)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 9,
+        "Line": "Warbound",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line body armor, tier 3."
+    },
+    {
+      "Id": "arm_warbound_body_t4",
+      "Name": "Warbound Body (T4)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 14,
+        "Line": "Warbound",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line body armor, tier 4."
     },
     {
       "Id": "arm_warbound_legs_t1",
@@ -213,6 +416,34 @@
       "ExamineText": "Warbound-line legs armor, tier 2."
     },
     {
+      "Id": "arm_warbound_legs_t3",
+      "Name": "Warbound Legs (T3)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 8,
+        "Line": "Warbound",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line legs armor, tier 3."
+    },
+    {
+      "Id": "arm_warbound_legs_t4",
+      "Name": "Warbound Legs (T4)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 12,
+        "Line": "Warbound",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line legs armor, tier 4."
+    },
+    {
       "Id": "arm_warbound_boots_t1",
       "Name": "Warbound Boots (T1)",
       "Slot": "Boots",
@@ -239,6 +470,34 @@
         "Special": null
       },
       "ExamineText": "Warbound-line boots armor, tier 2."
+    },
+    {
+      "Id": "arm_warbound_boots_t3",
+      "Name": "Warbound Boots (T3)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Warbound",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line boots armor, tier 3."
+    },
+    {
+      "Id": "arm_warbound_boots_t4",
+      "Name": "Warbound Boots (T4)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 7,
+        "Line": "Warbound",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line boots armor, tier 4."
     },
     {
       "Id": "arm_warbound_gloves_t1",
@@ -269,6 +528,34 @@
       "ExamineText": "Warbound-line gloves armor, tier 2."
     },
     {
+      "Id": "arm_warbound_gloves_t3",
+      "Name": "Warbound Gloves (T3)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Warbound",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line gloves armor, tier 3."
+    },
+    {
+      "Id": "arm_warbound_gloves_t4",
+      "Name": "Warbound Gloves (T4)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 7,
+        "Line": "Warbound",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line gloves armor, tier 4."
+    },
+    {
       "Id": "arm_warbound_cape_t1",
       "Name": "Warbound Cape (T1)",
       "Slot": "Cape",
@@ -295,6 +582,34 @@
         "Special": null
       },
       "ExamineText": "Warbound-line cape armor, tier 2."
+    },
+    {
+      "Id": "arm_warbound_cape_t3",
+      "Name": "Warbound Cape (T3)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Warbound",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line cape armor, tier 3."
+    },
+    {
+      "Id": "arm_warbound_cape_t4",
+      "Name": "Warbound Cape (T4)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 7,
+        "Line": "Warbound",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Warbound-line cape armor, tier 4."
     },
     {
       "Id": "arm_stalker_helmet_t1",
@@ -325,6 +640,34 @@
       "ExamineText": "Stalker-line helmet armor, tier 2."
     },
     {
+      "Id": "arm_stalker_helmet_t3",
+      "Name": "Stalker Helmet (T3)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 6,
+        "Line": "Stalker",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line helmet armor, tier 3."
+    },
+    {
+      "Id": "arm_stalker_helmet_t4",
+      "Name": "Stalker Helmet (T4)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 10,
+        "Line": "Stalker",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line helmet armor, tier 4."
+    },
+    {
       "Id": "arm_stalker_body_t1",
       "Name": "Stalker Body (T1)",
       "Slot": "Body",
@@ -351,6 +694,34 @@
         "Special": null
       },
       "ExamineText": "Stalker-line body armor, tier 2."
+    },
+    {
+      "Id": "arm_stalker_body_t3",
+      "Name": "Stalker Body (T3)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 9,
+        "Line": "Stalker",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line body armor, tier 3."
+    },
+    {
+      "Id": "arm_stalker_body_t4",
+      "Name": "Stalker Body (T4)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 14,
+        "Line": "Stalker",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line body armor, tier 4."
     },
     {
       "Id": "arm_stalker_legs_t1",
@@ -381,6 +752,34 @@
       "ExamineText": "Stalker-line legs armor, tier 2."
     },
     {
+      "Id": "arm_stalker_legs_t3",
+      "Name": "Stalker Legs (T3)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 8,
+        "Line": "Stalker",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line legs armor, tier 3."
+    },
+    {
+      "Id": "arm_stalker_legs_t4",
+      "Name": "Stalker Legs (T4)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 12,
+        "Line": "Stalker",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line legs armor, tier 4."
+    },
+    {
       "Id": "arm_stalker_boots_t1",
       "Name": "Stalker Boots (T1)",
       "Slot": "Boots",
@@ -407,6 +806,34 @@
         "Special": null
       },
       "ExamineText": "Stalker-line boots armor, tier 2."
+    },
+    {
+      "Id": "arm_stalker_boots_t3",
+      "Name": "Stalker Boots (T3)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Stalker",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line boots armor, tier 3."
+    },
+    {
+      "Id": "arm_stalker_boots_t4",
+      "Name": "Stalker Boots (T4)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 7,
+        "Line": "Stalker",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line boots armor, tier 4."
     },
     {
       "Id": "arm_stalker_gloves_t1",
@@ -437,6 +864,34 @@
       "ExamineText": "Stalker-line gloves armor, tier 2."
     },
     {
+      "Id": "arm_stalker_gloves_t3",
+      "Name": "Stalker Gloves (T3)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Stalker",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line gloves armor, tier 3."
+    },
+    {
+      "Id": "arm_stalker_gloves_t4",
+      "Name": "Stalker Gloves (T4)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 7,
+        "Line": "Stalker",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line gloves armor, tier 4."
+    },
+    {
       "Id": "arm_stalker_cape_t1",
       "Name": "Stalker Cape (T1)",
       "Slot": "Cape",
@@ -463,6 +918,34 @@
         "Special": null
       },
       "ExamineText": "Stalker-line cape armor, tier 2."
+    },
+    {
+      "Id": "arm_stalker_cape_t3",
+      "Name": "Stalker Cape (T3)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Stalker",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line cape armor, tier 3."
+    },
+    {
+      "Id": "arm_stalker_cape_t4",
+      "Name": "Stalker Cape (T4)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 7,
+        "Line": "Stalker",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Stalker-line cape armor, tier 4."
     },
     {
       "Id": "arm_occult_helmet_t1",
@@ -493,6 +976,34 @@
       "ExamineText": "Occult-line helmet armor, tier 2."
     },
     {
+      "Id": "arm_occult_helmet_t3",
+      "Name": "Occult Helmet (T3)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 6,
+        "Line": "Occult",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Occult-line helmet armor, tier 3."
+    },
+    {
+      "Id": "arm_occult_helmet_t4",
+      "Name": "Occult Helmet (T4)",
+      "Slot": "Helmet",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 10,
+        "Line": "Occult",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Occult-line helmet armor, tier 4."
+    },
+    {
       "Id": "arm_occult_body_t1",
       "Name": "Occult Body (T1)",
       "Slot": "Body",
@@ -519,6 +1030,34 @@
         "Special": null
       },
       "ExamineText": "Occult-line body armor, tier 2."
+    },
+    {
+      "Id": "arm_occult_body_t3",
+      "Name": "Occult Body (T3)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 9,
+        "Line": "Occult",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Occult-line body armor, tier 3."
+    },
+    {
+      "Id": "arm_occult_body_t4",
+      "Name": "Occult Body (T4)",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 14,
+        "Line": "Occult",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Occult-line body armor, tier 4."
     },
     {
       "Id": "arm_occult_legs_t1",
@@ -549,6 +1088,34 @@
       "ExamineText": "Occult-line legs armor, tier 2."
     },
     {
+      "Id": "arm_occult_legs_t3",
+      "Name": "Occult Legs (T3)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 8,
+        "Line": "Occult",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Occult-line legs armor, tier 3."
+    },
+    {
+      "Id": "arm_occult_legs_t4",
+      "Name": "Occult Legs (T4)",
+      "Slot": "Legs",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 12,
+        "Line": "Occult",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Occult-line legs armor, tier 4."
+    },
+    {
       "Id": "arm_occult_boots_t1",
       "Name": "Occult Boots (T1)",
       "Slot": "Boots",
@@ -575,6 +1142,34 @@
         "Special": null
       },
       "ExamineText": "Occult-line boots armor, tier 2."
+    },
+    {
+      "Id": "arm_occult_boots_t3",
+      "Name": "Occult Boots (T3)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Occult",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Occult-line boots armor, tier 3."
+    },
+    {
+      "Id": "arm_occult_boots_t4",
+      "Name": "Occult Boots (T4)",
+      "Slot": "Boots",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 7,
+        "Line": "Occult",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Occult-line boots armor, tier 4."
     },
     {
       "Id": "arm_occult_gloves_t1",
@@ -605,6 +1200,34 @@
       "ExamineText": "Occult-line gloves armor, tier 2."
     },
     {
+      "Id": "arm_occult_gloves_t3",
+      "Name": "Occult Gloves (T3)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Occult",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Occult-line gloves armor, tier 3."
+    },
+    {
+      "Id": "arm_occult_gloves_t4",
+      "Name": "Occult Gloves (T4)",
+      "Slot": "Gloves",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 7,
+        "Line": "Occult",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Occult-line gloves armor, tier 4."
+    },
+    {
       "Id": "arm_occult_cape_t1",
       "Name": "Occult Cape (T1)",
       "Slot": "Cape",
@@ -631,6 +1254,34 @@
         "Special": null
       },
       "ExamineText": "Occult-line cape armor, tier 2."
+    },
+    {
+      "Id": "arm_occult_cape_t3",
+      "Name": "Occult Cape (T3)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 5,
+        "Line": "Occult",
+        "Tier": 3,
+        "Special": null
+      },
+      "ExamineText": "Occult-line cape armor, tier 3."
+    },
+    {
+      "Id": "arm_occult_cape_t4",
+      "Name": "Occult Cape (T4)",
+      "Slot": "Cape",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 7,
+        "Line": "Occult",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Occult-line cape armor, tier 4."
     }
   ],
   "consumables": [
@@ -643,6 +1294,51 @@
       "Name": "Prayer Flask"
     }
   ],
-  "shopPrices": {},
+  "shopPrices": {
+    "wpn_melee_t1": 500,
+    "wpn_ranged_t1": 500,
+    "wpn_magic_t1": 500,
+    "wpn_melee_t2": 2500,
+    "wpn_ranged_t2": 2500,
+    "wpn_magic_t2": 2500,
+    "wpn_melee_t3": 10000,
+    "wpn_ranged_t3": 10000,
+    "wpn_magic_t3": 10000,
+    "wpn_melee_t4": 30000,
+    "wpn_ranged_t4": 30000,
+    "wpn_magic_t4": 30000,
+
+    // PROVISIONAL (m2-findings.md): items doc §4 gives only a per-tier RANGE for armour ('200-350g' etc.), not exact per-slot prices. Values below linearly interpolate within each tier's documented [low,high] band by the slot's own Def-point weight (items doc §5) -- Boots/Gloves/Cape (lightest) anchor the low end, Body (heaviest) anchors the high end, Legs/Helmet fall proportionally between. Endpoints match the doc exactly; the interpolation itself is an assumption, not a sourced number.
+    "arm_warbound_helmet_t1": 250, "arm_stalker_helmet_t1": 250, "arm_occult_helmet_t1": 250,
+    "arm_warbound_body_t1": 350, "arm_stalker_body_t1": 350, "arm_occult_body_t1": 350,
+    "arm_warbound_legs_t1": 300, "arm_stalker_legs_t1": 300, "arm_occult_legs_t1": 300,
+    "arm_warbound_boots_t1": 200, "arm_stalker_boots_t1": 200, "arm_occult_boots_t1": 200,
+    "arm_warbound_gloves_t1": 200, "arm_stalker_gloves_t1": 200, "arm_occult_gloves_t1": 200,
+    "arm_warbound_cape_t1": 200, "arm_stalker_cape_t1": 200, "arm_occult_cape_t1": 200,
+
+    "arm_warbound_helmet_t2": 1050, "arm_stalker_helmet_t2": 1050, "arm_occult_helmet_t2": 1050,
+    "arm_warbound_body_t2": 1400, "arm_stalker_body_t2": 1400, "arm_occult_body_t2": 1400,
+    "arm_warbound_legs_t2": 1250, "arm_stalker_legs_t2": 1250, "arm_occult_legs_t2": 1250,
+    "arm_warbound_boots_t2": 900, "arm_stalker_boots_t2": 900, "arm_occult_boots_t2": 900,
+    "arm_warbound_gloves_t2": 900, "arm_stalker_gloves_t2": 900, "arm_occult_gloves_t2": 900,
+    "arm_warbound_cape_t2": 900, "arm_stalker_cape_t2": 900, "arm_occult_cape_t2": 900,
+
+    "arm_warbound_helmet_t3": 4000, "arm_stalker_helmet_t3": 4000, "arm_occult_helmet_t3": 4000,
+    "arm_warbound_body_t3": 5500, "arm_stalker_body_t3": 5500, "arm_occult_body_t3": 5500,
+    "arm_warbound_legs_t3": 5000, "arm_stalker_legs_t3": 5000, "arm_occult_legs_t3": 5000,
+    "arm_warbound_boots_t3": 3500, "arm_stalker_boots_t3": 3500, "arm_occult_boots_t3": 3500,
+    "arm_warbound_gloves_t3": 3500, "arm_stalker_gloves_t3": 3500, "arm_occult_gloves_t3": 3500,
+    "arm_warbound_cape_t3": 3500, "arm_stalker_cape_t3": 3500, "arm_occult_cape_t3": 3500,
+
+    "arm_warbound_helmet_t4": 12000, "arm_stalker_helmet_t4": 12000, "arm_occult_helmet_t4": 12000,
+    "arm_warbound_body_t4": 15000, "arm_stalker_body_t4": 15000, "arm_occult_body_t4": 15000,
+    "arm_warbound_legs_t4": 13500, "arm_stalker_legs_t4": 13500, "arm_occult_legs_t4": 13500,
+    "arm_warbound_boots_t4": 10000, "arm_stalker_boots_t4": 10000, "arm_occult_boots_t4": 10000,
+    "arm_warbound_gloves_t4": 10000, "arm_stalker_gloves_t4": 10000, "arm_occult_gloves_t4": 10000,
+    "arm_warbound_cape_t4": 10000, "arm_stalker_cape_t4": 10000, "arm_occult_cape_t4": 10000,
+
+    "flask_health": 1000,
+    "flask_prayer": 1000
+  },
   "fenceValues": {}
 }

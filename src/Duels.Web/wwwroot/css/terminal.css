@@ -1404,6 +1404,43 @@ html, body {
     text-align: center;
 }
 
+/* ─── Equipment stat sheet + compare card (M2 Workstream C.2/C.3) ─── */
+.eq-stat-sheet {
+    border: 1px solid var(--border);
+    padding: 6px 8px;
+    margin: 6px 0;
+    flex-shrink: 0;
+}
+.eq-stat-title {
+    font-size: 9px; color: var(--text-dim); text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 4px;
+}
+.eq-stat-row {
+    display: flex; justify-content: space-between; gap: 8px;
+    font-size: 10px; padding: 1px 0;
+}
+.eq-stat-label.doctrine-melee  { color: var(--doctrine-melee); }
+.eq-stat-label.doctrine-ranged { color: var(--doctrine-ranged); }
+.eq-stat-label.doctrine-magic  { color: var(--doctrine-magic); }
+.eq-stat-val { color: var(--text); }
+
+.compare-card {
+    border: 1px solid var(--amber);
+    background: #1a1208;
+    padding: 8px;
+    margin: 6px 0;
+    flex-shrink: 0;
+}
+.compare-title { color: var(--amber); font-size: 11px; margin-bottom: 4px; }
+.compare-row {
+    display: flex; justify-content: space-between; gap: 8px;
+    font-size: 10px; color: var(--text-dim); padding: 1px 0;
+}
+.compare-actions { display: flex; gap: 6px; margin-top: 6px; }
+.compare-actions .shop-confirm-btn, .compare-actions .shop-cancel-btn { flex: 1; padding: 4px 0; font-size: 10px; }
+.delta-pos { color: var(--green); }
+.delta-neg { color: var(--red); }
+
 /* ─── Blazor error UI ─── */
 #blazor-error-ui {
     background: #1a0000;

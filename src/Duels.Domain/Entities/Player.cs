@@ -38,9 +38,14 @@ public sealed class Player
 
     private readonly Dictionary<EquipmentSlot, string> _equipped = new();
     private readonly List<string> _inventory = new();
+    private readonly List<string> _bankedItems = new();
 
     public IReadOnlyDictionary<EquipmentSlot, string> Equipped => _equipped;
     public IReadOnlyList<string> Inventory => _inventory;
+
+    /// <summary>UI bible §7: unbounded bank storage, distinct from the
+    /// 28-slot carried bag (<see cref="Inventory"/>).</summary>
+    public IReadOnlyList<string> BankedItems => _bankedItems;
 
     public Player(string id, string name)
     {
@@ -49,8 +54,16 @@ public sealed class Player
         CurrentHp = MaxHp;
         SpecialEnergy = 100;
         PrayerPoints = 99;
-        Gold = 10_000;
+        // PROVISIONAL: no design doc specifies new-player starting gold; the
+        // economy doc's pacing model (first purchase <=15 min, T1 kit ~1,600g)
+        // assumes near-zero starting gold, so 0 rather than the prior
+        // unattributed 10,000g (m1-findings.md addendum, M2 pre-plan sweep).
+        Gold = 0;
     }
+
+    /// <summary>UI bible §7 (ratified M2 pre-plan): "The carried bag is 28
+    /// slots (fixed)."</summary>
+    public const int BagCapacity = 28;
 
     public bool IsAlive => CurrentHp > 0;
 
@@ -111,6 +124,33 @@ public sealed class Player
     public bool HasItem(string itemId) => _inventory.Contains(itemId) || _equipped.ContainsValue(itemId);
     public string? GetEquippedWeaponId() => _equipped.GetValueOrDefault(EquipmentSlot.Weapon);
 
+    public void AddToBank(string itemId) => _bankedItems.Add(itemId);
+    public bool RemoveFromBank(string itemId)
+    {
+        int idx = _bankedItems.LastIndexOf(itemId);
+        if (idx < 0) return false;
+        _bankedItems.RemoveAt(idx);
+        return true;
+    }
+
+    /// <summary>Moves one unit bag -> bank. No cap on the bank side (UI bible
+    /// §7: unbounded store).</summary>
+    public bool Deposit(string itemId)
+    {
+        if (!RemoveFromInventory(itemId)) return false;
+        AddToBank(itemId);
+        return true;
+    }
+
+    /// <summary>Moves one unit bank -> bag, respecting the 28-slot bag cap.</summary>
+    public bool Withdraw(string itemId)
+    {
+        if (_inventory.Count >= BagCapacity) return false;
+        if (!RemoveFromBank(itemId)) return false;
+        AddToInventory(itemId);
+        return true;
+    }
+
     public void AddGold(int amount) => Gold += amount;
     public bool SpendGold(int amount)
     {
@@ -121,7 +161,8 @@ public sealed class Player
 
     public void RestoreFromSave(int gold, int currentHp, int specialEnergy,
         IEnumerable<string> inventory, IEnumerable<KeyValuePair<EquipmentSlot, string>> equipped,
-        AttackStyle chosenStyle = AttackStyle.Accurate, int? personalBestKillTicks = null)
+        AttackStyle chosenStyle = AttackStyle.Accurate, int? personalBestKillTicks = null,
+        IEnumerable<string>? bankedItems = null)
     {
         Gold = gold;
         ChosenStyle = chosenStyle;
@@ -130,6 +171,8 @@ public sealed class Player
         _equipped.Clear();
         foreach (var kv in equipped)
             _equipped[kv.Key] = kv.Value;
+        _bankedItems.Clear();
+        _bankedItems.AddRange(bankedItems ?? []);
         CurrentHp = Math.Min(currentHp, MaxHp);
         SpecialEnergy = Math.Min(specialEnergy, 100);
         PersonalBestKillTicks = personalBestKillTicks;

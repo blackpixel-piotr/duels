@@ -1,0 +1,63 @@
+@using Duels.Application.GameSession
+@using Duels.Domain.ValueObjects
+@using Duels.Application.Abstractions
+@inject Duels.Application.Services.GameTickService TickService
+@inject IItemRepository ItemRepo
+
+@* UI bible §8.1 "right panel — stat sheet": attack bonus per style, defense,
+   special-energy modifiers. "DoT-related stats" and "prayer bonus" have no
+   gear-carried representation in the current data model (no item grants
+   either) -- omitted rather than showing an always-zero row. *@
+<div class="eq-stat-sheet">
+    <div class="eq-stat-title">Stat Sheet</div>
+    @foreach (var (label, line, cssClass) in _lines)
+    {
+        <div class="eq-stat-row">
+            <span class="eq-stat-label @cssClass">@label</span>
+            <span class="eq-stat-val">+@((LineBonus(line) * 100).ToString("0"))%</span>
+        </div>
+    }
+    <div class="eq-stat-row">
+        <span class="eq-stat-label">Def (all styles)</span>
+        <span class="eq-stat-val">@TotalDefPoints.ToString("0.#") pts (@((int)(DefMitigation * 100))% dmg reduction)</span>
+    </div>
+    <div class="eq-stat-row">
+        <span class="eq-stat-label">Max Special</span>
+        <span class="eq-stat-val">@MaxSpecial%</span>
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+
+    private static readonly (string Label, GearLine Line, string Css)[] _lines =
+    [
+        ("Melee (Warbound)", GearLine.Warbound, "doctrine-melee"),
+        ("Ranged (Stalker)", GearLine.Stalker, "doctrine-ranged"),
+        ("Magic (Occult)", GearLine.Occult, "doctrine-magic"),
+    ];
+
+    private double LineBonus(GearLine line) =>
+        State?.Player is { } p ? TickService.GetLineDamageBonusPreview(p, line) : 0;
+
+    private double TotalDefPoints
+    {
+        get
+        {
+            if (State?.Player is not { } p) return 0;
+            double total = 0;
+            foreach (var (slot, itemId) in p.Equipped)
+            {
+                if (slot == EquipmentSlot.Weapon) continue;
+                total += ItemRepo.GetGear(itemId)?.Doc.DefPoints ?? 0;
+            }
+            return total;
+        }
+    }
+
+    // items doc §1: 0.4%/point, 40% cap from gear. Def spread is flat across
+    // styles for launch (items doc §5) -- same mitigation number for all three.
+    private double DefMitigation => Math.Min(TotalDefPoints * 0.004, 0.40);
+
+    private int MaxSpecial => State?.Player is { } p ? TickService.MaxSpecialEnergy(p) : 100;
+}

@@ -1,0 +1,53 @@
+@using Duels.Application.Abstractions
+@inject IItemRepository ItemRepo
+
+@* UI bible §8.1 compare flow: tapping an owned item shows its card with
+   green/red delta arrows vs currently equipped; Equip is one tap away. *@
+<div class="compare-card">
+    @if (Candidate is null)
+    {
+        <div class="compare-row">Unknown item.</div>
+    }
+    else
+    {
+        <div class="compare-title">@Candidate.Name</div>
+        <div class="compare-row">
+            <span>Power</span>
+            <span>@Candidate.Doc.Power @DeltaSpan(Candidate.Doc.Power - (Equipped?.Doc.Power ?? 0))</span>
+        </div>
+        <div class="compare-row">
+            <span>Precision</span>
+            <span>@((Candidate.Doc.Precision * 100).ToString("0"))% @DeltaSpan((int)Math.Round((Candidate.Doc.Precision - (Equipped?.Doc.Precision ?? 0)) * 100))</span>
+        </div>
+        <div class="compare-row">
+            <span>Def</span>
+            <span>@Candidate.Doc.DefPoints.ToString("0.#") @DeltaSpan((int)Math.Round(Candidate.Doc.DefPoints - (Equipped?.Doc.DefPoints ?? 0)))</span>
+        </div>
+        @if (Candidate.Doc.Special is { } sp)
+        {
+            <div class="compare-row"><span>Special</span><span>@sp.Description</span></div>
+        }
+        <div class="compare-actions">
+            <button class="shop-confirm-btn" @onclick="() => OnEquip.InvokeAsync()">Equip</button>
+            <button class="shop-cancel-btn" @onclick="() => OnCancel.InvokeAsync()">Cancel</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ItemId { get; set; } = "";
+    [Parameter] public string? EquippedItemId { get; set; }
+    [Parameter] public EventCallback OnEquip { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private Duels.Domain.Entities.GearPiece? Candidate => ItemRepo.GetGear(ItemId);
+    private Duels.Domain.Entities.GearPiece? Equipped => EquippedItemId is { } id ? ItemRepo.GetGear(id) : null;
+
+    private static MarkupString DeltaSpan(int diff)
+    {
+        if (diff == 0) return new MarkupString("");
+        var cls = diff > 0 ? "delta-pos" : "delta-neg";
+        var sign = diff > 0 ? "+" : "";
+        return new MarkupString($"<span class=\"{cls}\">({sign}{diff})</span>");
+    }
+}

@@ -1,7 +1,6 @@
 @using Duels.Application.GameSession
-@using Duels.Application.Commands
 @using Duels.Application.Abstractions
-@inject Duels.Web.Services.GameService GameSvc
+@using Duels.Domain.Entities
 @inject IItemRepository ItemRepo
 
 <div class="inventory-panel">
@@ -14,7 +13,7 @@
                 <span class="inv-item-name">@ShortName(itemId)</span>
             </button>
         }
-        @for (int i = Items.Count; i < 28; i++)
+        @for (int i = Items.Count; i < Player.BagCapacity; i++)
         {
             <div class="inv-slot inv-empty"></div>
         }
@@ -24,7 +23,12 @@
 @code {
     [Parameter] public GameState? State { get; set; }
 
-    // Flasks (m1-plan Workstream E) aren't tap-to-consume from the bag —
+    // M2 Workstream C.3 (UI bible §8.1 compare flow): tapping an item shows
+    // its compare card instead of equipping instantly; the parent (BagSheet)
+    // owns the card and dispatches the actual EquipItemCommand from it.
+    [Parameter] public EventCallback<string> OnSelectItem { get; set; }
+
+    // Flasks (m1-plan Workstream E) aren't tap-to-compare from the bag —
     // they're bound to the belt in the Loadout Editor and sipped in-duel.
     private static readonly HashSet<string> _flasks = ["flask_health", "flask_prayer"];
 
@@ -32,8 +36,8 @@
 
     private async Task UseItem(string itemId)
     {
-        if (GameSvc.PlayerId is null || _flasks.Contains(itemId)) return;
-        await GameSvc.DispatchAsync(new EquipItemCommand(GameSvc.PlayerId!, itemId));
+        if (_flasks.Contains(itemId)) return;
+        await OnSelectItem.InvokeAsync(itemId);
     }
 
     private static string SlotClass(string id) => _flasks.Contains(id) ? "inv-flask" : "";
@@ -44,7 +48,7 @@
         // Items doc §1: Power = average damage, max hit = 2×Power.
         int? power = ItemRepo.GetWeapon(id)?.Doc.Power;
         string stats = power is { } p ? $" · Power {p} · Max hit {p * 2}" : "";
-        return $"{ShortName(id)} — tap to equip{stats}";
+        return $"{ShortName(id)} — tap to compare{stats}";
     }
 
     private static string ShortName(string id) =>

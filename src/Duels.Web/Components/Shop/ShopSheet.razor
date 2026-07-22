@@ -1,0 +1,103 @@
+@using Duels.Application.GameSession
+@using Duels.Application.Commands
+@using Duels.Application.Abstractions
+@using Duels.Web.Components.Inventory
+@inject Duels.Web.Services.GameService GameSvc
+@inject IItemRepository ItemRepo
+
+<div class="shop-overlay" @onclick="OnClose">
+    <div class="shop-panel" @onclick:stopPropagation>
+        <div class="shop-header">
+            <span class="shop-title">Gold Shop</span>
+            <span class="shop-gold">@(State?.Player?.Gold.ToString("N0") ?? "0") gp</span>
+            <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
+        </div>
+
+        <div class="shop-tabs">
+            @foreach (var tab in _tabs)
+            {
+                <button class="shop-tab @(tab == _activeTab ? "active" : "")" @onclick="() => SelectTab(tab)">@tab</button>
+            }
+        </div>
+
+        <div class="shop-grid">
+            @foreach (var item in ItemsInTab)
+            {
+                @if (_pendingConfirmId == item.Id)
+                {
+                    <div class="shop-confirm-cell">
+                        <span class="shop-cell-name">@item.Name</span>
+                        <span class="shop-cell-price">@item.Price.ToString("N0")g</span>
+                        <button class="shop-confirm-btn" @onclick="() => ConfirmBuy(item.Id)">Confirm</button>
+                        <button class="shop-cancel-btn" @onclick="CancelConfirm">Cancel</button>
+                    </div>
+                }
+                else
+                {
+                    <button class="shop-cell" @onclick="() => TryBuy(item.Id, item.Price)">
+                        <span class="shop-cell-icon"><VoxelIcon ItemId="@item.Id" Size="26" /></span>
+                        <span class="shop-cell-name">@item.Name@(Owned(item.Id) ? " (owned)" : "")</span>
+                        <span class="shop-cell-price">@item.Price.ToString("N0")g</span>
+                    </button>
+                }
+            }
+            @if (ItemsInTab.Count == 0)
+            {
+                <div class="shop-sell-empty">Nothing in this category yet.</div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    // D.1 (m2-plan.md): "why buy" flavor tags omitted — no per-item source
+    // content exists beyond Maggot King. D.2: single confirm above T2 price
+    // (2,500g+), proposed pending sign-off.
+    private const int ConfirmThresholdGold = 2500;
+
+    private static readonly string[] _tabs = ["Weapons", "Armour", "Flasks"];
+    private string _activeTab = "Weapons";
+    private string? _pendingConfirmId;
+
+    private void SelectTab(string tab) { _activeTab = tab; _pendingConfirmId = null; }
+
+    private List<(string Id, string Name, int Price)> ItemsInTab =>
+        ItemRepo.GetShopItems().Where(i => Category(i.Id) == _activeTab).ToList();
+
+    private string Category(string itemId)
+    {
+        if (ItemRepo.IsWeapon(itemId)) return "Weapons";
+        if (itemId.StartsWith("flask_")) return "Flasks";
+        return "Armour";
+    }
+
+    // A.5 (m2-plan.md, resolved): buying a flask is a one-time unlock in
+    // practice — sips are duel-scoped and never consumed from inventory, so
+    // owning one copy is permanent. Re-buying would just waste gold.
+    private bool Owned(string itemId) =>
+        itemId.StartsWith("flask_") && (State?.Player?.HasItem(itemId) ?? false);
+
+    private async Task TryBuy(string itemId, int price)
+    {
+        if (Owned(itemId)) return;
+        if (price >= ConfirmThresholdGold) { _pendingConfirmId = itemId; return; }
+        await Buy(itemId);
+    }
+
+    private async Task ConfirmBuy(string itemId)
+    {
+        _pendingConfirmId = null;
+        await Buy(itemId);
+    }
+
+    private void CancelConfirm() => _pendingConfirmId = null;
+
+    private async Task Buy(string itemId)
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new BuyItemCommand(GameSvc.PlayerId!, itemId));
+    }
+}

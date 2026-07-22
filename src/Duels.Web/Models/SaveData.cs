@@ -1,10 +1,10 @@
 namespace Duels.Web.Models;
 
-/// <summary>Schema v2 (m1-plan Workstream G): drops the OSRS ladder fields
-/// (xp, prestige, win streak, endless, bank, collection log — retired in the
-/// M1 sweep) and adds the action bar + flask belt bindings. v1 saves migrate
-/// automatically: System.Text.Json ignores the now-unknown old properties and
-/// leaves the new ones at their defaults (empty bar).</summary>
+/// <summary>Schema v3 (M2 Workstream G.1): adds bank storage back (retired
+/// as a ladder-era field in v2, now a real UI bible §7 bank distinct from
+/// the old one). v1/v2 saves migrate automatically: System.Text.Json
+/// ignores unknown old properties and leaves new ones at their defaults
+/// (empty bank).</summary>
 public sealed record SaveData(
     string PlayerId,
     string PlayerName,
@@ -16,5 +16,6 @@ public sealed record SaveData(
     string ChosenStyle = "Accurate",
     int? PersonalBestKillTicks = null,
     List<string?>? LoadoutWeaponSlots = null,
-    List<string?>? LoadoutFlaskSlots = null
+    List<string?>? LoadoutFlaskSlots = null,
+    List<string>? BankedItems = null
 );

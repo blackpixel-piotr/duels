@@ -26,6 +26,7 @@ public sealed class RangeAndMovementTests
         public string? GetItemName(string id) => id;
         public bool IsWeapon(string id) => false;
         public IReadOnlyList<(string Id, string Name, int Price)> GetShopItems() => [];
+        public int? GetShopPrice(string id) => null;
         public int GetFenceValue(string id) => 0;
     }
 

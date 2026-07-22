@@ -4,7 +4,7 @@ Mobile-first (landscape), real-time 1v1 boss-fighting game. Stack: Blazor + C# (
 
 ## Design authority
 - All design lives in /design/*.md — read the implementation brief (/design/duels-implementation-brief.md) before planning any feature, and the relevant design doc before implementing it.
-- **M1 is complete.** M2 has not been started or authorized — do not implement M2+ scope (bank, shop, other bosses, invocations, minigame, drops) until told to start it.
+- **M1 and M2 (Progression Spine) are complete.** M2 shipped item table completion (T1-T4 shop weapons/armour, Maggot King's rare), Bank, Gold Shop, the equipment stat sheet + compare flow, and the Three.js equipment preview (see design/plans/m2-findings.md for what's still deferred: Rotfang, Maggot King's Common/Uncommon loot rows, T3/T4 special-attack mechanics, shop buyback). M3+ (other bosses, invocations, minigame) has not been started or authorized — do not implement ahead of the current milestone.
 - All content (items, bosses, invocations, drops, prices) is data-driven per the brief — definition files mirroring the doc tables, never hardcoded.
 - Boss mechanics build on shared systems (telegraph framework, Perfect Dodge, punish windows, DoT, style rotation) — never one-off code in a boss class.
 - Never invent mechanics, numbers, or names. Flag design ambiguities as questions; never resolve them silently.

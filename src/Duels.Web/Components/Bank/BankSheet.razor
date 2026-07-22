@@ -1,0 +1,106 @@
+@using Duels.Application.GameSession
+@using Duels.Application.Commands
+@using Duels.Web.Components.Inventory
+@inject Duels.Web.Services.GameService GameSvc
+
+<div class="shop-overlay" @onclick="OnClose">
+    <div class="shop-panel bank-panel" @onclick:stopPropagation>
+        <div class="shop-header">
+            <span class="shop-title">Bank</span>
+            <span class="shop-gold">@(State?.Player?.Gold.ToString("N0") ?? "0") gp</span>
+            <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
+        </div>
+
+        <div class="shop-qty-row">
+            @foreach (var q in _quantities)
+            {
+                <button class="shop-qty @(q == _selectedQty ? "active" : "")" @onclick="() => _selectedQty = q">@QtyLabel(q)</button>
+            }
+        </div>
+
+        <div class="bank-body">
+            <div class="bank-pane">
+                <div class="bank-pane-title">Bag (tap to deposit)</div>
+                @if (BagStacks.Count == 0)
+                {
+                    <div class="bank-empty">Your bag is empty.</div>
+                }
+                else
+                {
+                    <div class="bank-grid">
+                        @foreach (var (itemId, count) in BagStacks)
+                        {
+                            <button class="bank-item eq-slot-cell" title="@ShortName(itemId)" @onclick="() => Deposit(itemId)">
+                                <VoxelIcon ItemId="@itemId" Size="24" />
+                                @if (count > 1) { <span class="inv-count">×@count</span> }
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="bank-pane">
+                <div class="bank-pane-title">Bank (tap to withdraw)</div>
+                @if (BankStacks.Count == 0)
+                {
+                    <div class="bank-empty">Nothing banked yet.</div>
+                }
+                else
+                {
+                    <div class="bank-grid">
+                        @foreach (var (itemId, count) in BankStacks)
+                        {
+                            <button class="bank-item eq-slot-cell" title="@ShortName(itemId)" @onclick="() => Withdraw(itemId)">
+                                <VoxelIcon ItemId="@itemId" Size="24" />
+                                @if (count > 1) { <span class="inv-count">×@count</span> }
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="shop-qty-row">
+            <button class="shop-qty" disabled="@(BagStacks.Count == 0)" @onclick="DepositAll">Deposit All</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    // UI bible §7 quantity toggle. X (custom remembered value) is deferred —
+    // functional-core scope per m2-plan.md Workstream B.4.
+    private static readonly int[] _quantities = [1, 5, 10, 0]; // 0 = "All"
+    private int _selectedQty = 1;
+
+    private static string QtyLabel(int q) => q == 0 ? "All" : q.ToString();
+
+    private List<(string ItemId, int Count)> BagStacks =>
+        (State?.Player?.Inventory ?? []).GroupBy(id => id).Select(g => (g.Key, g.Count())).ToList();
+
+    private List<(string ItemId, int Count)> BankStacks =>
+        (State?.Player?.BankedItems ?? []).GroupBy(id => id).Select(g => (g.Key, g.Count())).ToList();
+
+    private async Task Deposit(string itemId)
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new DepositItemCommand(GameSvc.PlayerId!, itemId, _selectedQty));
+    }
+
+    private async Task Withdraw(string itemId)
+    {
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new WithdrawItemCommand(GameSvc.PlayerId!, itemId, _selectedQty));
+    }
+
+    private async Task DepositAll()
+    {
+        if (GameSvc.PlayerId is null) return;
+        foreach (var (itemId, _) in BagStacks)
+            await GameSvc.DispatchAsync(new DepositItemCommand(GameSvc.PlayerId!, itemId, Quantity: 0));
+    }
+
+    private static string ShortName(string id) =>
+        string.Join(" ", id.Split('_').Select(w => char.ToUpper(w[0]) + w[1..]));
+}

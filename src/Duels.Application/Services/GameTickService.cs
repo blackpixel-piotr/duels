@@ -1012,14 +1012,23 @@ public sealed class GameTickService : IDisposable
 
     /// <summary>Items doc §5: +1% line-style damage per equipped piece of the
     /// weapon's line (identity bonus), +5% more at a 4-piece set bonus.</summary>
-    private double ComputeLineDamageBonus(Player player, Weapon? weapon)
+    private double ComputeLineDamageBonus(Player player, Weapon? weapon) =>
+        weapon is null ? 0 : GetLineDamageBonusPreview(player, weapon.Doc.Line);
+
+    /// <summary>Public preview variant of the same items doc §5 formula
+    /// (M2 Workstream C.2), for the equipment screen's stat sheet — "what
+    /// damage bonus would a weapon of this line get from my worn armour"
+    /// without requiring one to actually be equipped. Same rules, single
+    /// source of truth: <see cref="ComputeLineDamageBonus"/> now just calls
+    /// this with the equipped weapon's line.</summary>
+    public double GetLineDamageBonusPreview(Player player, GearLine line)
     {
-        if (weapon is null || weapon.Doc.Line == GearLine.None) return 0;
+        if (line == GearLine.None) return 0;
         int pieces = 0;
         foreach (var (slot, itemId) in player.Equipped)
         {
             if (slot == EquipmentSlot.Weapon) continue;
-            if (_items.GetGear(itemId)?.Doc.Line == weapon.Doc.Line) pieces++;
+            if (_items.GetGear(itemId)?.Doc.Line == line) pieces++;
         }
         double bonus = pieces * 0.01;
         if (pieces >= 4) bonus += 0.05;
@@ -1027,8 +1036,9 @@ public sealed class GameTickService : IDisposable
     }
 
     /// <summary>Items doc §5: a 6-piece set of one armour line grants +10 max
-    /// special energy.</summary>
-    private int MaxSpecialEnergy(Player player)
+    /// special energy. Public (M2 Workstream C.2): also the equipment
+    /// screen's stat-sheet source, not just combat's.</summary>
+    public int MaxSpecialEnergy(Player player)
     {
         foreach (var line in new[] { GearLine.Warbound, GearLine.Stalker, GearLine.Occult })
         {
@@ -1099,7 +1109,7 @@ public sealed class GameTickService : IDisposable
 
             for (int i = 0; i < qty; i++)
             {
-                if (player.Inventory.Count >= 28) // UI bible §7: bag is 28 slots (fixed); bank is the unbounded overflow store.
+                if (player.Inventory.Count >= Player.BagCapacity) // UI bible §7: bag is 28 slots (fixed); bank is the unbounded overflow store.
                 {
                     int fenceValue = _items.GetFenceValue(entry.ItemId);
                     player.AddGold(fenceValue);

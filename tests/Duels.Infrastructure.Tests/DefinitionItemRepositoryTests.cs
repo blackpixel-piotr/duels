@@ -50,9 +50,35 @@ public class DefinitionItemRepositoryTests
         Assert.Equal("Health Flask", repo.GetItemName("flask_health"));
         Assert.Equal("Rustcleaver", repo.GetItemName("wpn_melee_t1"));
 
-        // No shop in M1 — unlisted items with no override fall back to 0, not an invented flat number.
+        // Unlisted items with no override fall back to 0, not an invented flat number.
         Assert.Equal(0, repo.GetFenceValue("nonexistent_item"));
-        Assert.Empty(repo.GetShopItems());
+
+        // M2 Workstream A: shop is populated (T1-T4 weapons/armour + flasks).
+        var shopItems = repo.GetShopItems();
+        Assert.NotEmpty(shopItems);
+        Assert.Contains(shopItems, i => i.Id == "wpn_melee_t1" && i.Price == 500);
+        Assert.Contains(shopItems, i => i.Id == "wpn_melee_t4" && i.Price == 30000);
+        Assert.Contains(shopItems, i => i.Id == "flask_health" && i.Price == 1000);
+        // economy §3's now-ratified 15% sell rate applies automatically off shopPrices.
+        Assert.Equal(75, repo.GetFenceValue("wpn_melee_t1"));
+
+        var t3Maul = repo.GetWeapon("wpn_melee_t3");
+        Assert.NotNull(t3Maul);
+        Assert.Equal(25, t3Maul!.Doc.Power);
+        Assert.Equal("quake", t3Maul.Doc.Special!.Id);
+
+        var t4Body = repo.GetGear("arm_warbound_body_t4");
+        Assert.NotNull(t4Body);
+        Assert.Equal(14, t4Body!.Doc.DefPoints);
+
+        // Carrion Edge (Maggot King rare, items doc §4): ingested ahead of its
+        // drop source, not in shopPrices, no fence override -> falls back to 0
+        // (rares are never sellable, which the default-0 fallback already gives).
+        var rare = repo.GetWeapon("wpn_rare_mk");
+        Assert.NotNull(rare);
+        Assert.Equal(28, rare!.Doc.Power);
+        Assert.Equal("fester", rare.Doc.Special!.Id);
+        Assert.Equal(0, repo.GetFenceValue("wpn_rare_mk"));
     }
 
     [Fact]

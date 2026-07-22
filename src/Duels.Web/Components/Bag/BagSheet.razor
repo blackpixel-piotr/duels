@@ -1,6 +1,10 @@
 @using Duels.Application.GameSession
+@using Duels.Application.Commands
+@using Duels.Application.Abstractions
 @using Duels.Domain.ValueObjects
 @using Duels.Web.Components.Equipment
+@inject Duels.Web.Services.GameService GameSvc
+@inject IItemRepository ItemRepo
 
 <div class="shop-overlay" @onclick="OnClose">
     <div class="shop-panel bag-panel" @onclick:stopPropagation>
@@ -17,7 +21,7 @@
                         <EquipmentSlotButton Slot="@slot" ItemId="@Item(slot)" />
                     }
                 </div>
-                <PlayerPreview />
+                <PlayerPreview EquippedItemIds="@(State?.Player?.Equipped.Values.ToList() ?? [])" />
                 <div class="paperdoll-col">
                     @foreach (var slot in _rightSlots)
                     {
@@ -25,7 +29,18 @@
                     }
                 </div>
             </div>
-            <InventoryGrid State="@State" />
+
+            <EquipmentStatSheet State="@State" />
+
+            @if (_compareItemId is { } compareId)
+            {
+                <CompareCard ItemId="@compareId"
+                             EquippedItemId="@EquippedInSameSlot(compareId)"
+                             OnEquip="@(() => Equip(compareId))"
+                             OnCancel="@(() => _compareItemId = null)" />
+            }
+
+            <InventoryGrid State="@State" OnSelectItem="@(id => _compareItemId = id)" />
         </div>
     </div>
 </div>
@@ -40,5 +55,20 @@
     private static readonly EquipmentSlot[] _rightSlots =
         [EquipmentSlot.Weapon, EquipmentSlot.Shield, EquipmentSlot.Gloves, EquipmentSlot.Boots, EquipmentSlot.Ring];
 
+    private string? _compareItemId;
+
     private string? Item(EquipmentSlot slot) => State?.Player?.Equipped.GetValueOrDefault(slot);
+
+    private string? EquippedInSameSlot(string candidateItemId)
+    {
+        var slot = ItemRepo.GetGear(candidateItemId)?.Slot;
+        return slot is null ? null : Item(slot.Value);
+    }
+
+    private async Task Equip(string itemId)
+    {
+        _compareItemId = null;
+        if (GameSvc.PlayerId is null) return;
+        await GameSvc.DispatchAsync(new EquipItemCommand(GameSvc.PlayerId!, itemId));
+    }
 }

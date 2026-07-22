@@ -12,7 +12,7 @@ namespace Duels.Web.Services;
 public sealed class GameService
 {
     private const string SaveKey = "duels_save";
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 3;
 
     private readonly ICommandDispatcher _dispatcher;
     private readonly IGameStateRepository _stateRepo;
@@ -106,7 +106,8 @@ public sealed class GameService
             var style = Enum.TryParse<AttackStyle>(data.ChosenStyle, out var s) ? s : AttackStyle.Accurate;
 
             player.RestoreFromSave(data.Gold, data.CurrentHp, data.SpecialEnergy,
-                data.Inventory, equippedKvps, style, data.PersonalBestKillTicks);
+                data.Inventory, equippedKvps, style, data.PersonalBestKillTicks,
+                data.BankedItems);
             player.Loadout.RestoreFromSave(data.LoadoutWeaponSlots ?? [], data.LoadoutFlaskSlots ?? []);
 
             var state = new GameState(data.PlayerId, player);
@@ -167,7 +168,8 @@ public sealed class GameService
                 ChosenStyle: p.ChosenStyle.ToString(),
                 PersonalBestKillTicks: p.PersonalBestKillTicks,
                 LoadoutWeaponSlots: p.Loadout.WeaponSlots.ToList(),
-                LoadoutFlaskSlots: p.Loadout.FlaskSlots.ToList()
+                LoadoutFlaskSlots: p.Loadout.FlaskSlots.ToList(),
+                BankedItems: p.BankedItems.ToList()
             );
 
             var json = JsonSerializer.Serialize(new SaveEnvelope(CurrentSchemaVersion, data));

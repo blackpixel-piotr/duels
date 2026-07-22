@@ -54,6 +54,9 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<ICommandHandler<BindWeaponSlotCommand>, BindWeaponSlotHandler>();
         services.AddSingleton<ICommandHandler<BindFlaskSlotCommand>, BindFlaskSlotHandler>();
         services.AddSingleton<ICommandHandler<GrantDevLoadoutCommand>, GrantDevLoadoutHandler>();
+        services.AddSingleton<ICommandHandler<DepositItemCommand>, DepositItemHandler>();
+        services.AddSingleton<ICommandHandler<WithdrawItemCommand>, WithdrawItemHandler>();
+        services.AddSingleton<ICommandHandler<BuyItemCommand>, BuyItemHandler>();
 
         return services;
     }

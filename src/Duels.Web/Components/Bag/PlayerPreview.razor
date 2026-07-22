@@ -1,15 +1,26 @@
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
+@* M2 Workstream C.1 (UI bible §8.1): real Three.js preview (toon.js's
+   initPreview, ratifying CLAUDE.md's "Three.js is the only rendering
+   technology" invariant) — renders the actual toon character rig with
+   equipped-gear meshes composited on, same asset pipeline the battle scene
+   uses. Replaces the old voxel.js fixed-model preview. *@
 <div class="preview-wrap">
-    <canvas id="player-preview-canvas" class="voxel-canvas" width="64" height="80"></canvas>
+    <canvas id="player-preview-canvas" class="voxel-canvas" width="120" height="150"></canvas>
 </div>
 
 @code {
+    [Parameter] public IReadOnlyList<string> EquippedItemIds { get; set; } = [];
+
+    private string? _initedFor;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-            await JS.InvokeVoidAsync("voxel.initPreview", "player-preview-canvas", "assets/player_sakuna.vox");
+        var key = string.Join(",", EquippedItemIds);
+        if (key == _initedFor) return;
+        _initedFor = key;
+        await JS.InvokeVoidAsync("voxel.initPreview", "player-preview-canvas", key);
     }
 
     public async ValueTask DisposeAsync()

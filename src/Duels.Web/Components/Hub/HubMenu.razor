@@ -28,6 +28,22 @@
         </span>
     </button>
 
+    <button class="hub-card hub-card-bank" disabled="@Processing" @onclick="() => OnOpenBank.InvokeAsync()">
+        <span class="hub-card-icon">🏦</span>
+        <span class="hub-card-body">
+            <span class="hub-card-title">BANK</span>
+            <span class="hub-card-sub">Deposit loot, free up bag space</span>
+        </span>
+    </button>
+
+    <button class="hub-card hub-card-shop" disabled="@Processing" @onclick="() => OnOpenShop.InvokeAsync()">
+        <span class="hub-card-icon">💰</span>
+        <span class="hub-card-body">
+            <span class="hub-card-title">GOLD SHOP</span>
+            <span class="hub-card-sub">Buy weapons, armour, flasks</span>
+        </span>
+    </button>
+
     <div class="hub-card-group">
         <button class="hub-card hub-card-test" disabled="@Processing" @onclick="() => OnGrantDevLoadout.InvokeAsync(1)">
             <span class="hub-card-icon">⚗</span>
@@ -66,6 +82,8 @@
     [Parameter] public EventCallback OnFight { get; set; }
     [Parameter] public EventCallback OnRetry { get; set; }
     [Parameter] public EventCallback OnOpenLoadout { get; set; }
+    [Parameter] public EventCallback OnOpenBank { get; set; }
+    [Parameter] public EventCallback OnOpenShop { get; set; }
     [Parameter] public EventCallback<int> OnGrantDevLoadout { get; set; }
 
     private bool HasLoadout => State?.Player?.Loadout.WeaponSlots.Any(w => w is not null) == true;

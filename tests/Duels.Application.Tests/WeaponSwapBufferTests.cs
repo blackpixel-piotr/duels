@@ -33,6 +33,7 @@ public sealed class WeaponSwapBufferTests
         public string? GetItemName(string id) => _weapons.GetValueOrDefault(id)?.Name ?? id;
         public bool IsWeapon(string id) => _weapons.ContainsKey(id);
         public IReadOnlyList<(string Id, string Name, int Price)> GetShopItems() => [];
+        public int? GetShopPrice(string id) => null;
         public int GetFenceValue(string id) => 0;
     }
 
