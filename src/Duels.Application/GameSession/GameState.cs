@@ -190,8 +190,19 @@ public sealed class GameState
     private int _nextProjectileId;
     public IReadOnlyList<InFlightProjectile> Projectiles => _projectiles;
 
-    public void SpawnProjectile((int X, int Z) spawnTile, BossAttackDef attack) =>
-        _projectiles.Add(new InFlightProjectile($"proj_{FightTicks}_{_nextProjectileId++}", spawnTile.X, spawnTile.Z, attack));
+    public void SpawnProjectile((int X, int Z) spawnTile, BossAttackDef attack)
+    {
+        var id = $"proj_{FightTicks}_{_nextProjectileId++}";
+        _projectiles.Add(new InFlightProjectile(id, spawnTile.X, spawnTile.Z, attack));
+#if DEBUG
+        // Diagnostic for "phantom projectile at style-switch" bug report:
+        // this is the ONLY legal backend spawn path (SpawnProjectileAttack,
+        // the sole production caller) — every real hit traces back to a
+        // line here. If a player ever sees a projectile with no matching
+        // [PROJ][spawn] line, it did not come from the sim.
+        Console.WriteLine($"[PROJ][spawn] id={id} tick={FightTicks} phase={ActiveNpc?.Phase} rotTick={ActiveNpc?.RotationTick} style={attack.Style} attackId={attack.Id} spawnTile=({spawnTile.X},{spawnTile.Z})");
+#endif
+    }
 
     /// <summary>Advance every in-flight projectile one tick toward
     /// targetTile (the player's tile, already updated for THIS tick by the
@@ -212,6 +223,9 @@ public sealed class GameState
             double speed = p.Attack.ProjectileSpeedTiles;
             if (dist <= speed)
             {
+#if DEBUG
+                Console.WriteLine($"[PROJ][arrive] id={p.Id} tick={FightTicks} style={p.Attack.Style} attackId={p.Attack.Id} dist={dist:F2}");
+#endif
                 impacting.Add(p.Attack);
                 _projectiles.RemoveAt(i);
             }

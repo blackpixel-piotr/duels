@@ -2261,3 +2261,91 @@ Both confirmed as real bugs, not user error.
   design-doc (`/design/*.md`) changes — the Boss Bible's homing/impact-
   timing rules are unaffected; this was a renderer bug fix, not a mechanic
   change.
+
+## Thirty-second pass: bug fix — phantom projectile at Maggot King style-switch (user report)
+
+- **Report** (verbatim intent): a projectile appears at the Maggot King's
+  style-switch that never deals damage. Instructions: diagnose with
+  lifecycle logging before fixing, reproduce at the style-switch boundary,
+  identify which of three failure modes holds (renderer orphan with no sim
+  entity / sim projectile silently dropping damage on a stance mismatch at
+  impact / an attack incorrectly firing on a telegraph-only tick), fix per
+  finding, add a standing invariant assertion, report before closing.
+- **Diagnosis method**: added `#if DEBUG` lifecycle logging in
+  `GameState.SpawnProjectile`/`AdvanceProjectiles` and
+  `GameTickService.ResolveBossAttack`/`SpawnProjectileAttack` (spawn id,
+  tick, boss phase/rotation-tick, style, attack id; arrival tick + distance;
+  impact tick, prayer reduction, damage, blocked/dropped reason) plus
+  matching `console.debug` traces in `toon.js` at every mesh-spawning site
+  (`setBattleProjectiles` for the sim-backed path, `setBattleTelegraph` for
+  the suspect path). Reproduced live (Playwright, dev server, Maggot King
+  P1) and captured the interleaved browser console (Blazor WASM runs
+  `Console.WriteLine` client-side, so both logs land in the same stream).
+- **Finding: (a) confirmed, live-reproduced — (b) and (c) ruled out, also
+  live, not just by code reading.** The captured timeline: T0/T4 Bile Spit
+  and T10/T14 Lash all show clean `[PROJ][spawn]`→`[PROJ][arrive]`→
+  `[PROJ][impact]` triples (or a direct `[PROJ][impact]` for Lash's
+  synchronous melee resolve) with the correct style at every step. Then, at
+  the T17 style-shift telegraph — the "style switch" the report names, the
+  point where the King's mandibles glow blue signaling a return to a
+  committed single style (magic) after the ambiguous melee/ranged phase —
+  a `[PROJ][telegraph-preview-spawn] simId=NONE` line appeared, followed
+  ~2 ticks later by `[PROJ][telegraph-preview-expire] simId=NONE —
+  vanished, no damage ever tied to this mesh`, with the real T20 Bile Spit
+  spawning independently 3 ticks after that. Root cause:
+  `BattleScene.razor`'s `TelegraphVisual` + `toon.js`'s
+  `setBattleTelegraph` fired a "committed ranged/magic read" preview
+  projectile on every telegraph's rising edge — a fixed-duration cosmetic
+  leftover of the pre-sim-refactor cast-time system (same shape as the old
+  `a6b133b`-era projectiles), explicitly called out as "out of scope" when
+  the sim-authoritative projectile pass (commit `97d1f4f`) removed its
+  sibling in the `enemyAttack` handler but left this one. It played out
+  entirely during the telegraph's 3-tick lead-in window — well before the
+  real attack's own cast — with no `GameState.Projectiles` entry behind it,
+  so it could never trace to a hitsplat. (b) was ruled out because
+  `ResolveBossAttack` never reads "current boss stance" at all — style is
+  read from the `BossAttackDef` stamped onto the `InFlightProjectile` at
+  spawn (immutable), and no impact log ever showed a mismatched style. (c)
+  was ruled out because `[PROJ][spawn]` lines only ever appeared at T0/T4/
+  T20 (P1) — matching the boss bible's attack ticks exactly — never at
+  T7/T17 (telegraph-only ticks); `ResolveRotationStep`'s `"style_telegraph"`
+  branch returns before reaching any attack-resolution code, and
+  `ProcessMasterScript`'s switch never calls `MasterAttack` at P2's T0/T17
+  either.
+- **Fix**: deleted the orphan spawn path. `setBattleTelegraph` now only
+  fires the windup pose; `BattleScene.razor`'s `TelegraphVisual` simplified
+  from `(string? Style, bool Projectile)` to plain `string?` (the
+  `Projectile`/`ticks` fields it fed are gone). `GameState.Projectiles`
+  (rendered via `setBattleProjectiles`) is the only legal projectile source
+  — matches the report's own framing exactly ("sim entities are the only
+  legal projectile source").
+- **Invariant assertion (point 4), kept permanently, not gated**: every
+  mesh created by `setBattleProjectiles` is stamped `userData.simBacked =
+  true` (that function is the only construction site for a boss-projectile
+  mesh); the render loop asserts every mesh in `projectileMeshes` carries
+  that stamp every frame and `console.error`s if not — a standing regression
+  guard against this exact bug class reappearing via some future code path.
+  The verbose lifecycle trace (`[PROJ][sim-spawn]`/`[sim-despawn]`) is kept
+  too but gated behind a new `PROJ_TRACE` const (default `false`) so it
+  doesn't ship console noise to players; the backend's `#if DEBUG` logging
+  costs nothing in a Release build and stays for the next time this class
+  of bug needs re-diagnosing.
+- **Verified live twice** after the fix, same Playwright harness: a 26-tick
+  capture (T0–T14, inconclusive on its own — ran out of window before T17)
+  and a 40-tick capture that reached clean past T17 into T20's real spawn.
+  The second run's log jumps directly from T14's real impact to T20's real
+  spawn with zero `[telegraph-preview-*]` lines and zero
+  `[INVARIANT VIOLATION]` lines anywhere in between — the phantom is gone,
+  the real attacks are untouched, and the guard never fires on a correct
+  render.
+- **88/88 tests pass** (no C# test-covered behavior changed — the
+  `TelegraphVisual` signature change and `setBattleTelegraph` edit are both
+  UI/renderer-only; the `#if DEBUG` lifecycle logging is compiled out of
+  Release and doesn't affect test assertions), 0 build/JS-syntax warnings
+  or errors.
+- **Docs**: `ARCHITECTURE.md`'s `toon.js` row updated to drop the stale
+  "telegraph's own preview projectile... out of scope" line and describe
+  the `simBacked` invariant + `PROJ_TRACE`. No design-doc (`/design/*.md`)
+  changes — this was a pure implementation bug (the visual never matched
+  the Boss Bible's own "sim-authoritative, homing" rule to begin with);
+  nothing in the design was wrong.

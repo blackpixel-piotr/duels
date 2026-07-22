@@ -602,7 +602,7 @@ public sealed class GameTickService : IDisposable
         var attackId = ResolveAttackId(state, styleId);
         var attack = npc.Template.Script!.Attacks[attackId];
         if (attack.Style is AttackType.Ranged or AttackType.Magic)
-            SpawnProjectileAttack(state, attack);
+            SpawnProjectileAttack(state, attack, source: "MasterAttack(P2)");
         else
             ResolveBossAttack(state, player, npc, attack);
     }
@@ -673,7 +673,7 @@ public sealed class GameTickService : IDisposable
         // arrives, not this cast tick. Melee has no travel time and still
         // resolves here, instantly, exactly as before.
         if (attack.Style is AttackType.Ranged or AttackType.Magic)
-            SpawnProjectileAttack(state, attack);
+            SpawnProjectileAttack(state, attack, source: "ResolveRotationStep(P1)");
         else
             ResolveBossAttack(state, player, npc, attack);
     }
@@ -687,10 +687,13 @@ public sealed class GameTickService : IDisposable
     // GetPrayerReduction's read of TickStartProtection) doesn't run until
     // the projectile actually arrives, via ProcessTick's AdvanceProjectiles
     // loop.
-    private void SpawnProjectileAttack(GameState state, BossAttackDef attack)
+    private void SpawnProjectileAttack(GameState state, BossAttackDef attack, string source)
     {
         var spawnTile = NearestFootprintTileEuclidean(state, state.PlayerTile);
         state.SpawnProjectile(spawnTile, attack);
+#if DEBUG
+        Console.WriteLine($"[PROJ][spawn-source] path={source} tick={state.FightTicks}");
+#endif
         state.AppendLog(StyleToken(attack.Style), LogEntryKind.BossCast);
     }
 
@@ -724,7 +727,13 @@ public sealed class GameTickService : IDisposable
     // TickStartProtection is fresh THIS tick — that's the whole point.
     private void ResolveBossAttack(GameState state, Player player, NpcInstance npc, BossAttackDef attack)
     {
-        if (!player.IsAlive) return;
+        if (!player.IsAlive)
+        {
+#if DEBUG
+            Console.WriteLine($"[PROJ][impact-dropped] tick={state.FightTicks} style={attack.Style} attackId={attack.Id} reason=player-dead");
+#endif
+            return;
+        }
 
         // Standard boss autos roll 60–100% of their listed band each cast
         // (items doc §1). Mechanic/hazard damage (eruptions, Rot Burst) and
@@ -750,6 +759,9 @@ public sealed class GameTickService : IDisposable
         state.AppendLog($"{damage}:{tier}:{StyleToken(attack.Style)}", LogEntryKind.HitsplatNpc);
         string prayedMsg = prayerReduction > 0 ? " (prayed)" : "";
         state.AppendLog($"{npc.Template.Name} uses {attack.Name} for {damage}{prayedMsg}. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+#if DEBUG
+        Console.WriteLine($"[PROJ][impact] tick={state.FightTicks} style={attack.Style} attackId={attack.Id} band={band} prayerReduction={prayerReduction:F2} damage={damage} blocked={blockedByPrayer}");
+#endif
     }
 
     // Boss standard autos roll 60–100% of their listed band (items doc §1);
