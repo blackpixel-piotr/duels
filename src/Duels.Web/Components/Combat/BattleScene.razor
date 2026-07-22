@@ -320,19 +320,16 @@
     // matches the ForecastMessage text ("mandibles glow amber"), which
     // already disagreed with the old glow color. A resolved single style
     // (Bile Spit's Magic, or the King's return-to-Magic telegraph) still
-    // uses its own doctrine color; projectile visuals still only fire for a
-    // style we're actually committing to, never the ambiguous case.
-    private (string? Style, bool Projectile) TelegraphVisual
+    // uses its own doctrine color.
+    private string? TelegraphVisual
     {
         get
         {
             var npc = State?.ActiveNpc;
-            if (npc?.ForecastAttackId is not { } id) return (null, false);
-            if (id.Contains('/')) return ("ambiguous", false);
+            if (npc?.ForecastAttackId is not { } id) return null;
+            if (id.Contains('/')) return "ambiguous";
             var style = npc.Template.Script?.Attacks.GetValueOrDefault(id)?.Style;
-            if (style is null) return (null, false);
-            var cls = StyleClass(style.Value);
-            return (cls, cls is "ranged" or "magic");
+            return style is null ? null : StyleClass(style.Value);
         }
     }
 
@@ -554,16 +551,26 @@
         if (newEntries.Any(e => e.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit or LogEntryKind.BossSpecial))
             await JS.InvokeVoidAsync("triggerShake", "battle-scene", 180);
 
-        // StyleTelegraphSystem: rim glow + windup pose (+ projectile for a
-        // committed ranged/magic read), fired on the rising edge only — the
-        // renderer owns the pose/projectile lifecycle from there.
-        var (telegraphStyle, telegraphProjectile) = TelegraphVisual;
+        // StyleTelegraphSystem: rim glow + windup pose, fired on the rising
+        // edge only — the renderer owns the pose lifecycle from there. Used
+        // to also fire a "committed read" preview projectile here, but that
+        // was a fixed-duration cosmetic leftover of the pre-sim-refactor
+        // cast-time system with no backing sim entity — it played out fully
+        // during the telegraph's lead-in window, independent of and well
+        // before the real attack's own cast, so it never lined up with any
+        // damage. Bug report: "phantom projectile at Maggot King
+        // style-switch (never deals damage)" — confirmed via lifecycle
+        // logging (every real hit traces to GameState.SpawnProjectile; this
+        // preview never did) and removed. Sim entities (GameState.
+        // Projectiles, rendered by setBattleProjectiles) are the only legal
+        // projectile source now.
+        var telegraphStyle = TelegraphVisual;
         bool telegraphActive = telegraphStyle is not null && !EnemyDead && !PlayerDead;
         if (telegraphActive != _lastTelegraph)
         {
             _lastTelegraph = telegraphActive;
             await JS.InvokeVoidAsync("voxel.setBattleTelegraph", "battle-canvas",
-                new { active = telegraphActive, style = telegraphStyle, projectile = telegraphProjectile, ticks = 2 });
+                new { active = telegraphActive, style = telegraphStyle });
         }
 
         // Punish window (m1-plan Workstream C.6): boss can't act, +25% damage
