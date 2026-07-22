@@ -2369,3 +2369,167 @@ dodging, sipping under pressure?") is a human judgment call, not something
 this session can verify — marking the milestone complete here reflects
 implementation status, not a claim that the playtest question has been
 answered.
+
+---
+
+## Addendum — M2 pre-plan: five flagged gaps resolved, provisional-constant rule instituted
+
+Written during M2 plan review, before M2 implementation starts — not
+findings from implementing M2 (there is none yet), but a resolution record
+for open questions `m2-plan.md` raised during its own audit of the M1
+code. Recording here per CLAUDE.md's "resolved open question" case, since
+this is the M1-era code/docs being corrected.
+
+### 1. Boss-only NPC roster (design ruling)
+
+`m2-plan.md`'s original Workstream F read `duels-economy.md` §3 ("Regular
+duels... 50g→150g per win") and `duels-design-decisions.md`'s "Regular
+duels serve as warm-up and gear source" literally, and planned a separate
+lightweight-mob opponent roster reusing the pre-M1 ladder's retired NPCs.
+**Ruled out**: there is no non-boss opponent category, now or ever — every
+fight is a boss. `duels-design-decisions.md` and `duels-economy.md` §3
+edited to match (regular-duel income line removed; Tier-1 bosses are now
+the documented on-ramp). `m2-plan.md`'s Workstream F rewritten to a
+resolution note instead of an implementation workstream.
+
+### 2. Boss gold: 500g ratified, ladder rescaled
+
+`maggot_king.GoldReward` was 500 in code; the pre-edit economy doc's
+Tier-1 base was 300g — an unreconciled M1 number. Rather than correcting
+the code to 300g (this plan's first-pass recommendation), the design
+decision went the other way: **500g is now canonical**, absorbing the
+gold that would have come from the now-cut regular-duel income.
+`duels-economy.md` §3's whole tier table rescaled from the same kill-time
+assumptions (base × 60/kill-time-min): Tier 1 500g/~7,500g/h, Tier 2
+900g/~12,000g/h, Tier 3 1,500g/~18,000g/h, Grand Duelist 2,500g/~21,400g/h.
+`npcs.json`'s `GoldReward: 500` is now source-commented to economy §3
+rather than sitting as a bare number.
+
+**Residual inconsistency not in scope of this edit, flagging**: §4's Gold
+Shop Price Ladder cadence-check table still reads "~20 min" to reach a
+~1,600g T1 kit at the *old* implied ~4,500g/h rate; at the new ~7,500g/h
+Tier-1 rate that's closer to ~13 min. Only the stale "of duels+first
+kills" wording was fixed (the "duels" reference no longer makes sense);
+the timing figure itself wasn't recomputed — doing so also depends on
+"time to first kill" assumptions §4 doesn't fully spell out, and wasn't
+part of what was asked. Needs a look before M2's playtest question (first
+purchase cadence) is evaluated against it.
+
+**Citation correction**: `m2-plan.md`'s original Workstream A.6 and D.3
+cited the item-sell-value language as duels-economy.md **§5**; it's
+actually in **§3** ("Gold Income" → "Item sell values"). §5 is "Drop
+Tables & Rates," a different section. The follow-up instruction repeated
+this same mis-citation back; edited the text where it actually lives (§3)
+and flagging the citation error here so it isn't propagated further.
+
+### 3. Sell values: 15% canonical rate, fence split from buyback
+
+`duels-economy.md` §3's "10–20%" item-sell-value language changed to a
+single canonical **15%**. `IItemRepository.GetFenceValue` /
+`DefinitionItemRepository.GetFenceValue` rewritten:
+`price × 0.15` (was `price / 2`, which matched neither the doc's old
+10–20% band nor its new 15%), and the no-shop-price/no-override fallback
+changed from an unattributed flat **100** to **0** (a fallback of 0 needs
+no invented number; 100 did). `IItemRepository`'s XML doc and the
+implementation's own doc comment now state explicitly that this method is
+the drop-sell/fence value **only** — shop buyback (100% same-session /
+80% after, economy §4) is a distinct, session-scoped mechanic with no
+representation in `IItemRepository`, deferred to M2 Workstream D's actual
+implementation (no purchase-history state exists yet to read).
+`DefinitionItemRepositoryTests.cs` updated (100 → 0 assertion) and a new
+test (`GetFenceValue_IsFifteenPercentOfShopPrice_ForShopItems`) added
+covering the 15% branch, since no real item currently has a shop price to
+exercise it against (`shopPrices` in `items.json` is still `{}` — item
+table ingestion is M2 Workstream A, not yet done).
+
+`dotnet build Duels.sln`: 0 errors, 0 warnings. `dotnet test Duels.sln`:
+89/89 passing (11 Domain, 35 Application, 43 Infrastructure) after this
+change.
+
+**Also discovered while touching this file**: `design/duels-economy.md`
+and `design/duels-economy_1.md` are byte-identical duplicate files (both
+tracked in git, no apparent difference in history). Kept in sync (both
+edited identically) rather than silently diverging, but flagging the
+duplication itself — recommend deleting `duels-economy_1.md` in a
+follow-up, once confirmed nothing intentionally depends on two copies.
+
+### 4. Rendering: Three.js ratified as the only renderer (doc only — rebuild not done)
+
+`CLAUDE.md`'s Locked architecture invariant now states explicitly:
+"Three.js is the only rendering technology in the project — combat,
+previews, and any future visual surface. No secondary renderers." This
+resolves `m2-plan.md` Workstream C.1's flagged fork in favor of option 1
+(rebuild `PlayerPreview.razor` on `toon.js`'s existing Three.js/GLTF
+pipeline).
+
+**Not done in this pass**: the actual `PlayerPreview.razor` rebuild and
+`voxel.js`/`.vox`-asset deletion. That's real feature implementation (a
+new Three.js scene, per-slot GLTF gear compositing, canvas lifecycle) that
+needs to be built and visually verified in a browser, not something to
+land as a side effect of a doc-and-constants pass — it belongs to M2
+Workstream C's actual implementation, once M2 is authorized to start.
+`voxel.js` and the `.vox` assets remain in the tree and in active use
+(bag icons via `VoxelIcon.razor`, plus `PlayerPreview.razor` itself) until
+that happens; the invariant now makes clear this is debt to retire, not a
+second permanent renderer.
+
+### 5. Inventory: 28-slot bag ratified
+
+`duels-ui-design.md` §7 now opens with "The carried bag is 28 slots
+(fixed). The bank is the unbounded store; the bag is the constraint the
+bank exists to relieve." `GameTickService.cs`'s `player.Inventory.Count >=
+28` check is now source-commented to UI bible §7 instead of sitting as an
+unattributed magic number.
+
+### 6. Process rule: provisional-constant discipline
+
+`CLAUDE.md` gained a new working-agreement bullet (placed next to the
+existing "never invent mechanics, numbers, or names" rule, since
+`CLAUDE.md` doesn't have a section literally titled "Working Agreement" —
+that heading belongs to `duels-implementation-brief.md`; used the
+functionally-equivalent location instead of inventing a new heading):
+
+> Any numeric constant not sourced from a design doc must be marked
+> provisional (code comment `// PROVISIONAL: <reason>`) and listed in the
+> milestone findings file. Unflagged invented constants are defects.
+
+### Sweep: other unsourced constants found (reported here, code left unchanged per instruction)
+
+A targeted (not exhaustive — `Duels.Domain`/`Duels.Application` `const`
+declarations and the handful of bare numeric literals near them, not a
+full line-by-line audit of every file) sweep for constants with no design-
+doc citation, beyond the five already resolved above:
+
+- **`Player.cs`: `Gold = 10_000` starting gold** (constructor, line 52).
+  No design doc specifies a new-player starting gold amount. This is the
+  highest-severity find in the sweep: the economy doc's whole pacing model
+  assumes near-zero starting gold (first purchase ≤15 min is meant to be
+  an *earned* threshold; a T1 full kit is ~1,600g, a T2 kit ~7,000g) — a
+  player starting with 10,000g could buy a full T1 kit instantly and reach
+  well into T2 pricing before playing a single fight, which would silently
+  invalidate the M2 playtest question ("does the first hour's purchase
+  cadence match the economy targets?"). Needs an explicit decision (likely
+  0, or some small documented seed amount) before Workstream D (Shop) is
+  implemented and testable.
+- **`Player.cs`: `PrayerPoints = 99`** (constructor line 51, and the
+  clamp in `RestorePrayer()`/`RestorePrayerPoints()`). No design doc gives
+  prayer points a numeric pool size; 99 is an OSRS-skill-cap-shaped number
+  with no cited source in this project's own docs.
+- **`AttackRange.cs`: `Distant = 8`** (line 8). Used only for
+  `DummyStyle`-driven non-scripted-NPC chase-to-range movement (per
+  `NpcTemplate.cs`'s own comment, "the pathfinding/movement test fixtures
+  and any future non-boss mob") — real weapon ranges come from each
+  weapon's own `Range` field in `items.json` (e.g. 7 for T1 ranged/magic),
+  not this constant. Doubly stale now: the number itself was never
+  doc-sourced, and the "future non-boss mob" it was written for is exactly
+  the category ruled out in §1 above.
+- **`GameState.cs`: `PrayerDrainCadenceTicks = 9`** (line 29). No design
+  doc gives protection-prayer drain a numeric tick cadence (the UI bible
+  only says prayer drains while a protection/boost prayer is active, no
+  rate).
+
+Not re-flagging (already recorded earlier in this same findings file, in
+the M1 body above): `DamageModel.DefensiveStyleIncomingReduction = 0.20`,
+`BoostPrayerActive`'s +20% Power, and the Scorch/Rend DoT tick/damage
+numbers. Those were already caught and documented as assumptions during
+M1 itself — this sweep only surfaces ones that weren't.

@@ -1099,7 +1099,7 @@ public sealed class GameTickService : IDisposable
 
             for (int i = 0; i < qty; i++)
             {
-                if (player.Inventory.Count >= 28)
+                if (player.Inventory.Count >= 28) // UI bible §7: bag is 28 slots (fixed); bank is the unbounded overflow store.
                 {
                     int fenceValue = _items.GetFenceValue(entry.ItemId);
                     player.AddGold(fenceValue);

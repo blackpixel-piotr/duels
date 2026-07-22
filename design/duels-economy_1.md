@@ -27,7 +27,7 @@ All numbers are launch targets, chosen for coherence with the pacing decisions (
 
 ## 3. Gold Income
 
-**Regular duels** (warm-up content): 50g (early opponents) → 150g (late opponents) per win. Purpose: on-ramp and topping-off, never the best rate.
+There is no duel income; Tier-1 bosses carry the gold on-ramp.
 
 **Boss kills — base gold by tier**, multiplied by raid level:
 
@@ -35,14 +35,14 @@ All numbers are launch targets, chosen for coherence with the pacing decisions (
 
 | Boss tier | Base gold/kill | Target kill+reset time (at tier) | Base gold/hour |
 |---|---|---|---|
-| Tier 1 (Maggot King, Hive Matron) | 300g | ~4 min | ~4,500 g/h |
-| Tier 2 (Mirrorhide, Bloodtithe) | 550g | ~4.5 min | ~7,300 g/h |
-| Tier 3 (Gale Roc, Unblinking, Millstone) | 900g | ~5 min | ~10,800 g/h |
-| Grand Duelist | 1,500g | ~7 min | ~12,800 g/h |
+| Tier 1 (Maggot King, Hive Matron) | 500g | ~4 min | ~7,500 g/h |
+| Tier 2 (Mirrorhide, Bloodtithe) | 900g | ~4.5 min | ~12,000 g/h |
+| Tier 3 (Gale Roc, Unblinking, Millstone) | 1,500g | ~5 min | ~18,000 g/h |
+| Grand Duelist | 2,500g | ~7 min | ~21,400 g/h |
 
 At RL 150 those rates roughly ×2.5 — invocations are always the best gold in the game, which is exactly the incentive the design wants.
 
-**Item sell values:** common drops sell for 10–20% of their shop-equivalent price; a floor income that makes no drop feel like nothing.
+**Item sell values:** common drops sell for 15% of their shop-equivalent price (single canonical rate); a floor income that makes no drop feel like nothing.
 
 ---
 
@@ -52,7 +52,7 @@ Weapons per style (melee/ranged/magic) and armour per slot at each tier. Prices 
 
 | Tier | Weapon | Armour piece (×6 slots) | Full set | Earned at tier below in… |
 |---|---|---|---|---|
-| T1 | 500g | 200–350g | ~1,600g | ~20 min of duels+first kills |
+| T1 | 500g | 200–350g | ~1,600g | ~20 min of first kills |
 | T2 | 2,500g | 900–1,400g | ~7,000g | ~1.5 h of Tier-1 bossing |
 | T3 | 10,000g | 3,500–5,500g | ~27,000g | ~3.5 h of Tier-2 bossing |
 | T4 (shop ceiling) | 30,000g | 10,000–15,000g | ~75,000g | ~7 h of Tier-3 bossing |

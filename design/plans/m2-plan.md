@@ -7,6 +7,13 @@ drop tables + kill gold (economy §3–5), regular duels as gold on-ramp."
 **Playtest question:** does the first hour's purchase cadence match the
 economy targets (first purchase ≤15 min, T1 kit ≈ min 20–30, T2 kit ≈ hour 2)?
 
+**Note:** the five gaps this plan originally flagged as open questions (§10
+below, superseded numbering) were ratified during a pre-plan review pass —
+see `m1-findings.md`'s "Addendum — M2 pre-plan" section for the full
+resolution record. This version of the plan reflects those rulings; text
+below that still reads as an open question is one that review didn't
+resolve.
+
 ---
 
 ## 1. Current-state audit (what M2 builds on)
@@ -28,10 +35,11 @@ Concretely, as of `claude/text-duel-game-3t4vkf`:
   `flask_prayer` — no specialty flasks (expected, since those are boss drops
   and no boss drops anything yet).
 - **`npcs.json`** has a single entry, `maggot_king`, with an empty
-  `LootTable` and a flat `GoldReward: 500`. The economy doc's Tier-1 base is
-  **300g**, not 500 — the 500 was an M1 placeholder never reconciled against
-  the (later-written?) economy numbers. Flagging as a correction, not a
-  silent carry-forward.
+  `LootTable` and a flat `GoldReward: 500`. **Ratified** (pre-plan review):
+  500g is now the economy doc's own Tier-1 base — the doc was rescaled to
+  match the code instead of the other way around, absorbing the gold that
+  would have come from the now-cut regular-duel income (Workstream F).
+  `npcs.json` is now source-commented to economy §3.
 - **`Player`** (`src/Duels.Domain/Entities/Player.cs`) has `Gold`,
   `Equipped`, a single flat `Inventory` list, `AddGold`/`SpendGold`,
   `Equip`/`Unequip`/`AddToInventory`/`RemoveFromInventory`. No bank storage
@@ -43,13 +51,14 @@ Concretely, as of `claude/text-duel-game-3t4vkf`:
   (`player.Inventory.Count >= 28`, hardcoded) is full. This mechanism is
   ready to consume a real drop table the moment one exists — no engine work
   needed for basic drops.
-- **`IItemRepository.GetFenceValue`** currently returns *shop price ÷ 2* for
-  shop items, or a flat 100g fallback otherwise. The economy doc's §5 says
-  drop-table "common" sells at **10–20%** of shop-equivalent, while §4 says
-  shop **buyback** (selling back an item you just bought, same session) is
-  **100% within session, 80% after**. The current single number conflates
-  both concepts under one 50% constant that matches neither. This needs
-  splitting — see Workstream D.
+- **`IItemRepository.GetFenceValue`** — **done** (pre-plan review): now
+  returns *shop price × 15%* (economy §3's now-single canonical rate,
+  replacing the old 10–20% band) for shop items, and a bare `0` (not an
+  invented flat number) when there's no shop price and no explicit
+  override. Buyback (100% same session / 80% after, economy §4) remains a
+  distinct, not-yet-implemented mechanic — see Workstream D.3; it needs
+  session purchase-history state this repository doesn't and shouldn't
+  carry.
 - **Equipment UI already exists**, further along than the brief implies: a
   `BagSheet.razor` (`src/Duels.Web/Components/Bag/`) shows a paper-doll
   (`EquipmentSlotButton` × `EquipmentSlot`) with a `PlayerPreview` centered
@@ -64,8 +73,13 @@ Concretely, as of `claude/text-duel-game-3t4vkf`:
   equipped gear at all. The actual battle renderer (`BattleScene.razor` →
   `toon.js`) *is* Three.js (`three.module.min.js`, `GLTFLoader`,
   `OutlineEffect` for the cel shader) and already has a GLTF-loading /
-  asset-manifest pipeline for equip models. The brief explicitly asks for a
-  **"Three.js preview"** for §8.1 — see Workstream C's flagged decision.
+  asset-manifest pipeline for equip models. **Ratified** (pre-plan review):
+  `CLAUDE.md`'s Locked architecture invariant now states "Three.js is the
+  only rendering technology in the project... No secondary renderers" —
+  Workstream C.1's fork is resolved in favor of rebuilding on `toon.js`.
+  The rebuild and `voxel.js`/`.vox` retirement itself is **not done yet** —
+  it's real implementation work belonging to Workstream C's actual build,
+  not a side effect of ratifying the rule.
 - **No shop, no bank, no buyback UI exist** — `HubMenu.razor` only has
   Fight / Retry / Loadout Editor / two dev-loadout buttons / Anim Editor.
 - **`GameTickService` has no attack behavior for `Script == null` NPCs**
@@ -153,13 +167,14 @@ them alongside each boss's own milestone instead.
   row for Rotfang instead (T4 armour piece price × 0.15 — pick the
   appropriate T4 anchor since Rotfang isn't itself an armour piece; flag if
   the "which T4 piece" reference is ambiguous).
-- **A.6 — Split fence vs. buyback** (see audit). `GetFenceValue` should
-  become the drop-table "common sell" number (10–20% of shop-equivalent,
-  items doc §5) for items that *have* a shop price, and keep the flat
-  fallback for drop-only items (uniques, per A.5). Buyback (100% same
-  session / 80% after) is a **separate, session-scoped mechanic** that
-  belongs to the shop's purchase history, not to `IItemRepository` at all
-  — see Workstream D.3.
+- **A.6 — Split fence vs. buyback** — **done** for the fence half (see
+  audit): `GetFenceValue` now returns 15% of shop-equivalent (economy §3's
+  ratified single rate) for priced items, and `0` (not an invented
+  fallback) otherwise; `_fenceValues` remains the override table for A.5's
+  unique/rare rows once they exist. Buyback (100% same session / 80%
+  after) is still a **separate, unimplemented, session-scoped mechanic**
+  that belongs to the shop's purchase history, not to `IItemRepository` —
+  see Workstream D.3.
 
 ---
 
@@ -173,12 +188,12 @@ fallback.
 - **B.1 — Domain**: `Player.AddToBank(itemId)` / `RemoveFromBank(itemId)` /
   `BankedItems` (mirrors existing `AddToInventory`/`RemoveFromInventory`
   shape). `Deposit(itemId)` moves bag→bank, `Withdraw(itemId)` moves
-  bank→bag (bag has no cap enforced today beyond the loot-time check in
-  `RollLoot` — confirm whether manual withdraw should also respect the
-  28-slot cap, since the doc doesn't say the bag is uncapped elsewhere; the
-  28 appears to be an incidental M1 constant, not a documented number —
-  **flagging**: no design doc specifies bag size; 28 is an unattributed M1
-  choice worth confirming or replacing with a sourced number).
+  bank→bag. **Ratified** (pre-plan review): the bag is 28 slots, fixed —
+  UI bible §7 now states this explicitly ("The carried bag is 28 slots
+  (fixed). The bank is the unbounded store; the bag is the constraint the
+  bank exists to relieve."), and `GameTickService`'s existing `>= 28` check
+  is source-commented to it. Manual withdraw should respect the same
+  28-slot cap as the loot-time check, for consistency.
 - **B.2 — Commands/handlers**: `DepositItemCommand`/`WithdrawItemCommand`
   (+ quantity variants), following the existing `EquipItemCommand`/
   `UnequipItemHandler` pattern exactly.
@@ -208,27 +223,19 @@ fallback.
 
 ## 4. Workstream C — Equipment paper-doll + preview (UI bible §8.1)
 
-- **C.1 — Renderer decision (flagging for review, not deciding silently).**
-  The brief's milestone line says *"equipment paper-doll + **Three.js**
-  preview"*. The existing `PlayerPreview.razor` uses `voxel.js`, a parallel
-  non-Three.js renderer with no gear-compositing capability at all (fixed
-  `.vox` model). Meanwhile `toon.js` (Three.js) already has a GLTF loader
-  and asset-manifest pipeline for equip models, used every duel to render
-  the player's actual worn gear in battle. Two paths:
-  1. **Recommended**: build the §8.1 preview on `toon.js`'s existing
-     Three.js/GLTF pipeline (an `initPreview`-style export analogous to
-     voxel.js's API, but instantiated from the same equip-model loader
-     already used in combat) — matches the brief's literal wording, reuses
-     one asset pipeline instead of maintaining two, and the "locked
-     architecture invariant" already treats Three.js as the sanctioned
-     renderer.
-  2. Extend `voxel.js` to composite equipped-gear voxel pieces onto the
-     preview model instead. Keeps a second rendering technology alive
-     for no clear reason (voxel.js has no combat use besides bag icons)
-     and doesn't match "Three.js preview" as written.
-  This is a real architectural fork, not a detail — flagging for explicit
-  sign-off before starting C.2–C.4 rather than picking silently. Recommend
-  (1).
+- **C.1 — Renderer: RESOLVED** (pre-plan review). `CLAUDE.md`'s Locked
+  architecture invariant now mandates Three.js as the project's only
+  rendering technology, no secondary renderers. Build the §8.1 preview on
+  `toon.js`'s existing Three.js/GLTF pipeline (an `initPreview`-style
+  export analogous to `voxel.js`'s current API, but instantiated from the
+  same equip-model loader already used in combat), then retire
+  `PlayerPreview.razor`'s `voxel.js` usage, `voxel.js` itself, and the
+  `.vox` assets once parity is reached (`VoxelIcon.razor`'s bag-icon usage
+  needs its own replacement — a static icon render off the same GLTF
+  models, or `voxel.renderIcon`'s icon-cache role specifically stays until
+  that's built; check before deleting `voxel.js` wholesale). This is real
+  implementation work for this workstream to build, not something the
+  ratification did for it.
 - **C.2 — Stat sheet** (§8.1 "right panel"): attack bonus per style,
   defense per style, special-energy modifiers, DoT-related stats, prayer
   bonus if it exists — computed from the player's current `Equipped` set
@@ -280,12 +287,15 @@ fallback.
 
 ## 6. Workstream E — Drop tables + kill gold (economy §3, §5)
 
-- **E.1 — Kill gold**: set `maggot_king.GoldReward` to the economy doc's
-  Tier-1 base, **300g** (correcting the current 500g placeholder — flagging
-  the correction explicitly per CLAUDE.md, this isn't a silent number
-  change). RL-multiplier math is a no-op until M4 (`1 + 0/100 = 1`); no
-  code needed now, `GoldReward` stays a flat field until Workstream-M4 adds
-  the RL scalar.
+- **E.1 — Kill gold: done** (pre-plan review). `maggot_king.GoldReward`
+  stays at 500g — ratified as the economy doc's own Tier-1 base (the doc
+  was rescaled to the code, not the reverse; the whole tier table and its
+  g/h column were recomputed to match, and the shop-ladder cadence-check
+  row's stale "of duels+first kills" wording was fixed, though its ~20 min
+  figure itself wasn't recomputed against the new rate — flagging that as
+  still open, see `m1-findings.md`'s addendum). RL-multiplier math is a
+  no-op until M4 (`1 + 0/100 = 1`); no code needed now, `GoldReward` stays
+  a flat field until Workstream-M4 adds the RL scalar.
 - **E.2 — Maggot King's drop table**: economy §5 defines the *slot
   mechanism* (Gold always / Common 65% / Uncommon 25% / Unique 1-in-20 /
   Rare locked-below-150) but **no design doc anywhere enumerates concrete
@@ -348,15 +358,14 @@ Consequences:
      only structure and simply never trimmed?
   3. describe something else entirely that hasn't come up in this review?
   Either way, **M2's actual on-ramp is Maggot King's own kill-gold rate**
-  (economy §3's Tier-1 table: ~300g/kill, ~4,500g/h at-tier, per Workstream
+  (economy §3's Tier-1 table: 500g/kill, ~7,500g/h at-tier, per Workstream
   E.1) — there is nothing else to farm until M3. This plan makes no further
   assumption about what "regular duels" means; resolving it is a design
   decision for whoever owns the economy doc, not an implementation detail
   for Claude Code to infer.
 - This resolution, and the corrected reading of the brief's "regular duels
-  as gold on-ramp" line, belongs in the findings record — see the
-  "Findings addendum" the user requested, written out at the end of this
-  planning pass.
+  as gold on-ramp" line, is recorded in `m1-findings.md`'s "Addendum — M2
+  pre-plan" section.
 
 ---
 
@@ -383,15 +392,16 @@ CLAUDE.md's "after every completed step, not just when asked" instruction.
 
 1. **A** (item table completion) — pure data + minor repository/schema
    extensions, unblocks everything else, no UI dependency.
-2. **E.1** (kill-gold correction) — one-line data fix, ships immediately,
-   independent of everything else.
+2. ~~E.1 (kill-gold correction)~~ — done in pre-plan review (ratified at
+   500g, doc rescaled to match). Nothing left to sequence.
 3. **B** (Bank) — domain + persistence + minimal UI. Needed before Shop/
    drop-table testing generates more items than the 28-slot bag can hold.
 4. **D** (Shop) — depends on A's priced items and B's overflow destination.
 5. **C** (Equipment paper-doll + preview) — depends on A (real item stats
-   to show) and benefits from B/D existing (things to compare against);
-   **C.1's renderer decision blocks C.2–C.4** and should be confirmed with
-   the reviewer before this step starts, not discovered mid-implementation.
+   to show) and benefits from B/D existing (things to compare against).
+   C.1's renderer choice is resolved (Three.js, ratified) but the rebuild
+   itself is real work this step still has to do — not blocked on a
+   decision anymore, just on being built.
 6. ~~F (regular duels)~~ — cut; resolved as "no separate roster," folded
    into E. Nothing to sequence.
 7. **E.2–E.5** (Maggot King's real drop table) — blocked on a content-review
@@ -404,48 +414,58 @@ CLAUDE.md's "after every completed step, not just when asked" instruction.
 
 ---
 
-## 10. Design questions (flagged, not resolved) and tunables
+## 10. Design questions and tunables
 
-1. **C.1 — Preview renderer**: Three.js (reuse `toon.js`'s GLTF pipeline,
-   recommended) vs. extending `voxel.js`. Blocks Workstream C.
-2. **A.3 — Rotfang's poison mechanic**: does it reuse Maggot King's
+Five of this list's original entries (old #1 preview renderer, #5 bag cap,
+#9 regular-duel roster, #10 non-scripted attack engine, plus the E.1 gold
+number and the A.6 fence/buyback split noted elsewhere in this plan) were
+resolved in a pre-plan review pass — see `m1-findings.md`'s "Addendum —
+M2 pre-plan" for the full record. Renumbered; only genuinely still-open
+questions remain below.
+
+1. **A.3 — Rotfang's poison mechanic**: does it reuse Maggot King's
    existing hazard-pool poison application, or does it need its own
    independent poison-stack track? Needs an answer before implementing, not
    during.
-3. **A.4 — Specialty flask shards**: is shard-accumulation (a new currency
+2. **A.4 — Specialty flask shards**: is shard-accumulation (a new currency
    the domain model doesn't have at all) in scope for M2, or deferred with
    Rotward itself? Leaning defer.
-4. **A.5 — Flask "one-time unlock"**: does this need a boolean
+3. **A.5 — Flask "one-time unlock"**: does this need a boolean
    owned-flag on `Player`/`Loadout`, replacing the "buy every time" shop
    model for just these two items? The doc's wording ("one-time unlock")
    implies yes but the mechanism isn't specified.
-5. **B.1 — Bag cap of 28**: unattributed M1 constant, not sourced from any
-   design doc. Keep as-is, or is there an actual intended number?
-6. **D.1 — "Why buy" tags**: omit for M2 (recommended, it's boss-aware
+4. **D.1 — "Why buy" tags**: omit for M2 (recommended, it's boss-aware
    flavor text with no source content beyond Maggot King) or write a
    Maggot-King-only version?
-7. **D.2 — Confirm-purchase threshold**: doc says "single confirm on
+5. **D.2 — Confirm-purchase threshold**: doc says "single confirm on
    purchases above a threshold only" with no number. Proposed: confirm
    above T2 price (2,500g+). Needs sign-off.
-8. **E.2 — Maggot King's Common/Uncommon loot rows**: no concrete item list
+6. **E.2 — Maggot King's Common/Uncommon loot rows**: no concrete item list
    exists in any design doc. Blocks Workstream E until resolved — see
    Workstream E.2 for the specific open sub-questions.
-9. ~~F.1 — Regular-duel roster~~ **RESOLVED**: no separate roster exists or
-   will exist; see Workstream F.
-10. ~~F.2 — Non-scripted attack engine~~ **RESOLVED (moot)**: nothing in M2
-    needs it.
-11. **What does economy §3's "regular duels" paragraph actually refer to?**
-    Newly opened by F's resolution (not the same question as #9/#10 above)
-    — with no non-boss NPCs, M2's gold on-ramp is just Maggot King's kill
-    rate. Whether the doc's §3 language describes a future easy-boss band,
-    stale pre-redesign wording, or something else is unresolved — see
-    Workstream F's three numbered readings. Does not block any M2
-    workstream (all of M2's income already resolves to boss kill-gold
-    either way); flagging for whoever next edits the economy doc.
-12. **A.6 — Fence vs. buyback split**: confirmed as a real modeling gap
-    (see audit) — needs the split described in A.6/D.3, not a design
-    ambiguity so much as an implementation task, but flagging since it
-    changes `IItemRepository`'s contract.
+7. **What does economy §3's "regular duels" paragraph actually refer to?**
+   With no non-boss NPCs (Workstream F), M2's gold on-ramp is just Maggot
+   King's kill rate. Whether the doc's §3 language describes a future
+   easy-boss band, stale pre-redesign wording, or something else is
+   unresolved — see Workstream F's three numbered readings. Does not block
+   any M2 workstream (all of M2's income already resolves to boss
+   kill-gold either way); flagging for whoever next edits the economy doc.
+8. **Economy §4's shop-ladder cadence-check row** ("~20 min" to a T1 kit)
+   wasn't recomputed against the new 500g/~7,500g-per-hour Tier-1 rate —
+   only its stale "regular duels" reference was removed. Worth a look
+   before the playtest question is evaluated. See `m1-findings.md`'s
+   addendum, item 2.
+9. **New from the pre-plan sweep — `Player.Gold = 10_000` starting gold**:
+   no design doc specifies a new-player starting amount, and this number
+   actively undermines the playtest question (a fresh player could buy a
+   full T1 kit, and reach into T2 pricing, before playing a single fight).
+   Needs an explicit decision — likely 0 or a small documented seed —
+   before Workstream D (Shop) is implemented and testable. See
+   `m1-findings.md`'s addendum for the rest of the sweep's findings
+   (`PrayerPoints = 99`, `AttackRange.Distant = 8`,
+   `PrayerDrainCadenceTicks = 9`) — lower stakes, not blocking, but the
+   same "unsourced constant" defect the new CLAUDE.md rule now requires
+   flagging.
 
 ---
 

@@ -8,7 +8,8 @@ The boss fight is the product. Target audience: players who enjoy bossing (OSRS-
 ### 1. Boss Hub (main mode — progression & mastery)
 - The linear ladder is **retired**. Replaced by a roster of bosses, each jumpable at any moment.
 - Each boss has its own drop table including a rare best-in-slot item.
-- Regular duels serve as warm-up and gear source, not the core content.
+- There are no non-boss opponents: every fight is a boss. Tier-1 bosses are
+  the on-ramp and early gold source.
 - **Gear progression happens through bossing**: gear needed for boss N drops from boss N-1.
 - Player should reach a real mechanics boss within **10–15 minutes** of first play.
 - **Per-boss prestige/graduation** (CoX model): clear a boss's base version to unlock its hard mode / invocation scaling. Completion is the credential, not grinding.

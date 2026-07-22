@@ -58,10 +58,19 @@ public sealed class DefinitionItemRepository : IItemRepository
         return result;
     }
 
+    /// <summary>Drop-table "common" sell value only (economy doc §3: 15% of
+    /// shop-equivalent price, single canonical rate) — NOT shop buyback.
+    /// Buyback (100% refund same session, 80% after) is a separate,
+    /// session-scoped mechanic that reads purchase history, not item
+    /// definitions; it has no representation here. <c>_fenceValues</c> is the
+    /// explicit override table for drop-only items with no shop price
+    /// (uniques: 15% of a T4 piece per items doc §4; rares: 0, never
+    /// sellable). An item with neither a shop price nor an override falls
+    /// back to 0 rather than an invented flat number.</summary>
     public int GetFenceValue(string itemId)
     {
-        if (_shopPrices.TryGetValue(itemId, out var price)) return price / 2;
-        return _fenceValues.GetValueOrDefault(itemId, 100);
+        if (_shopPrices.TryGetValue(itemId, out var price)) return (int)Math.Round(price * 0.15);
+        return _fenceValues.GetValueOrDefault(itemId, 0);
     }
 
     /// <summary>Every shop-priced item id must resolve to a real weapon/gear/

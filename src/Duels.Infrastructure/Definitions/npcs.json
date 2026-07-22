@@ -6,7 +6,7 @@
     "Stats": { "Attack": 1, "Strength": 1, "Defence": 1, "Hitpoints": 450 },
     "Evasion": { "Melee": 0, "Ranged": 0, "Magic": 0 },
     "LootTable": [],
-    "GoldReward": 500,
+    "GoldReward": 500, // economy doc §3 gold-income table: Tier 1 = 500g/kill (ratified M2 pre-plan; absorbs the removed regular-duel income)
     "Script": {
       "PhaseTwoThresholdPercent": 50,
       "Attacks": {

@@ -50,8 +50,8 @@ public class DefinitionItemRepositoryTests
         Assert.Equal("Health Flask", repo.GetItemName("flask_health"));
         Assert.Equal("Rustcleaver", repo.GetItemName("wpn_melee_t1"));
 
-        // No shop in M1 — unlisted items fall back to the flat default fence value.
-        Assert.Equal(100, repo.GetFenceValue("nonexistent_item"));
+        // No shop in M1 — unlisted items with no override fall back to 0, not an invented flat number.
+        Assert.Equal(0, repo.GetFenceValue("nonexistent_item"));
         Assert.Empty(repo.GetShopItems());
     }
 
@@ -71,6 +71,24 @@ public class DefinitionItemRepositoryTests
 
         var ex = Assert.Throws<InvalidOperationException>(() => new DefinitionItemRepository(file));
         Assert.Contains("dupe", ex.Message);
+    }
+
+    [Fact]
+    public void GetFenceValue_IsFifteenPercentOfShopPrice_ForShopItems()
+    {
+        var file = new ItemsDefinitionFile(
+            Weapons: [new Weapon("priced", "Priced Sword", AttackType.Slash, DocStats.Zero)],
+            Gear: [],
+            Consumables: [],
+            ShopPrices: new Dictionary<string, int> { ["priced"] = 1000 },
+            FenceValues: []);
+
+        var repo = new DefinitionItemRepository(file);
+
+        // economy doc §3: drop-table sell value is 15% of shop-equivalent price.
+        Assert.Equal(150, repo.GetFenceValue("priced"));
+        // No shop price and no override -> 0, not an invented flat number.
+        Assert.Equal(0, repo.GetFenceValue("priced_unknown"));
     }
 
     [Fact]

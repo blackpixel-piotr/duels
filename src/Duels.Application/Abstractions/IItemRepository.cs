@@ -9,6 +9,8 @@ public interface IItemRepository
     string? GetItemName(string itemId);
     bool IsWeapon(string itemId);
     IReadOnlyList<(string Id, string Name, int Price)> GetShopItems();
-    /// <summary>Gold value when an item can't fit in inventory and must be fenced. Half shop price if sold; a flat value for drop-only items.</summary>
+    /// <summary>Drop-table sell/fence value (economy doc §3: 15% of shop price,
+    /// single canonical rate), not shop buyback — buyback is a separate
+    /// session-scoped mechanic that lives outside this repository.</summary>
     int GetFenceValue(string itemId);
 }

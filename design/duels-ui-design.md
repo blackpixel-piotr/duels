@@ -172,6 +172,9 @@ The Main Hub is a diegetic scene — your toon character standing in a grungy ar
 
 ## 7. Bank
 
+The carried bag is 28 slots (fixed). The bank is the unbounded store; the
+bag is the constraint the bank exists to relieve.
+
 OSRS's bank is the genre's best inventory UI; adapt it, don't reinvent it.
 
 - **Grid** of item slots (6 rows visible, vertical scroll), items as inked icons with stack counts.
