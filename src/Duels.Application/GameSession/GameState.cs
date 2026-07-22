@@ -255,12 +255,26 @@ public sealed class GameState
     public void SetPlayerTile(int x, int z) => PlayerTile = (x, z);
     public void SetNpcTile(int x, int z) => NpcTile = (x, z);
 
-    // Targeting: click-to-move sets HoldPosition (walking cancels chasing and
-    // attacking); it stays set after arrival — no auto-chase, no
-    // auto-retaliate — until re-engaged via the target, a weapon, or ATTACK
-    // (all three call Engage()).
+    // Targeting: persistent target lock (M1 revision — "persistent target
+    // lock"). Two independent flags replace the old single HoldPosition:
+    //   Engaged — the actual lock. Drives the attack gate. Movement NEVER
+    //     touches it; only an explicit Engage()/Disengage() does (tapping
+    //     the boss re-engages, tapping the engagement indicator disengages
+    //     — UI bible §3.3/§3's reticle+sheathed element). This is what lets
+    //     the player walk anywhere — including out of melee range to dodge
+    //     — without losing the fight.
+    //   EngageApproachActive — a movement-only convenience, unrelated to
+    //     the lock: while true, ProcessPlayerMovement auto-walks the player
+    //     into range of the current target every tick it's out of range
+    //     (tracking a moving NPC/add live). OrderMove retires it
+    //     immediately (a deliberate tap-to-move always wins over the
+    //     auto-walk), so it only re-arms on the NEXT explicit Engage() —
+    //     never automatically — which is what makes kiting work: walking
+    //     away and stopping just leaves the player standing there, locked,
+    //     not auto-dragged back into range.
     public (int X, int Z)? PlayerMoveTarget { get; private set; }
-    public bool HoldPosition { get; private set; }
+    public bool Engaged { get; private set; }
+    public bool EngageApproachActive { get; private set; }
 
     public void OrderMove(int x, int z)
     {
@@ -268,7 +282,7 @@ public sealed class GameState
         z = Math.Clamp(z, -ArenaRadius, ArenaRadius);
         (x, z) = NearestFreeTile((x, z));
         PlayerMoveTarget = (x, z);
-        HoldPosition = true;
+        EngageApproachActive = false;
     }
 
     public void ClearMoveOrder() => PlayerMoveTarget = null;
@@ -290,10 +304,23 @@ public sealed class GameState
     public void Engage()
     {
         PlayerMoveTarget = null;
-        HoldPosition = false;
+        Engaged = true;
+        EngageApproachActive = true;
     }
 
-    public void HoldPositionAtSpawn() => HoldPosition = true;
+    // Explicit disengage (M1 revision — "persistent target lock"): the ONLY
+    // other action, besides Engage(), that changes the lock. Tapping the
+    // engagement indicator (UI bible §3.3/§3) dispatches this.
+    public void Disengage()
+    {
+        Engaged = false;
+        EngageApproachActive = false;
+    }
+
+    // Test-only: overrides StartDuel's production default (engaged from
+    // tick 1) so a test can position the player deterministically before
+    // anything auto-fires.
+    public void DisengageAtSpawn() => Disengage();
 
     public bool TestScene { get; private set; }
     public void SetTestScene(bool on) => TestScene = on;
@@ -365,7 +392,8 @@ public sealed class GameState
                 _obstacles.Add(o);
 
         PlayerMoveTarget = null;
-        HoldPosition = false;
+        Engaged = true;
+        EngageApproachActive = true;
         TestScene = false;
         EnemyFrozen = false;
         ClearHazards();

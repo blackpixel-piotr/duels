@@ -2066,3 +2066,125 @@ Both confirmed as real bugs, not user error.
   flask-sip's internal cooldown math to begin with.
 - **85/85 tests pass** (was 83/83: +2 `SipFlaskHandlerTests`), 0 build
   warnings/errors.
+
+## Thirtieth pass: M1 revision: persistent target lock (design-authority request, resolves the prior pass's part-3 report)
+
+- **Request**: replace the old "any voluntary movement disengages, requires
+  a re-tap" model (flagged as a report-only finding two passes ago) with a
+  persistent target lock — movement never breaks it; attacks auto-fire on
+  any tick the player is locked, in range, off cooldown, and didn't move
+  that tick; disengage becomes a single explicit action (tap the
+  engagement indicator); melee kiting works (walk out, walk back, combat
+  resumes with no re-tap).
+- **Two real ambiguities resolved via `AskUserQuestion` before writing
+  code** (both against the recommended option):
+  1. **Auto-chase vs. kiting, a genuine conflict in the literal rules as
+     given.** The existing auto-chase-into-range convenience (tap
+     ATTACK/target from a distance → auto-walk in → auto-attack) was
+     gated, pre-this-pass, on "engaged + no pending move order" —
+     continuously re-checked every tick. If that trigger just got re-gated
+     on the new persistent lock unchanged, the instant a kite-away
+     `OrderMove` finished, auto-chase would immediately start walking the
+     player back toward the boss on its own, defeating the entire point of
+     kiting. Resolved: auto-chase now only (re-)arms on an explicit
+     `Engage()`, and `OrderMove` permanently retires it until the next
+     one — see the `EngageApproachActive` design below.
+  2. **The "engagement indicator" (UI bible §3.3/§3: an inked reticle on
+     the boss + a "sheathed" icon by the weapon arc) had never been
+     built** — no reticle, sheathed icon, or tap handler existed anywhere
+     in `ActionHud.razor`/`BattleScene.razor`/`toon.js` before this pass;
+     it was aspirational doc content only. Resolved: built it this pass
+     (HUD icon + tap-to-disengage handler in `ActionHud.razor`, in-world
+     reticle ring in `toon.js`) rather than repurposing an existing
+     element.
+- **Core design — split the old single `HoldPosition` flag into two
+  independent ones**, rather than a straight rename, because the two
+  concerns turned out to be genuinely separable once traced through:
+  - **`Engaged`** — the actual lock. Drives the attack gate. The *only*
+    things that touch it are `Engage()` (tap boss/ATTACK/weapon — all
+    three already routed through the pre-existing `EngageCommand`/
+    `state.Engage()`, unchanged) and the new `Disengage()`
+    (`DisengageCommand`/`DisengageHandler`, mirrors `FreezeEnemyHandler`'s
+    shape exactly). `OrderMove` never touches it — this alone satisfies
+    "OrderMove never blocks the attack gate" and "no other action breaks
+    lock."
+  - **`EngageApproachActive`** — a movement-only convenience, unrelated to
+    the lock itself: while true, `ProcessPlayerMovement`'s existing
+    auto-chase-into-range logic (continuous per-tick re-evaluation of the
+    target's *current* tile — unchanged code, just re-gated) keeps
+    running. `OrderMove` clears it immediately (a deliberate tap-to-move
+    always wins over the auto-walk); only `Engage()` re-arms it. This is
+    what makes kiting work: walking away and stopping just leaves the
+    player standing there, locked, not auto-dragged back — and it's also
+    what let the *existing* dynamic-target-tracking auto-chase code (which
+    a naive "one-shot waypoint" design would have broken, since it
+    re-reads the target's live position every tick rather than aiming at
+    a frozen snapshot) survive completely untouched.
+  - Production default at `StartDuel`: both flags start `true` (matches
+    the old `HoldPosition = false` default — the fight auto-engages from
+    tick 1, no initial tap needed, exactly as before). The test-only
+    `HoldPositionAtSpawn()` override is renamed `DisengageAtSpawn()`.
+  - **New "moved this tick" tracking for the attack gate**: `ProcessTick`
+    already captures `preTickPlayerTile` (for hazard Perfect-Dodge
+    detection) — reused directly rather than adding a second snapshot.
+    `playerMovedThisTick = state.PlayerTile != preTickPlayerTile`. The
+    gate is now `PlayerCooldown == 0 && PlayerMoveTarget is null &&
+    !playerMovedThisTick && Engaged && targetInRange`.
+- **Real, intended behavior consequence of rule 2** (not a bug): the tick
+  that *closes the gap* to a moving target (auto-chase's own final step,
+  or the player's own walk) no longer also lands that tick's attack —
+  movement always defers to the next fully-stationary tick, even the tick
+  adjacency is first reached. `RangeAndMovementTests.
+  MeleeVsMelee_NoHitsWhileApproaching_FirstContactAfterWalkIn`'s first-hit
+  tick shifted from tick 2 to tick 3 accordingly; verified by running the
+  suite rather than assumed.
+- **Test rewrites** (the old suite's premise — "movement disengages,
+  needs an explicit re-engage" — is exactly what's being removed, so
+  several tests' scenarios were obsolete, not just their assertions):
+  - `RangeAndMovementTests.MoveOrder_NeverBreaksLock_
+    AttacksResumeAutomaticallyOnRegainingRange` (was `MoveOrder_
+    WalksThere_ThenHoldsPosition_NoAutoRetaliate_UntilReengaged`) — reuses
+    the original's walk-to-a-far-corner setup, but now proves the
+    *opposite* tail behavior: the non-stationary dummy NPC chases the held
+    player on its own, and once it closes back to adjacency, attacks
+    resume with **no** `Engage()` call anywhere in the test.
+  - `RangeAndMovementTests.MoveOrder_EvenATrivialOne_
+    NeverBlocksTheAttackGate` (was `MoveOrder_HoldsAfterArrival_
+    NoAutoAttack_UntilReengaged`) — a same-tile `OrderMove` (zero actual
+    tile change) no longer blocks the immediately-following attack.
+  - `RangeAndMovementTests.Engage_FromDisengaged_ResumesChase` (was
+    `Engage_ResumesChase`) — the original's "walk away, then Engage()"
+    setup no longer produces a meaningful "resume" (nothing disengaged in
+    the first place), so this now starts from `DisengageAtSpawn()`
+    instead, preserving the original's actual point: `Engage()` (re-)arms
+    auto-chase.
+  - `AttackHandlerTests.Attack_WhileDisengaged_ReEngages` (was
+    `Attack_WhileHoldingPosition_ReEngages`) — same reasoning, rebuilt
+    around explicit `Disengage()` instead of a walk-away.
+  - New `DisengageHandlerTests.cs` (2 tests, mirrors
+    `FreezeEnemyHandler`'s test shape) and a new integration-level test,
+    `MaggotKingTests.MeleeKiting_WalkAwayThenBack_ResumesWithoutReengaging`
+    — the most literal test of the request's own "melee kiting" example,
+    run against the *real* stationary Maggot King (not a synthetic dummy)
+    rather than relying solely on the synthetic-NPC coverage above.
+- **Renderer**: the JS-facing `holdPosition` flag (`setBattleFlags`,
+  consumed by `toon.js`/`voxel.js` for idle facing/animation) keeps its
+  existing name and shape — it's a cosmetic "disengaged idle stance"
+  concept, not the lock itself, so `BattleScene.razor` just recomputes its
+  value from the new `!State.Engaged` instead of the old `State.
+  HoldPosition` (same boolean meaning, new source). Added a new in-world
+  engagement reticle ring on the boss (`st.engageReticle`, mirrors the
+  existing `punishRing`/`targetTile` ring pattern exactly), toggled off
+  the same flag.
+- **88/88 tests pass** (was 85/85: +3 `RangeAndMovementTests` rewrites net
+  same count, +1 `AttackHandlerTests` rewrite net same count, +2
+  `DisengageHandlerTests`, +1 `MaggotKingTests` kiting integration test),
+  0 build/JS-syntax warnings or errors.
+- **Docs**: `duels-ui-design.md` §3.3's battlefield-interaction bullet and
+  §3's engagement-indicator description (the latter's "when disengaged
+  (you moved away)" clause was now wrong given what this pass just
+  implemented — fixed proactively, not part of the literal instruction but
+  directly contradicted by it) both updated; `duels-boss-designs.md`'s
+  Global Combat Grammar gained the new Player-assumptions bullet verbatim;
+  `ARCHITECTURE.md` updated (`GameState.cs`, `Commands/*.cs`, `toon.js`,
+  `ActionHud.razor` rows).

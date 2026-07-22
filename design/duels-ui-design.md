@@ -92,7 +92,7 @@ resting position of the right thumb.)
 
 **Flask belt (2 slots, 56dp each, beside the style toggle).** Each slot shows its flask's icon with **sip pips** (filled/empty dots) under it. Tap = sip this tick (consumes your action that tick — the button dims your attack inputs for that tick as feedback). Empty flask = grayed with cracked-glass overlay. Belt contents are bound in the Loadout Editor; a 3rd slot appears when unlocked. In runs, sips persist across fights — the pips are the run's resource meter.
 
-**Engagement indicator.** When engaged, the target boss has a subtle inked reticle and your character's weapon trails faintly; when disengaged (you moved away), the reticle breaks apart and a small "sheathed" icon appears by the weapon arc. This state must be unmistakable at a glance — the whole disengage/re-engage mechanic depends on it.
+**Engagement indicator.** When engaged, the target boss has a subtle inked reticle and your character's weapon trails faintly; when disengaged (M1 revision — "persistent target lock": only tapping the indicator itself does this, never movement), the reticle breaks apart and a small "sheathed" icon appears by the weapon arc, tappable to toggle. This state must be unmistakable at a glance — the whole disengage/re-engage mechanic depends on it.
 
 **Tick metronome (optional, default off).** A tiny pulsing dot next to the special button that beats once per tick. For the tick-perfect crowd. Settings toggle + optional haptic tick.
 
@@ -101,7 +101,7 @@ resting position of the right thumb.)
 - **Tap a tile** → move (pathing dots preview the route for multi-tile paths, one dot per tick of travel).
 - **Tap the boss** → engage/attack.
 - **Tap an add** (e.g. a maggot swarm) → switches target to it and engages; basic attacks route to the add until it dies, then target reverts to the boss automatically. Same tap-to-(re)engage contract as the boss, per target. The tap target is the whole tile the add occupies, not just its (small, deliberately unshowy) model — mobile precision tapping on a tiny model was a real playtest complaint.
-- **Tap elsewhere while engaged** → move there and disengage (per combat rules).
+- **Tap elsewhere while engaged** → move there; target lock persists. Attacks fire only on stationary ticks — movement defers, never cancels. Disengage is explicit: tap the engagement indicator to sheathe; tap the boss to re-engage.
 - Tap feedback: tapped tile flashes an ink ring; invalid tiles (rubble, walls) show a red X stamp.
 - **Telegraphs on tiles:** hazard tiles fill with hatched purple ink as the fuse burns, one hatch band per tick; the final fuse tick flashes the tile's outline white — that white flash is the universal "Perfect Dodge now" signal across every boss. Safe tiles (Rot Burst scorch, Downdraft corners) glow gold.
 - **Damage numbers:** comic pops. Player hits in white with style-colored outline; crits/specials 150% size with a starburst; DoT ticks small and muted; damage *taken* in red drifting down. Perfect Dodge triggers a gold "+15" glint at the player's feet.

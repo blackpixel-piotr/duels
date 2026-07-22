@@ -569,7 +569,11 @@
             await JS.InvokeVoidAsync("voxel.setBattleFlags", "battle-canvas", new { punished });
         }
 
-        bool holdPosition = State?.HoldPosition ?? false;
+        // holdPosition here is a renderer-only "disengaged idle stance" flag
+        // (facing/animation), inverted from the persistent target lock —
+        // see GameState.Engaged. Kept as its own JS-facing name/shape since
+        // it's a cosmetic concept, not the lock itself.
+        bool holdPosition = !(State?.Engaged ?? true);
         if (holdPosition != _lastHoldPosition)
         {
             _lastHoldPosition = holdPosition;

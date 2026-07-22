@@ -10,6 +10,7 @@ These rules apply to every boss so players can transfer learning between fights.
 
 **Player assumptions**
 - Attacks fire on a per-weapon cooldown (2–4 ticks by archetype); the cooldown is global across swaps. 1 tile moved per tick.
+- Target lock persists through movement; attacks fire only on ticks the player does not move. Disengaging is an explicit action, never a side effect.
 - Prayer swaps and weapon swaps resolve instantly on input; max one of each per tick.
 - Special attacks consume special energy; energy regens slowly over time.
 
