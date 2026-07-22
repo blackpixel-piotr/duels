@@ -37,6 +37,7 @@ Every colored signal also has a **unique shape and audio cue** (colorblind-safe 
 - **Tap targets:** 56dp minimum for combat buttons. Protection prayers (the most time-critical input in the game) traded a dedicated 64dp button for a left-edge strip — see §3.2 — whose zones are ~44dp tall but bleed wider than their visible width to keep the effective touch target generous. 8dp minimum spacing elsewhere.
 - **Input latency budget:** visual + haptic acknowledgment within 50ms of any tap; the 0.6s tick can absorb server/logic resolution, but the *feel* of responsiveness lives in that first 50ms.
 - **Input buffering:** taps within the last 150ms of a tick queue for the next tick instead of dropping. Prayer and weapon swaps resolve on the tick they're tapped (they're instant per combat rules).
+- **Attack cadence:** attacks fire on a per-weapon cooldown (2–4 ticks by archetype), not a flat once-per-tick rate; the cooldown is global and persists across weapon swaps.
 - **Safe areas:** full notch/punch-hole compliance; HUD anchors to safe-area insets, battlefield renders full-bleed underneath.
 - **Left-handed mode:** full HUD mirror in one setting.
 - **HUD edit mode:** every HUD cluster can be dragged, scaled (75–125%), and opacity-adjusted, with per-element reset. Standard for mobile action games and non-negotiable for a game about split-second taps.

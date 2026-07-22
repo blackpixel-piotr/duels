@@ -9,7 +9,7 @@ All timings use the game tick: **1 tick = 0.6s**.
 These rules apply to every boss so players can transfer learning between fights.
 
 **Player assumptions**
-- 1 attack per tick (base weapon speed), 1 tile moved per tick.
+- Attacks fire on a per-weapon cooldown (2–4 ticks by archetype); the cooldown is global across swaps. 1 tile moved per tick.
 - Prayer swaps and weapon swaps resolve instantly on input; max one of each per tick.
 - Special attacks consume special energy; energy regens slowly over time.
 

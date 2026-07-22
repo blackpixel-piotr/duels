@@ -38,8 +38,11 @@ public sealed class SipFlaskHandler : ICommandHandler<SipFlaskCommand>
         effect.Apply(state.Player);
         state.AppendLog($"You sip the {effect.Label}. ({slot.SipsRemaining}/{slot.MaxSips} sips left)", LogEntryKind.Info);
 
-        // Sipping consumes the tick's action — the same cooldown an attack would set.
-        if (state.PlayerCooldown == 0) state.ResetPlayerCooldown(1);
+        // Weapon-speed ratification: sipping always costs tempo, never a full
+        // attack slot — it adds exactly +1 tick to whatever's currently on the
+        // cooldown clock (0 if idle), rather than granting a free sip whenever
+        // the player happened to already be mid-cooldown.
+        state.DelayPlayerAttack(1);
 
         await _stateRepo.SaveAsync(state, ct);
         return CommandResult.Ok();

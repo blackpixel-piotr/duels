@@ -16,30 +16,31 @@ Companion to the Economy doc. All names are placeholders that bind to nothing: s
 - Player max HP: **100**. Base hit chance: **~80% at-tier** — an accuracy roll of **Precision + style mod vs the target's per-style Evasion**; at matched tier (neutral Evasion) it lands ~80%.
 - Attack styles: Accurate +10% hit · Aggressive +20% damage, −10% hit · Defensive +20% defense value, −10% damage.
 - Weapon **Power** = **average** damage. A landed hit rolls a **uniform 0..2×Power**, so Power is the mean and **2×Power is the max hit** (shown on item cards; a max roll gets a distinct visual). Weapon **Precision** = flat hit-chance bonus.
+- Weapons have an **AttackSpeed** in ticks (dagger 2 · sword/bow/wand/staff 3 · greatsword/maul/war crossbow 4). Power = mean damage per hit; per-hit roll is uniform 0..2×Power. Tier balance anchors on DPS: **Power = tier DPS × AttackSpeed** (tier DPS: 3.33 / 4.67 / 6.33 / 8.33; rares 9.33). Attack cooldown is **global and persists across swaps**; specials **consume the next attack slot**; a flask sip **adds +1 tick** to the current cooldown.
 - **Boss standard attacks (autos)** roll **60–100% of their listed band** each cast. **Mechanic/hazard damage** (eruptions, beams, boulders, dives) **and DoTs are deterministic** — dodge-checks that always land for exactly their listed value, never rolled.
 - **Per-style Evasion** (melee/ranged/magic) is each boss's accuracy lever: neutral (0) leaves the ~80% at-tier baseline; a positive value on one style makes the boss "favor" being fought another way, with no mechanic changes.
 - Armour **Def** points: each point reduces incoming damage of its matching style by **0.4%** (cap 40% from gear). Spread differs per armour line (§5).
 - Special energy: max 100 base; regen ~2/tick out of danger, 1/tick in combat (tunable).
-- **Protection prayer** (matching style) **fully negates** boss basic-attack damage — 100% block, not a percentage reduction — unless the attack is marked Unprayable (ground hazards, arena-wide channeled blasts). Checked on the **impact tick**, not the cast tick — a ranged/magic attack's 2-tick projectile flight (doctrine-colored) means a prayer raised any time before it lands still blocks it. See boss bible's "Prayer grammar" and the Doubt invocation (75% block) for the one thing that weakens this.
+- **Protection prayer** (matching style) **fully negates** boss basic-attack damage — 100% block, not a percentage reduction — unless the attack is marked Unprayable (ground hazards, arena-wide channeled blasts). Checked on the **impact tick**, not the cast tick — a ranged/magic attack travels as a homing doctrine-colored projectile (~3 tiles/tick, flight time scales with distance) so a prayer raised any time before it lands still blocks it. See boss bible's "Prayer grammar" and the Doubt invocation (75% block) for the one thing that weakens this.
 
 ---
 
 ## 2. Shop Weapons (3 styles × 4 tiers)
 
-| Tier | Style | Name | Archetype | Power | Prec | Special (cost — effect) | Model | Price |
-|---|---|---|---|---|---|---|---|---|
-| T1 | Melee | Rustcleaver | Shortsword | 10 | +0% | **Lunge** (25 — next hit from 2 tiles, closes the gap) | 🟢 sword | 500g |
-| T1 | Ranged | Poacher's Bow | Shortbow | 10 | +0% | **Snipe** (25 — +50% damage single shot) | 🟢 bow | 500g |
-| T1 | Magic | Cinder Wand | Wand | 10 | +0% | **Scorch** (25 — hit + 3-tick burn DoT) | 🟢 wand | 500g |
-| T2 | Melee | Splitter | Battleaxe | 14 | +2% | **Rend** (40 — heavy hit + bleed stack) | 🟢 axe | 2,500g |
-| T2 | Ranged | Bolt Thrower | Crossbow | 14 | +2% | **Pin Shot** (40 — hit + target's next action delayed 1 tick) | 🟢 crossbow | 2,500g |
-| T2 | Magic | Hexknot Staff | Staff | 14 | +2% | **Sap** (40 — hit + boss damage −10% for 5 ticks) | 🟢 staff | 2,500g |
-| T3 | Melee | Doombringer Maul | Warhammer | 19 | +4% | **Quake** (60 — hits all adjacent tiles, heavy) | 🟢 hammer | 10,000g |
-| T3 | Ranged | Longfang | Longbow | 19 | +4% | **Piercing Arrow** (60 — line shot, ignores 25% Def) | 🟢 bow | 10,000g |
-| T3 | Magic | Stormbrand | Battlestaff | 19 | +4% | **Arc** (60 — hit + chains a half-damage hit next tick) | 🟢 staff | 10,000g |
-| T4 | Melee | Kingsplitter | Greatsword | 25 | +6% | **Executioner** (75 — +100% damage vs targets under 30% HP) | 🟢 sword (scaled up) | 30,000g |
-| T4 | Ranged | Siegepiercer | War crossbow | 25 | +6% | **Ballista Bolt** (75 — massive single hit, 1-tick self-root) | 🟢 crossbow (scaled) | 30,000g |
-| T4 | Magic | Archon's Rod | Scepter | 25 | +6% | **Annihilate** (75 — huge hit, 2-tick cast, interruptible) | 🟡 scepter → fallback: staff kitbash | 30,000g |
+| Tier | Style | Name | Archetype | Power | Speed | Prec | Special (cost — effect) | Model | Price |
+|---|---|---|---|---|---|---|---|---|---|
+| T1 | Melee | Rustcleaver | Shortsword | 10 | 3t | +0% | **Lunge** (25 — next hit from 2 tiles, closes the gap) | 🟢 sword | 500g |
+| T1 | Ranged | Poacher's Bow | Shortbow | 10 | 3t | +0% | **Snipe** (25 — +50% damage single shot) | 🟢 bow | 500g |
+| T1 | Magic | Cinder Wand | Wand | 10 | 3t | +0% | **Scorch** (25 — hit + 3-tick burn DoT) | 🟢 wand | 500g |
+| T2 | Melee | Splitter | Battleaxe | 19 | 4t | +2% | **Rend** (40 — heavy hit + bleed stack) | 🟢 axe | 2,500g |
+| T2 | Ranged | Bolt Thrower | Crossbow | 19 | 4t | +2% | **Pin Shot** (40 — hit + target's next action delayed 1 tick) | 🟢 crossbow | 2,500g |
+| T2 | Magic | Hexknot Staff | Staff | 19 | 4t | +2% | **Sap** (40 — hit + boss damage −10% for 5 ticks) | 🟢 staff | 2,500g |
+| T3 | Melee | Doombringer Maul | Warhammer | 25 | 4t | +4% | **Quake** (60 — hits all adjacent tiles, heavy) | 🟢 hammer | 10,000g |
+| T3 | Ranged | Longfang | Longbow | 19 | 3t | +4% | **Piercing Arrow** (60 — line shot, ignores 25% Def) | 🟢 bow | 10,000g |
+| T3 | Magic | Stormbrand | Battlestaff | 19 | 3t | +4% | **Arc** (60 — hit + chains a half-damage hit next tick) | 🟢 staff | 10,000g |
+| T4 | Melee | Kingsplitter | Greatsword | 33 | 4t | +6% | **Executioner** (75 — +100% damage vs targets under 30% HP) | 🟢 sword (scaled up) | 30,000g |
+| T4 | Ranged | Siegepiercer | War crossbow | 33 | 4t | +6% | **Ballista Bolt** (75 — massive single hit, 1-tick self-root) | 🟢 crossbow (scaled) | 30,000g |
+| T4 | Magic | Archon's Rod | Scepter | 25 | 3t | +6% | **Annihilate** (75 — huge hit, 2-tick cast, interruptible) | 🟡 scepter → fallback: staff kitbash | 30,000g |
 
 Special descriptions are deliberately archetype-flexible (a "sweeping/heavy/line" verb, never a shape-specific one) so any model swap is cosmetic only.
 
@@ -64,9 +65,9 @@ Special descriptions are deliberately archetype-flexible (a "sweeping/heavy/line
 
 | Boss | Name | Slot | Stats | Effect | Model |
 |---|---|---|---|---|---|
-| Maggot King | Carrion Edge | Melee weapon | 28 Power, +6% Prec | 20% of hits apply poison; **Fester** (50 — heavy hit that detonates all poison on the target for instant damage) | 🟢 sword + emissive green kitbash |
-| Hive Matron | Hivepiercer | Ranged weapon | 28 Power, +6% Prec | Every 3rd hit crits; **Sting Volley** (60 — 3 rapid shots) | 🟢 bow + stinger kitbash |
-| Mirrorhide | Mirrorshard Staff | Magic weapon | 28 Power, +6% Prec | First hit after swapping *to* this staff +40% damage; **Refract** (50 — hits twice) | 🟢 staff + crystal shards |
+| Maggot King | Carrion Edge | Melee weapon | 28 Power, 3t Speed, +6% Prec | 20% of hits apply poison; **Fester** (50 — heavy hit that detonates all poison on the target for instant damage) | 🟢 sword + emissive green kitbash |
+| Hive Matron | Hivepiercer | Ranged weapon | 28 Power, 3t Speed, +6% Prec | Every 3rd hit crits; **Sting Volley** (60 — 3 rapid shots) | 🟢 bow + stinger kitbash |
+| Mirrorhide | Mirrorshard Staff | Magic weapon | 28 Power, 3t Speed, +6% Prec | First hit after swapping *to* this staff +40% damage; **Refract** (50 — hits twice) | 🟢 staff + crystal shards |
 | Bloodtithe | Tithebound Cuirass | Body | 16 Def (crimson spread) | Flask sips also cleanse 1 DoT stack | 🟢 Knight-line chest, crimson emissive |
 | Gale Roc | Galestriders | Boots | 10 Def | Perfect Dodge grants +25 energy instead of +15 | 🟢 outfit boots + feather kitbash |
 | The Unblinking | Unblinking Visage | Helmet | 12 Def | The first stun/petrify each fight is negated | 🟢 outfit helm + eye emblem |

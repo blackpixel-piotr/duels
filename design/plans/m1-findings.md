@@ -1966,3 +1966,103 @@ Both confirmed as real bugs, not user error.
   injected text) before any implementation began.
 - **83/83 tests pass** (was 80/80: +1 weapon-swap-persistence test, +2
   projectile-flight tests), 0 build warnings/errors.
+
+## Twenty-ninth pass: M1 revision: weapon-speed ratification & DPS re-anchor (design-authority request)
+
+- **Request** (verbatim, four parts): (1) re-anchor weapon damage on a
+  per-tier DPS formula (`Power = tier DPS × AttackSpeed`, archetype-driven
+  speed) and apply the T2 numbers to `items.json` now; (2) enforce three
+  attack-cooldown interaction rules in the tick engine; (3) a report-only
+  investigation of movement/cooldown/engagement interaction, no code
+  change; (4) verbatim edits to three design docs plus an ARCHITECTURE.md +
+  findings update. Explicitly authorized as a "one-time exception" to a
+  no-edit rule for `/design` — no such rule exists in this session's
+  standing instructions (design docs have been edited routinely all
+  session, most recently the boss-bible amendment two passes ago); noted
+  for the record, not treated as license to skip the usual scrutiny.
+- **Scope-checked before touching runtime data**: `items.json` currently
+  ships ONLY the 6 T1/T2 weapons — none of the T3/T4/unique/rare items
+  named in the request (Doombringer Maul, Kingsplitter, Carrion Edge, etc.)
+  exist in code, and the shop/ladder system that would make them reachable
+  was explicitly retired for M1 (see the ladder-retirement sweep, early
+  this milestone). Writing them into the live runtime data now would ship
+  unreachable content ahead of milestone scope, so — per explicit user
+  confirmation — **only T1 (no-op) and T2 (Power 14→19) landed in
+  `items.json`**; T3/T4/unique/rare numbers are design-doc ratification
+  only, for whenever those tiers are actually built.
+- **Two more instruction/doc mismatches surfaced and were resolved by
+  asking rather than guessing**:
+  - `duels-items.md` §3 ("Boss Uniques") has no Power/Stats column at all
+    for its 5 unique weapons, and the request's formula gave an explicit
+    DPS anchor for rares (9.33) but not uniques. User chose: leave §3
+    untouched rather than invent a tier assumption or a new column.
+  - `duels-ui-design.md` §2 has no "1 attack per tick" phrase to literally
+    replace (only `duels-boss-designs.md` does) — the closest §2 line is
+    about weapon-swap timing, not attack cadence, and is still accurate.
+    User chose: add a new bullet stating the cooldown rule instead of
+    forcing a replacement onto unrelated text.
+- **Part 1 — T2 Power 14→19** (`items.json`, all three T2 weapons; DPS
+  4.67 × 4 ticks = 18.68 → 19, fixing what the request called a "dead tier
+  jump" — T2 was previously only +5% DPS over T1's 10-Power/3-tick 3.33
+  DPS). Broke one existing assertion
+  (`DefinitionItemRepositoryTests.LoadsRealItemsJson_WithExpectedFidelity`,
+  hardcoded `Power == 14` for `wpn_ranged_t2`) — updated to 19.
+- **Part 2 — attack-cooldown interaction rules, verified against the
+  actual tick engine before writing anything**:
+  - *"Global cooldown persists across weapon swaps"* — already true.
+    `WeaponShortcutHandler` never touches `PlayerCooldown`; confirmed by
+    inspection, no code change needed.
+  - *"Specials consume the next attack slot, then start the new
+    weapon-speed cooldown"* — already true. `ExecutePlayerAction` in
+    `GameTickService.ProcessTick` dispatches `"spec"` through the exact
+    same gate (`PlayerCooldown == 0 && ...`) as a basic attack, and
+    `ResetPlayerCooldown(GetPlayerWeaponSpeed(player))` runs identically
+    afterward regardless of which fired. No code change needed.
+  - *"A flask sip adds +1 tick to the current cooldown, always"* — this
+    ONE was genuinely different from current behavior.
+    `SipFlaskHandler` previously did
+    `if (state.PlayerCooldown == 0) state.ResetPlayerCooldown(1);` — a sip
+    was **free** (no cooldown effect at all) whenever the player happened
+    to already be mid-cooldown, and only cost a flat 1 tick when idle.
+    Fixed to unconditionally call the existing `GameState.
+    DelayPlayerAttack(1)` primitive (already used elsewhere for Pin Shot's
+    target-delay effect, reused here rather than adding a new method) —
+    now always adds exactly +1 tick on top of whatever's currently
+    counting down. New tests: `SipFlaskHandlerTests.cs`
+    (`Sip_WhileIdle_SetsOneTickCooldown`,
+    `Sip_MidCooldown_AddsOneTick_NeverFree` — the second one is the actual
+    regression guard, since the first passed under both the old and new
+    code and wouldn't have caught the bug).
+- **Part 3 — movement/cooldown/engagement report** (no code change,
+  verified against `GameState.cs`/`GameTickService.cs` directly): `OrderMove`
+  neither cancels a queued action nor resets/pauses the cooldown — it just
+  sets `HoldPosition = true`, which blocks the attack gate
+  (`PlayerCooldown == 0 && PlayerMoveTarget is null && !HoldPosition &&
+  targetInRange`) until the player explicitly re-engages (tap the target, a
+  weapon, or ATTACK — all three call `Engage()`). Walking back into range
+  after a positional dodge does **not** auto-resume combat; the player must
+  re-tap once. Flagged this as the tap-spam surface worth a design look —
+  not one tap per attack, but a mandatory re-tap after *every* voluntary
+  move, including a pure dodge with no intent to disengage.
+- **Part 4 — design docs**: `duels-items.md` §1 gained a new bullet (the
+  request's verbatim DPS-anchor/cooldown-rules paragraph — inserted as a
+  new bullet rather than a "replace," matching the same resolution chosen
+  for §2 of the UI doc, since no existing §1 text described attack cadence
+  to replace); also fixed a stale "2-tick projectile flight" reference in
+  the same section's prayer bullet, left over from the sim-authoritative
+  homing-projectile refactor two passes ago that updated the boss bible's
+  wording but missed this cross-reference. §2's shop table gained a new
+  Speed column and updated Power for T2/T3 Doombringer Maul/T4
+  Kingsplitter+Siegepiercer (the archetype-speed rule doesn't apply
+  uniformly — T2 keeps its existing 4-tick speed for all three styles per
+  explicit instruction, overriding what the general archetype table alone
+  would suggest for a crossbow/staff). §4's rare-weapon Stats column
+  gained a Speed annotation (Power itself was already 28, unchanged).
+  `duels-boss-designs.md`'s Global Combat Grammar "Player assumptions"
+  bullet got the literal replacement as specified.
+  `duels-ui-design.md` §2 got the new bullet per the resolution above.
+  ARCHITECTURE.md needed no edit — it documents code structure, not
+  content-balance numbers, and no handler's row individually describes
+  flask-sip's internal cooldown math to begin with.
+- **85/85 tests pass** (was 83/83: +2 `SipFlaskHandlerTests`), 0 build
+  warnings/errors.
