@@ -51,6 +51,7 @@ const SNAP_DIST = 4.5 * TILE;
 const MOVE_SPEED = { player: 2 * TILE / TILE_MS };
 
 const battles = new Map();    // canvasId → battle state
+const previews = new Map();   // canvasId → equipment-preview state (M2 Workstream C.1)
 
 // ── Generic movement-interpolation layer (NPCs only — enemy + adds) ─────
 // The simulation stays a discrete ~600ms (TILE_MS) tick — this is the
@@ -1448,9 +1449,94 @@ function destroyBattle(canvasId) {
     battles.delete(canvasId);
 }
 
+// ── Equipment preview (M2 Workstream C.1, UI bible §8.1) ─────────────────
+// Same toon character rig + real equip meshes as the battle scene (makeActor/
+// setActorWeapon/setActorArmor — no second asset pipeline), auto-rotating with
+// drag-to-spin. Ratifies CLAUDE.md's "Three.js is the only rendering
+// technology" invariant for this surface — replaces voxel.js's initPreview,
+// which only ever showed a fixed .vox model with no equipped-gear
+// compositing at all. VoxelIcon's bag-icon rendering still calls into
+// voxel.js (voxelClassic) — a separate, smaller migration not done here; see
+// m2-findings.md.
+async function initPreview(canvasId, itemIdsCsv) {
+    destroyPreview(canvasId);
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    const effect = new OutlineEffect(renderer, { defaultThickness: 0.0065, defaultColor: [0.05, 0.04, 0.03] });
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+    camera.position.set(0, 1.15, 3.1);
+    camera.lookAt(0, 0.95, 0);
+    const sun = new THREE.DirectionalLight('#fff4dd', 2.4);
+    sun.position.set(2, 4, 3);
+    scene.add(sun, new THREE.AmbientLight('#9aa8b8', 1.1));
+
+    const actor = await makeActor({ scene }, 'preview', {});
+    if (!document.getElementById(canvasId)) { renderer.dispose(); return; } // unmounted while the rig loaded
+
+    const itemIds = (itemIdsCsv || '').split(',').filter(Boolean);
+    const weaponId = itemIds.find(id => WEAPON_ASSETS[id]) ?? null;
+    await Promise.all([setActorWeapon(actor, weaponId), setActorArmor(actor, itemIds)]);
+    if (!document.getElementById(canvasId)) { renderer.dispose(); return; } // unmounted while equip meshes loaded
+
+    const pst = {
+        canvas, renderer, effect, scene, camera, actor,
+        angle: 0.6, dragging: false, dragX: 0, dragAngle: 0, resumeAt: 0, raf: 0, lastT: performance.now(),
+    };
+    pst.onDown = e => {
+        e.preventDefault();
+        pst.dragging = true;
+        pst.dragX = e.clientX;
+        pst.dragAngle = pst.angle;
+        canvas.setPointerCapture(e.pointerId);
+    };
+    pst.onMove = e => { if (pst.dragging) pst.angle = pst.dragAngle + (e.clientX - pst.dragX) * 0.02; };
+    pst.onUp = () => { pst.dragging = false; pst.resumeAt = performance.now() + 2000; };
+    canvas.addEventListener('pointerdown', pst.onDown);
+    canvas.addEventListener('pointermove', pst.onMove);
+    canvas.addEventListener('pointerup', pst.onUp);
+    canvas.addEventListener('pointercancel', pst.onUp);
+
+    const loop = () => {
+        const now = performance.now();
+        const dt = Math.min(0.05, (now - pst.lastT) / 1000);
+        pst.lastT = now;
+        if (!pst.dragging && now >= pst.resumeAt) pst.angle += 0.008; // ~28s/rev, matches voxel.js's old SPIN_SPEED feel
+        actor.ch.group.rotation.y = pst.angle;
+        updateActorAnim(actor, 0, dt); // speed 0 -> idle clip only
+        actor.mixer.update(dt);
+        const w = canvas.clientWidth || 64, h = canvas.clientHeight || 80;
+        if (canvas.width !== w || canvas.height !== h) {
+            renderer.setSize(w, h, false);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+        }
+        effect.render(scene, camera);
+        pst.raf = requestAnimationFrame(loop);
+    };
+    pst.raf = requestAnimationFrame(loop);
+    previews.set(canvasId, pst);
+}
+
+function destroyPreview(canvasId) {
+    const pst = previews.get(canvasId);
+    if (!pst) return;
+    cancelAnimationFrame(pst.raf);
+    pst.canvas.removeEventListener('pointerdown', pst.onDown);
+    pst.canvas.removeEventListener('pointermove', pst.onMove);
+    pst.canvas.removeEventListener('pointerup', pst.onUp);
+    pst.canvas.removeEventListener('pointercancel', pst.onUp);
+    pst.renderer.dispose();
+    previews.delete(canvasId);
+}
+
 const api = {
     _battles: battles, // debug handle for Playwright probes
+    _previews: previews,
     initBattle, destroyBattle,
+    initPreview, destroyPreview,
     resetBattle(canvasId) {
         const st = battles.get(canvasId);
         if (!st) return;
