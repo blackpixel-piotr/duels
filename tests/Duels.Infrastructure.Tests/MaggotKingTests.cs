@@ -66,7 +66,7 @@ public sealed class MaggotKingTests
         var state = new GameState("p1", player);
         var npc = new NpcInstance(template);
         state.StartDuel(npc);
-        state.HoldPositionAtSpawn(); // stand still unless a test moves the player
+        state.DisengageAtSpawn(); // stand still unless a test moves the player
 
         var damage = new DamageModel(rng);
         var svc = new GameTickService(
@@ -586,7 +586,7 @@ public sealed class MaggotKingTests
         int nearZ = footprint.Min(t => t.Z);
         var edgeTile = footprint.First(t => t.Z == nearZ);
         state.SetPlayerTile(edgeTile.X, edgeTile.Z - 1); // cardinal-adjacent, outside the footprint
-        state.Engage(); // clears HoldPosition — Build()'s harness starts it true
+        state.Engage(); // Build()'s harness starts disengaged
         state.SetQueuedAction("spec");
 
         await Tick(svc);
@@ -607,5 +607,46 @@ public sealed class MaggotKingTests
         for (int i = 0; i < 3; i++) await Tick(svc);
 
         Assert.DoesNotContain(state.CombatLog, e => e.Kind == LogEntryKind.PlayerTeleport);
+    }
+
+    [Fact]
+    public async Task MeleeKiting_WalkAwayThenBack_ResumesWithoutReengaging()
+    {
+        // Persistent target lock (M1 revision) against the REAL, stationary
+        // Maggot King: walking out of melee range to dodge keeps the lock
+        // and doesn't auto-drag the player back (kiting works); walking
+        // back in resumes attacks automatically, with no second Engage().
+        var (svc, state, _) = Build();
+        var footprint = state.NpcFootprintTiles().ToList();
+        int nearZ = footprint.Min(t => t.Z);
+        var edgeTile = footprint.First(t => t.Z == nearZ);
+        int ax = edgeTile.X, az = edgeTile.Z - 1; // cardinal-adjacent, outside the footprint
+        state.SetPlayerTile(ax, az);
+        state.Engage();
+
+        await Tick(svc); // first attack: stationary + adjacent + engaged
+        int hitsBefore = state.CombatLog.Count(e => e.Kind == LogEntryKind.HitsplatPlayer);
+        Assert.True(hitsBefore > 0);
+
+        // Dodge one tile away.
+        state.OrderMove(ax, az - 1);
+        while (state.PlayerMoveTarget is not null) await Tick(svc);
+        Assert.True(state.Engaged); // lock persists
+
+        var held = state.PlayerTile;
+        await Tick(svc);
+        Assert.Equal(held, state.PlayerTile); // no auto-chase (the King never moves either way — stationary)
+
+        // Walk back in manually — no Engage() call anywhere past the first one.
+        state.OrderMove(ax, az);
+        while (state.PlayerMoveTarget is not null) await Tick(svc);
+
+        int hitsAfter = hitsBefore;
+        for (int i = 0; i < 6 && hitsAfter == hitsBefore; i++)
+        {
+            await Tick(svc);
+            hitsAfter = state.CombatLog.Count(e => e.Kind == LogEntryKind.HitsplatPlayer);
+        }
+        Assert.True(hitsAfter > hitsBefore);
     }
 }

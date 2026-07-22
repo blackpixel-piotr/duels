@@ -45,20 +45,20 @@ public sealed class AttackHandlerTests
     }
 
     [Fact]
-    public async Task Attack_WhileHoldingPosition_ReEngages()
+    public async Task Attack_WhileDisengaged_ReEngages()
     {
-        // Simulates: player clicked a ground tile (holding, off-target), then
-        // pressed ATTACK — it must resume the chase/attack, not queue an
-        // attack that never fires because HoldPosition is still set.
+        // Persistent target lock (M1 revision): OrderMove no longer
+        // disengages (see RangeAndMovementTests), so the only way to lose
+        // the lock is the explicit Disengage() action. ATTACK must always
+        // be able to re-engage from it.
         var (handler, state) = Build(inDuel: true);
-        state.OrderMove(0, 0);
-        Assert.True(state.HoldPosition);
+        state.Disengage();
+        Assert.False(state.Engaged);
 
         var result = await handler.HandleAsync(new AttackCommand("p1", AttackStyle.Accurate));
 
         Assert.True(result.Success);
-        Assert.False(state.HoldPosition);
-        Assert.Null(state.PlayerMoveTarget);
+        Assert.True(state.Engaged);
         Assert.Equal("attack", state.QueuedAction);
     }
 

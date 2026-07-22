@@ -29,13 +29,23 @@
 
         @* ── Attack the current target: boss by default, or a tapped add. ── *@
         <div class="hud-row hud-target-row">
-            <button class="attack-target-btn @(State.PlayerCooldown == 0 && !State.HoldPosition ? "qs-ready" : "") @QueuedClass(State.QueuedAction != null)"
+            <button class="attack-target-btn @(State.PlayerCooldown == 0 && State.Engaged ? "qs-ready" : "") @QueuedClass(State.QueuedAction != null)"
                     title="Attack @TargetName" disabled="@_busy" @onclick="Attack">
                 <span class="atk-target-icon">⚔</span>
                 <span class="atk-target-text">
                     <span class="atk-target-label">ATTACK</span>
                     <span class="atk-target-name">@TargetName</span>
                 </span>
+            </button>
+            @* Engagement indicator (UI bible §3.3/§3, persistent target lock —
+               M1 revision): reticle while engaged, sheathed while not. Tap to
+               disengage explicitly; movement never does this on its own —
+               re-engaging is done by tapping the boss (or ATTACK/a weapon),
+               not by tapping this icon again. *@
+            <button class="engagement-indicator @(State.Engaged ? "engagement-locked" : "engagement-sheathed")"
+                    title="@(State.Engaged ? "Disengage" : "Not engaged")"
+                    disabled="@(_busy || !State.Engaged)" @onclick="Disengage">
+                <span class="engagement-icon">@(State.Engaged ? "◎" : "🗡")</span>
             </button>
         </div>
 
@@ -200,6 +210,7 @@
     }
 
     private Task Attack()                  => Run(() => GameSvc.DispatchAsync(new AttackCommand(GameSvc.PlayerId!, AttackStyle.Accurate)));
+    private Task Disengage()               => Run(() => GameSvc.DispatchAsync(new DisengageCommand(GameSvc.PlayerId!)));
     private Task Spec()                    => Run(() => GameSvc.DispatchAsync(new AttackCommand(GameSvc.PlayerId!, AttackStyle.Accurate, UseSpecial: true)));
     private Task WeaponShortcut(string id) => Run(() => GameSvc.DispatchAsync(new WeaponShortcutCommand(GameSvc.PlayerId!, id)));
     private Task Boost()                   => Run(() => GameSvc.DispatchAsync(new PrayerCommand(GameSvc.PlayerId!, "boost")));

@@ -117,13 +117,19 @@ public sealed class GameTickService : IDisposable
 
         ProcessPlayerMovement(state, player);
         ProcessNpcMovement(state, npc);
+        // Persistent target lock (M1 revision): moving on a tick simply
+        // defers the attack — it's never cancelled, just delayed to the
+        // next tick the player is truly stationary. preTickPlayerTile is
+        // already captured above (for hazard Perfect-Dodge), so this is
+        // free to reuse rather than a second snapshot.
+        bool playerMovedThisTick = state.PlayerTile != preTickPlayerTile;
 
         int playerRange = GetPlayerWeaponRange(player);
         bool targetInRange = state.CurrentTargetAdd is { } targetAdd
             ? Chebyshev(state.PlayerTile, targetAdd.Tile) <= playerRange
             : state.InAttackRange(playerRange);
 
-        if (state.PlayerCooldown == 0 && state.PlayerMoveTarget is null && !state.HoldPosition && targetInRange)
+        if (state.PlayerCooldown == 0 && state.PlayerMoveTarget is null && !playerMovedThisTick && state.Engaged && targetInRange)
         {
             var action = state.QueuedAction ?? "attack";
             await ExecutePlayerAction(state, player, npc, action);
@@ -264,7 +270,12 @@ public sealed class GameTickService : IDisposable
             return;
         }
 
-        if (state.HoldPosition) return;
+        // Auto-chase-into-range is a movement convenience, independent of
+        // the (persistent) target lock — it only runs while
+        // EngageApproachActive, which OrderMove above retires immediately
+        // and only Engage() re-arms. This is what stops a kited-away player
+        // from being auto-dragged back the instant they stop walking.
+        if (!state.EngageApproachActive) return;
 
         int playerRange = GetPlayerWeaponRange(player);
         var chaseAdd = state.CurrentTargetAdd;

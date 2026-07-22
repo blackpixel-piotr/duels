@@ -77,7 +77,7 @@ public sealed class WeaponSwapBufferTests
         var state = new GameState("p1", player);
         state.StartDuel(new NpcInstance(Tank()));
         state.SetTestScene(true);
-        state.HoldPositionAtSpawn();
+        state.DisengageAtSpawn();
 
         var items = new StubItemRepo();
         var stateRepo = new InMemoryStateRepo(state);
@@ -162,7 +162,7 @@ public sealed class WeaponSwapBufferTests
         // resolves this same tick, instead of taking several ticks to chase.
         state.SetPlayerTile(1, -2);
 
-        await handler.HandleAsync(new WeaponShortcutCommand("p1", "sword_b")); // also Engage()s, clearing HoldPosition
+        await handler.HandleAsync(new WeaponShortcutCommand("p1", "sword_b")); // also Engage()s
         await Tick(svc); // resolves the queued attack the swap triggered
 
         Assert.Equal("sword_b", state.Player.GetEquippedWeaponId());

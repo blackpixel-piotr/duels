@@ -1048,6 +1048,12 @@ async function initBattle(canvasId, opts) {
     // boss while it can't act and takes +25% damage.
     st.punishRing = mkTileOutline('#ffcc33'); st.punishRing.visible = false;
     st.punishRing.material.transparent = true;
+    // Engagement reticle (UI bible §3.3/§3, persistent target lock): a
+    // subtle inked ring on the boss while target-locked. Breaks apart
+    // (hides) when disengaged — see setBattleFlags's holdPosition, the same
+    // renderer-only flag that already drives idle facing.
+    st.engageReticle = mkTileOutline('#c9c2ae'); st.engageReticle.visible = false;
+    st.engageReticle.material.transparent = true;
 
     // Paper-grain atmosphere is applied via the CSS `.battle-scene::after`
     // overlay (SVG feTurbulence, browser-composited for free) — a second
@@ -1314,6 +1320,16 @@ async function initBattle(canvasId, opts) {
         if (st.punishRing.visible) {
             st.punishRing.position.set(st.enemy.pos.wx, 0, st.enemy.pos.wz);
             st.punishRing.material.opacity = 0.5 + 0.35 * Math.sin(now * 0.012);
+        }
+
+        // engagement reticle: visible (subtle, slow pulse) on the boss while
+        // target-locked; disappears the instant the lock breaks (Disengage)
+        // — !holdPosition is the same renderer-only "engaged" flag already
+        // driving idle facing.
+        st.engageReticle.visible = !st.flags.holdPosition && !st.enemy.crumbled;
+        if (st.engageReticle.visible) {
+            st.engageReticle.position.set(st.enemy.pos.wx, 0, st.enemy.pos.wz);
+            st.engageReticle.material.opacity = 0.35 + 0.15 * Math.sin(now * 0.006);
         }
 
         // swarm adds: same generic interpolation layer as player/enemy (their

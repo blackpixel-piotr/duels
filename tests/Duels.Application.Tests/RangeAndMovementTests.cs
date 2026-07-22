@@ -87,9 +87,16 @@ public sealed class RangeAndMovementTests
         await Tick(svc);
         Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
 
-        // Tick 2: adjacency reached — player's attack lands this tick.
+        // Tick 2: adjacency reached — but persistent-lock rule 2 ("moving on
+        // a tick defers the attack, never cancels it") means the tick that
+        // closes the gap doesn't also land the hit; the player was still
+        // moving this same tick.
         await Tick(svc);
         Assert.Equal(1, state.DistanceToNpc);
+        Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
+
+        // Tick 3: the first fully-stationary tick in range — attack lands here.
+        await Tick(svc);
         Assert.True(Hitsplats(state, LogEntryKind.HitsplatPlayer) > 0);
     }
 
@@ -145,8 +152,12 @@ public sealed class RangeAndMovementTests
     }
 
     [Fact]
-    public async Task MoveOrder_WalksThere_ThenHoldsPosition_NoAutoRetaliate_UntilReengaged()
+    public async Task MoveOrder_NeverBreaksLock_AttacksResumeAutomaticallyOnRegainingRange()
     {
+        // Persistent target lock (M1 revision): OrderMove is a pure
+        // movement action — it never disengages. Walking away retires the
+        // auto-chase-assist (no auto-drag-back, kiting works), but combat
+        // resumes the moment range is regained, with no re-engage tap.
         var (svc, state) = Build(Tank(AttackType.Crush));
 
         // Walk-in first: get adjacent, then order a retreat to a far corner.
@@ -161,33 +172,33 @@ public sealed class RangeAndMovementTests
             Assert.Equal(hitsBefore, Hitsplats(state, LogEntryKind.HitsplatPlayer)); // never attacks mid-walk
         }
         Assert.True(Math.Max(Math.Abs(state.PlayerTile.X - -4), Math.Abs(state.PlayerTile.Z - 4)) <= 1);
-        Assert.True(state.HoldPosition);
+        Assert.True(state.Engaged); // lock persists through the whole walk
         var held = state.PlayerTile;
         await Tick(svc);
-        Assert.Equal(held, state.PlayerTile); // no auto-chase while holding
+        Assert.Equal(held, state.PlayerTile); // no auto-chase after a manual walk — assist retired by OrderMove
 
+        // The (non-stationary) dummy chases the held player on its own —
+        // once it closes back to adjacency, attacks resume with NO
+        // Engage() call anywhere: the lock was never broken, and the
+        // player was stationary the whole time it happened.
         for (int i = 0; i < 8 && state.DistanceToNpc > 1; i++) await Tick(svc);
         Assert.Equal(1, state.DistanceToNpc);
-        await Tick(svc);
-        Assert.Equal(hitsBefore, Hitsplats(state, LogEntryKind.HitsplatPlayer)); // still no attack
-        Assert.Equal(held, state.PlayerTile); // never moved — held throughout
-
-        state.Engage();
-        await Tick(svc);
         Assert.True(Hitsplats(state, LogEntryKind.HitsplatPlayer) > hitsBefore);
+        Assert.Equal(held, state.PlayerTile); // the player itself never moved back — only the NPC did
     }
 
     [Fact]
-    public async Task Engage_ResumesChase()
+    public async Task Engage_FromDisengaged_ResumesChase()
     {
+        // Engage() is the only thing that (re-)arms the auto-chase-assist —
+        // exercised here from a genuinely disengaged state (DisengageAtSpawn),
+        // since OrderMove no longer produces one to resume from.
         var (svc, state) = Build(Tank(AttackType.Ranged)); // NPC stands off at spawn
-
-        state.OrderMove(-4, 4);
-        while (state.PlayerMoveTarget is not null) await Tick(svc);
-        Assert.True(state.HoldPosition);
+        state.DisengageAtSpawn();
+        Assert.False(state.Engaged);
 
         state.Engage();
-        Assert.False(state.HoldPosition);
+        Assert.True(state.Engaged);
         var before = state.DistanceToNpc;
         await Tick(svc);
         Assert.True(state.DistanceToNpc < before); // walking back in
@@ -367,8 +378,13 @@ public sealed class RangeAndMovementTests
     }
 
     [Fact]
-    public async Task MoveOrder_HoldsAfterArrival_NoAutoAttack_UntilReengaged()
+    public async Task MoveOrder_EvenATrivialOne_NeverBlocksTheAttackGate()
     {
+        // Persistent target lock: OrderMove is purely a movement action, so
+        // even ordering a "move" to the tile the player is already
+        // standing on (a same-tick, zero-distance order — PlayerTile never
+        // actually changes) doesn't block the very next attack. No
+        // Engage() call anywhere in this test.
         var (svc, state) = Build(Tank(AttackType.Crush));
         state.FreezeEnemy(true);
         state.SetNpcTile(0, 0);
@@ -377,18 +393,9 @@ public sealed class RangeAndMovementTests
 
         await Tick(svc);
 
-        Assert.True(state.HoldPosition);
+        Assert.True(state.Engaged);
         Assert.Null(state.PlayerMoveTarget);
         Assert.Equal(1, state.DistanceToNpc);
-        Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
-
-        await Tick(svc);
-        Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
-
-        state.Engage();
-        await Tick(svc);
-
-        Assert.False(state.HoldPosition);
         Assert.True(Hitsplats(state, LogEntryKind.HitsplatPlayer) > 0);
     }
 }
