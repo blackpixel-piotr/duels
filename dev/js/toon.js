@@ -1355,17 +1355,24 @@ async function initBattle(canvasId, opts) {
             m.position.y = 0.3 + Math.sin(now * 0.006 + id.length) * 0.05;
         }
 
-        // Sim-authoritative boss projectiles: same generic interpolation
-        // layer, position-synced from GameState.Projectiles every tick (see
-        // setBattleProjectiles) rather than a cosmetic cast-time lerp with a
-        // guessed duration. Height is held constant at spawn (no arc) — the
-        // old cosmetic system's sin(t*pi) arc needed a known total flight
-        // duration to normalize against, which no longer exists in this
-        // form now that motion is tick-snapshot-driven; a renewed arc
-        // flourish can be a follow-up if it's missed after playtesting.
+        // Boss projectiles: purely cosmetic continuous homing on the
+        // player's live rendered position (st.player.pos, already smooth —
+        // see the player pursuit block above), independent of the sim's own
+        // tick-quantized position (see setBattleProjectiles). WHEN it hits
+        // is entirely the sim's call — this loop only decides how the mesh
+        // looks getting there. Height is held constant at spawn (no arc) —
+        // the old cosmetic system's sin(t*pi) arc needed a known total
+        // flight duration to normalize against, which no longer exists now
+        // that flight time is dynamic; a renewed arc flourish can be a
+        // follow-up if it's missed after playtesting.
         for (const [, m] of st.projectileMeshes) {
-            const snap = interpolateSnapshot(m, now);
-            if (snap) { m.position.x = snap.wx; m.position.z = snap.wz; }
+            const dx = st.player.pos.wx - m.position.x, dz = st.player.pos.wz - m.position.z;
+            const dist = Math.hypot(dx, dz);
+            if (dist > 0.001) {
+                const step = Math.min(dist, m.userData.speedPerSec * dt);
+                m.position.x += dx / dist * step;
+                m.position.z += dz / dist * step;
+            }
         }
 
         // StyleTelegraphSystem: pulsing doctrine-color rim glow while a
@@ -1623,11 +1630,19 @@ const api = {
     },
     setBattleProjectiles(canvasId, projectiles) {
         // Sim-authoritative boss projectiles (Boss Bible "Global Combat
-        // Grammar": homing, ~3 tiles/tick, arrival-tick impact) — the same
-        // add/remove-by-id + generic interpolation layer as setBattleAdds
-        // above, minus the hitbox (a projectile is never a tap target).
-        // discontinuous is always false: a projectile's own motion is
-        // continuous by construction, there's no teleport case for it.
+        // Grammar": homing, ~3 tiles/tick, arrival-tick impact) — add/remove
+        // by id, minus the hitbox (a projectile is never a tap target).
+        // WHEN/WHETHER one arrives is entirely GameState's call (removed
+        // from the array the tick it impacts); this only spawns/despawns
+        // meshes by id. Position after spawn is deliberately NOT re-synced
+        // to p.x/p.z here — the sim recomputes its own heading toward the
+        // player's live tile once per ~600ms tick, and re-snapping the mesh
+        // to that fresh waypoint every tick produced a visible sharp corner
+        // whenever the player strafed mid-flight. The render loop below
+        // instead runs its own continuous, purely cosmetic pursuit of the
+        // player's live (already-smooth) position every frame, at a speed
+        // matching the sim's, so direction changes blend in gradually
+        // instead of hard-cornering once per tick.
         const st = battles.get(canvasId);
         if (!st) return;
         const seen = new Set();
@@ -1637,11 +1652,10 @@ const api = {
             if (!m) {
                 m = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8),
                     new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX[p.style] ?? '#ffffff' }));
-                m.userData = { id: p.id };
-                m.position.y = 1.25; // constant spawn/travel height — see the render loop below
+                m.userData = { id: p.id, speedPerSec: (p.speed ?? 3) * TILE / TILE_MS * 1000 };
+                m.position.set(p.x * TILE, 1.25, p.z * TILE); // spawn tile; cosmetic pursuit takes over next frame
                 st.scene.add(m); st.projectileMeshes.set(p.id, m);
             }
-            applySnapshot(m, p.x * TILE, p.z * TILE, false, performance.now());
         }
         for (const [id, m] of st.projectileMeshes)
             if (!seen.has(id)) { st.scene.remove(m); st.projectileMeshes.delete(id); }
