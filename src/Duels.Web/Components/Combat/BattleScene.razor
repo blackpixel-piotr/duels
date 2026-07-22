@@ -453,11 +453,17 @@
             await JS.InvokeVoidAsync("voxel.setBattleAdds", "battle-canvas",
                 s.Adds.Select(a => new { id = a.Id, x = a.Tile.X, z = a.Tile.Z, hpPct = a.MaxHp > 0 ? a.CurrentHp * 100 / a.MaxHp : 0, discontinuous = false }).ToArray());
             // Sim-authoritative boss projectiles (Global Combat Grammar:
-            // homing, ~3 tiles/tick) — position-synced every render, same
-            // shape as the adds above, through the renderer's generic NPC
-            // interpolation layer.
+            // homing, ~3 tiles/tick, arrival-tick impact) — x/z here are the
+            // sim's own tick-quantized position, used only for spawn
+            // placement and to tell the renderer when one has arrived
+            // (removed from the array). The renderer chases the player's
+            // live position with its own continuous, cosmetic pursuit at a
+            // matching speed rather than re-syncing to this tick position
+            // every render — see toon.js setBattleProjectiles for why. speed
+            // is the attack's own ProjectileSpeedTiles so the cosmetic chase
+            // matches the sim's average pace.
             await JS.InvokeVoidAsync("voxel.setBattleProjectiles", "battle-canvas",
-                s.Projectiles.Select(p => new { id = p.Id, x = p.X, z = p.Z, style = StyleClass(p.Attack.Style) }).ToArray());
+                s.Projectiles.Select(p => new { id = p.Id, x = p.X, z = p.Z, style = StyleClass(p.Attack.Style), speed = p.Attack.ProjectileSpeedTiles }).ToArray());
         }
 
         // Overhead prayer icons (billboarded in-world sprite); send only on change.

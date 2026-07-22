@@ -2188,3 +2188,76 @@ Both confirmed as real bugs, not user error.
   Global Combat Grammar gained the new Player-assumptions bullet verbatim;
   `ARCHITECTURE.md` updated (`GameState.cs`, `Commands/*.cs`, `toon.js`,
   `ActionHud.razor` rows).
+
+## Thirty-first pass: bug fix — boss projectile visual sharp-turn (user report, renderer-only)
+
+- **Report** (verbatim intent): since the sim-authoritative projectile pass
+  (Twenty-eighth-ish; commit `97d1f4f`), a boss Ranged/Magic projectile
+  visibly took a sharp corner whenever the player moved sideways mid-
+  flight. Before that pass, projectiles "smoothly followed the player" —
+  the user recalled this as a prior fix, correctly (found it: commit
+  `a6b133b`, "projectiles not tracking live position" — a purely cosmetic
+  renderer change at the time, no gameplay effect). Ask was explicit:
+  evaluate the hit exactly as the current sim does; fix only the client-
+  side visual smoothness. Explicitly invited a clarifying question if the
+  request wasn't understood — it was, once the matching prior commit was
+  found, so no `AskUserQuestion` round was needed this pass.
+- **Root cause, confirmed by reading the code, not assumed**:
+  `GameState.AdvanceProjectiles` (`GameState.cs`) recomputes the homing
+  heading toward the player's live tile fresh every tick and moves the sim
+  position in a straight line along that heading for the tick — correct
+  and unchanged by this pass. `toon.js`'s `setBattleProjectiles` fed that
+  same tick-quantized position straight into the generic NPC snapshot-
+  interpolation layer (`applySnapshot`/`interpolateSnapshot`, `snapFrom`→
+  `snapTo` lerped over `TILE_MS`≈600ms) — so the RENDERED path was a
+  polyline whose vertices are the sim's own once-per-600ms waypoints. Any
+  time the player's tile changed between two ticks, the new waypoint's
+  heading differed from the old one, and the lerp visibly hard-cornered
+  exactly at that snapshot boundary. Confirmed by diffing commit `a6b133b`
+  against the current tree: the old cosmetic system never had this
+  problem because it recomputed toward the target's already-continuously-
+  smooth rendered position every animation frame (~16ms), not once per
+  600ms tick — direction changes blended in gradually instead of snapping.
+- **Fix, renderer-only, zero backend/domain changes**: `setBattleProjectiles`
+  no longer calls `applySnapshot` for projectile meshes at all — it only
+  spawns a mesh at the cast tile and despawns it by id (still entirely the
+  backend's call: a projectile vanishes the exact tick `GameState` removes
+  it from `Projectiles`, so WHEN/WHETHER it hits is untouched). The per-
+  frame render loop instead runs its own continuous, purely cosmetic
+  pursuit of `st.player.pos` (the player's own already-smooth rendered
+  position, per-frame not per-tick) at a speed matching the attack's own
+  `ProjectileSpeedTiles` — the same technique as `a6b133b`, generalized
+  from that pass's fixed cast-time duration to the current sim's variable/
+  dynamic flight length. `BossAttackDef.ProjectileSpeedTiles` is now also
+  sent through `BattleScene.razor`'s `setBattleProjectiles` payload
+  (`speed` field) so the cosmetic chase matches the sim's average pace per
+  attack rather than a single hardcoded constant.
+- **Why this is safe to decouple from the sim position**: boss Ranged/
+  Magic attacks were already established (Boss Bible, and `a6b133b`'s own
+  commit message) as never positionally dodgeable — only protection prayer
+  at the impact tick matters, and there is no player-facing hitbox on a
+  projectile mesh. So the cosmetic mesh's position drifting slightly from
+  the sim's own tick-quantized tile between ticks has no gameplay
+  consequence; only the backend's id-list membership (governs spawn/
+  despawn/impact) is authoritative, and that's untouched.
+- **Verified live** (Playwright, temporary `window.__debugBattles` hook,
+  removed before commit — same pattern as every prior renderer
+  verification this session): started a Maggot King fight, waited for a
+  magic-cast projectile to spawn, issued a real sideways `OrderMove` via
+  the actual production path (`st.dotnet.invokeMethodAsync('OnGroundClick',
+  ...)`, not a synthetic mock), then sampled the projectile mesh's
+  rendered position every ~90–100ms (well under the 600ms tick) while the
+  player was continuously walking. Measured heading between consecutive
+  samples changed gradually (31.0° → 28.3° → 25.7° → 23.2° across
+  consecutive ~150–200ms windows) rather than jumping all at once at a
+  single tick boundary — confirms the fix produces the intended smooth
+  curve, not just a smaller corner.
+- **88/88 tests unchanged** (this pass touches only `BattleScene.razor`'s
+  JS-interop payload and `toon.js`'s rendering — no C#
+  domain/application/test-covered logic changed), 0 build/JS-syntax
+  warnings or errors.
+- **Docs**: `ARCHITECTURE.md`'s `toon.js` and `BattleScene.razor` rows
+  updated to describe the cosmetic-pursuit/sim-authoritative split. No
+  design-doc (`/design/*.md`) changes — the Boss Bible's homing/impact-
+  timing rules are unaffected; this was a renderer bug fix, not a mechanic
+  change.
