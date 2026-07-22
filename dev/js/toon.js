@@ -28,6 +28,15 @@ import * as SkeletonUtils from '../lib/SkeletonUtils.js';
 const TILE = 1.75;            // must match voxel.js — sim tiles are shared
 const WALK_R = 5;
 const TILE_MS = 600;
+// Off by default — flip to true to trace boss-projectile spawn/despawn
+// events in the console (id, style, speed). Added while diagnosing "phantom
+// projectile at Maggot King style-switch, never deals damage" (an orphan
+// telegraph-preview mesh with no sim entity — see setBattleTelegraph); kept
+// around since the same trace is the fastest way to re-diagnose anything in
+// this family (a rendered projectile that doesn't trace back to a
+// GameState.SpawnProjectile call — see PROJECTILE_INVARIANT below, which
+// stays on unconditionally).
+const PROJ_TRACE = false;
 // Zoom clamp (dist = 18.3/zoom below): playtest request for more zoom-out
 // room. The old floor (0.4 -> dist 45.75) barely framed the 9x9 arena's ~14wu
 // width at this camera's narrow 15° FOV — a real numeric ceiling, not just an
@@ -1365,7 +1374,19 @@ async function initBattle(canvasId, opts) {
         // flight duration to normalize against, which no longer exists now
         // that flight time is dynamic; a renewed arc flourish can be a
         // follow-up if it's missed after playtesting.
-        for (const [, m] of st.projectileMeshes) {
+        for (const [id, m] of st.projectileMeshes) {
+            // Invariant (always on, not gated by PROJ_TRACE — this is a
+            // correctness guard, not a verbose trace): every mesh in this
+            // map must have been created by setBattleProjectiles, the only
+            // sanctioned boss-projectile spawn path, which stamps
+            // simBacked. Catches a regression of exactly the "phantom
+            // projectile at Maggot King style-switch" bug class — a
+            // rendered projectile with no live GameState.Projectiles entry
+            // behind it — if any future code path bypasses that source.
+            if (!m.userData?.simBacked) {
+                console.error('[PROJ][INVARIANT VIOLATION] projectile mesh', id, 'has no live sim entity backing it — every rendered projectile must come from GameState.Projectiles (setBattleProjectiles)');
+                continue;
+            }
             const dx = st.player.pos.wx - m.position.x, dz = st.player.pos.wz - m.position.z;
             const dist = Math.hypot(dx, dz);
             if (dist > 0.001) {
@@ -1392,12 +1413,14 @@ async function initBattle(canvasId, opts) {
             s.sprite.material.opacity = age > 600 ? Math.max(0, 1 - (age - 600) / 300) : 1;
             if (age > 900) { st.scene.remove(s.sprite); st.splats.splice(i, 1); }
         }
-        // projectiles — home in on the target actor's LIVE tile every frame
-        // (toActor + toY, not a frozen "to" snapshot from cast time). These
-        // attacks always land regardless of position (see the impact-
-        // resolution prayer rule — there's no positional dodge), so the
-        // visual shouldn't imply you can juke it by flying toward a tile
-        // you've since walked off.
+        // projectiles — the player's own outgoing ranged/magic attack visual
+        // only now (the boss's telegraph-preview spawn that used to also
+        // live here was an orphan cosmetic system with no sim entity behind
+        // it — removed, see setBattleTelegraph). Player attacks resolve
+        // synchronously (no travel-time sim), so this is purely a fixed-
+        // duration cosmetic flourish, homing on the target actor's LIVE
+        // tile every frame (toActor + toY, not a frozen "to" snapshot from
+        // cast time) for visual polish only.
         for (let i = st.projectiles.length - 1; i >= 0; i--) {
             const pr = st.projectiles[i], t = (now - pr.t0) / pr.dur;
             if (t >= 1) { st.scene.remove(pr.mesh); st.projectiles.splice(i, 1); continue; }
@@ -1450,31 +1473,26 @@ const api = {
         const st = battles.get(canvasId);
         if (st) Object.assign(st.flags, flags);
     },
-    // StyleTelegraphSystem entry point: t = { active, style, projectile, ticks }.
-    // Fires the windup pose + (for a committed ranged/magic read) a
-    // style-colored projectile on the rising edge only; the render loop owns
-    // the rim-glow paint every frame from st.telegraph directly.
+    // StyleTelegraphSystem entry point: t = { active, style }. Fires the
+    // windup pose on the rising edge only; the render loop owns the
+    // rim-glow paint every frame from st.telegraph directly. Used to also
+    // spawn a fixed-duration "committed read" preview projectile here for a
+    // ranged/magic style — removed (bug fix: "phantom projectile at Maggot
+    // King style-switch, never deals damage"). It was a leftover of the
+    // pre-sim-refactor cast-time cosmetic system: it played out entirely
+    // during the telegraph's lead-in window, with no sim entity behind it
+    // and no relation to the real attack's own cast a few ticks later, so a
+    // player saw two projectiles per ranged/magic attack — a phantom that
+    // never hit, then the real one. GameState.Projectiles
+    // (setBattleProjectiles) is the only legal projectile source now — see
+    // ARCHITECTURE.md's toon.js row.
     setBattleTelegraph(canvasId, t) {
         const st = battles.get(canvasId);
         if (!st) return;
         const rising = t?.active && !st.telegraph?.active;
         st.telegraph = t;
         if (!rising) return;
-
-        const style = t.style ?? 'melee';
-        playOverlay(st.enemy, windupRoleForStyle(st.enemy, style), { ts: 0.35, fade: 0.15, hold: true });
-
-        if (t.projectile && (style === 'ranged' || style === 'magic')) {
-            const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8),
-                new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX[style] ?? '#ffffff' }));
-            const from = new THREE.Vector3(st.enemy.pos.wx, 1.3, st.enemy.pos.wz);
-            mesh.position.copy(from);
-            st.scene.add(mesh);
-            st.projectiles.push({
-                mesh, t0: performance.now(), dur: (t.ticks ?? 2) * TILE_MS,
-                from, toActor: st.player, toY: 1.2,
-            });
-        }
+        playOverlay(st.enemy, windupRoleForStyle(st.enemy, t.style ?? 'melee'), { ts: 0.35, fade: 0.15, hold: true });
     },
     setBattleVitals(canvasId, v) {
         const st = battles.get(canvasId);
@@ -1652,13 +1670,21 @@ const api = {
             if (!m) {
                 m = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8),
                     new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX[p.style] ?? '#ffffff' }));
-                m.userData = { id: p.id, speedPerSec: (p.speed ?? 3) * TILE / TILE_MS * 1000 };
+                // simBacked marks this mesh as legitimately traceable to a
+                // GameState.Projectiles entry — the invariant check in the
+                // render loop below relies on every mesh in projectileMeshes
+                // carrying it, since this is the only sanctioned spawn site.
+                m.userData = { id: p.id, simBacked: true, speedPerSec: (p.speed ?? 3) * TILE / TILE_MS * 1000 };
                 m.position.set(p.x * TILE, 1.25, p.z * TILE); // spawn tile; cosmetic pursuit takes over next frame
                 st.scene.add(m); st.projectileMeshes.set(p.id, m);
+                if (PROJ_TRACE) console.debug('[PROJ][sim-spawn]', p.id, 'style=', p.style, 'speed=', p.speed);
             }
         }
         for (const [id, m] of st.projectileMeshes)
-            if (!seen.has(id)) { st.scene.remove(m); st.projectileMeshes.delete(id); }
+            if (!seen.has(id)) {
+                if (PROJ_TRACE) console.debug('[PROJ][sim-despawn]', id);
+                st.scene.remove(m); st.projectileMeshes.delete(id);
+            }
     },
     battleEvent(canvasId, evt) {
         const st = battles.get(canvasId);
