@@ -354,6 +354,27 @@ html, body {
 .attack-target-btn.qs-ready .atk-target-name,
 .attack-target-btn.qs-queued .atk-target-name { color: inherit; opacity: 0.75; }
 
+/* Engagement indicator (UI bible §3.3/§3, persistent target lock): reticle
+   while locked, sheathed while not. Small — a status glance, not a primary
+   action button. */
+.engagement-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--hud-btn);
+    height: var(--hud-btn);
+    background: linear-gradient(160deg, #26210f, #16130a);
+    border: 2px solid var(--bevel-lo);
+    box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo), 2px 2px 0 var(--bevel-lo);
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: 0;
+    transition: border-color 0.1s, color 0.1s;
+}
+.engagement-indicator.engagement-locked { border-color: var(--doctrine-safe); color: var(--doctrine-safe); }
+.engagement-indicator:disabled { cursor: default; opacity: 0.85; }
+.engagement-icon { font-size: 18px; line-height: 1; }
+
 /* ─── Battle scene — Pokemon-style voxel duel view ─── */
 .battle-wrap {
     position: relative;
