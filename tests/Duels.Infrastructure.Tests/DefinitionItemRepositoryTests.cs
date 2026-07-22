@@ -28,7 +28,7 @@ public class DefinitionItemRepositoryTests
 
         var bow = repo.GetWeapon("wpn_ranged_t2");
         Assert.NotNull(bow);
-        Assert.Equal(14, bow!.Doc.Power);
+        Assert.Equal(19, bow!.Doc.Power); // weapon-speed ratification: T2 DPS re-anchor (14 -> 19)
         Assert.Equal(0.02, bow.Doc.Precision);
         Assert.Equal(7, bow.Range);
         Assert.Equal("pin_shot", bow.Doc.Special!.Id);

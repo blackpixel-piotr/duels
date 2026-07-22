@@ -68,7 +68,7 @@
       "Name": "Splitter",
       "AttackType": "Slash",
       "Doc": {
-        "Power": 14,
+        "Power": 19,
         "Precision": 0.02,
         "DefPoints": 0,
         "Line": "Warbound",
@@ -89,7 +89,7 @@
       "Name": "Bolt Thrower",
       "AttackType": "Ranged",
       "Doc": {
-        "Power": 14,
+        "Power": 19,
         "Precision": 0.02,
         "DefPoints": 0,
         "Line": "Stalker",
@@ -110,7 +110,7 @@
       "Name": "Hexknot Staff",
       "AttackType": "Magic",
       "Doc": {
-        "Power": 14,
+        "Power": 19,
         "Precision": 0.02,
         "DefPoints": 0,
         "Line": "Occult",
