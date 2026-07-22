@@ -4,7 +4,7 @@ Mobile-first (landscape), real-time 1v1 boss-fighting game. Stack: Blazor + C# (
 
 ## Design authority
 - All design lives in /design/*.md — read the implementation brief (/design/duels-implementation-brief.md) before planning any feature, and the relevant design doc before implementing it.
-- **Current milestone: M1.** Do not implement ahead of the current milestone.
+- **M1 is complete.** M2 has not been started or authorized — do not implement M2+ scope (bank, shop, other bosses, invocations, minigame, drops) until told to start it.
 - All content (items, bosses, invocations, drops, prices) is data-driven per the brief — definition files mirroring the doc tables, never hardcoded.
 - Boss mechanics build on shared systems (telegraph framework, Perfect Dodge, punish windows, DoT, style rotation) — never one-off code in a boss class.
 - Never invent mechanics, numbers, or names. Flag design ambiguities as questions; never resolve them silently.

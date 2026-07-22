@@ -1,6 +1,6 @@
 # M1 — Vertical Slice: Technical Plan
 
-Status: **draft — awaiting review**. Implementation starts only after this plan is approved (working agreement #1). Findings will be recorded in `m1-findings.md` as implementation proceeds, per the milestone workflow.
+Status: **complete**. Implemented, tested, and shipped across the base workstreams plus every subsequent M1 revision and bug fix (persistent target lock, weapon-speed DPS re-anchor, sim-authoritative projectiles, weapon quick-slot fix, phantom-projectile fix, and others) — see `m1-findings.md` for the full pass-by-pass record.
 
 Scope (implementation brief, M1): new HUD per UI bible §3 · RS3-style action bar + minimal Loadout Editor (§4) · flask belt system · **Maggot King rebuilt to full Boss Bible choreography** · death→instant retry · basic victory/loot screen · dev loadout presets (T1/T2) via debug menu.
 **Excludes:** bank, shop, other bosses, invocations, minigame, drops (M2).

@@ -2349,3 +2349,23 @@ Both confirmed as real bugs, not user error.
   changes — this was a pure implementation bug (the visual never matched
   the Boss Bible's own "sim-authoritative, homing" rule to begin with);
   nothing in the design was wrong.
+
+---
+
+## Milestone closed
+
+M1 marked complete (design-authority instruction). All base workstreams
+(HUD, action bar + Loadout Editor, flask belt, Maggot King full
+choreography, death/retry, victory screen, dev loadout) plus every
+subsequent revision and bug-fix pass above are implemented, tested, and
+merged into both `claude/m1-implementation-lrmswv` and the shared
+`claude/text-duel-game-3t4vkf` branch. `m1-plan.md`'s status updated to
+match; `CLAUDE.md` updated from "current milestone: M1" to "M1 is
+complete — M2 not yet authorized."
+
+Caveat carried forward, not resolved by this instruction: the M1 plan's
+own playtest question ("is fighting Maggot King on a phone fun — flicking,
+dodging, sipping under pressure?") is a human judgment call, not something
+this session can verify — marking the milestone complete here reflects
+implementation status, not a claim that the playtest question has been
+answered.
