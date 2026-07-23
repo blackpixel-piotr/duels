@@ -214,11 +214,20 @@ for implementation detail.
 **Landscape-everywhere mandate** (batch 1 §10, a new ruling rather than a
 backlog item) — Hub menu (single column → 2-col grid), Bag (single column →
 paperdoll+stats left / inventory right split), and Loadout Editor (widened
-480px → 640px) refactored to landscape-first layouts; a `<RotateOverlay />`
-now blocks all non-combat screens in portrait with a rotate-device prompt.
-Combat's pre-existing `.battle-fs` auto-rotate trick is untouched (verified
-unaffected). CLAUDE.md gained the "every screen is landscape-first" rule
-verbatim. See `m2-findings.md` batch-1 addendum for which screens
-structurally resisted full conversion (Loadout Editor's Action-Bar/
-Flask-Belt split stayed a widened single column rather than a true
-left/right split — flagged as a real follow-up, not risked unverified).
+480px → 640px) refactored to landscape-first layouts. CLAUDE.md gained the
+"every screen is landscape-first" rule verbatim. See `m2-findings.md`
+batch-1 addendum for which screens structurally resisted full conversion
+(Loadout Editor's Action-Bar/Flask-Belt split stayed a widened single
+column rather than a true left/right split — flagged as a real follow-up,
+not risked unverified).
+  - **Superseded same session**: batch 1 originally shipped this via a
+    `<RotateOverlay />` that blocked all non-combat screens in portrait
+    with a "rotate your device" prompt. Immediately revised per explicit
+    user instruction: no blocking prompt anywhere — every screen now
+    auto-rotates to fill the display, using the exact same CSS
+    fixed+`transform:rotate(90deg)` trick `.battle-fs` already used for
+    combat (`.hub-shell` wraps the hub/modals in `Game.razor`, `display:
+    contents` outside portrait so it's invisible to `.game-shell`'s normal
+    flex layout, a real rotated fixed box only in portrait;
+    `.new-game-screen` got the same portrait-only override).
+    `RotateOverlay.razor` deleted. CLAUDE.md's rule text updated to match.

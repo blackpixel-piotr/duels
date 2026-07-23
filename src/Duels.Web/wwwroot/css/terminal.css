@@ -1510,36 +1510,43 @@ html, body {
     overflow: hidden;
     touch-action: none;
 }
-/* ─── Landscape-everywhere mandate (backlog resolution batch 1 §10) ───
-   Every non-combat screen: no portrait layout, ever -- block with a
-   rotate-device prompt instead. Combat is the one exception (its own
-   auto-rotate trick below), so <RotateOverlay /> is only mounted on
-   non-combat pages/branches, never inside .battle-fs. */
-.rotate-overlay { display: none; }
+/* ─── Landscape-everywhere mandate ───
+   Every screen auto-rotates to fill the display in landscape when the
+   device is held portrait -- same trick as .battle-fs below, no blocking
+   "rotate your device" prompt anywhere. .hub-shell (wraps the hub + its
+   modal sheets in Game.razor) is `display: contents` outside portrait so
+   it doesn't disturb .game-shell's normal flex layout; in portrait it
+   becomes a real fixed, rotated box exactly like .battle-fs. */
+.hub-shell { display: contents; }
 @media (orientation: portrait) {
-    .rotate-overlay {
+    .hub-shell {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
         position: fixed;
-        inset: 0;
-        z-index: 1000;
+        inset: auto;
+        top: 0;
+        left: 100vw;
+        width: 100vh;
+        height: 100vw;
+        transform-origin: top left;
+        transform: rotate(90deg);
+        overflow: hidden;
         background: var(--bg);
-        color: var(--amber);
-        text-align: center;
-        padding: 24px;
+        gap: var(--panel-gap);
+        padding: var(--panel-gap) var(--panel-gap) 0;
     }
-    .rotate-overlay-icon {
-        font-size: 48px;
-        animation: rotate-overlay-spin 1.6s ease-in-out infinite;
+    .new-game-screen {
+        position: fixed;
+        inset: auto;
+        top: 0;
+        left: 100vw;
+        width: 100vh;
+        height: 100vw;
+        min-height: 0;
+        transform-origin: top left;
+        transform: rotate(90deg);
+        margin: 0;
     }
-    .rotate-overlay-text { font-size: 14px; color: var(--text); max-width: 260px; }
-}
-@keyframes rotate-overlay-spin {
-    0%, 100% { transform: rotate(0deg); }
-    50% { transform: rotate(-90deg); }
 }
 
 /* Auto-rotate to landscape when the phone is held portrait: the fight is

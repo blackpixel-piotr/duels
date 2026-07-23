@@ -50,51 +50,52 @@ else
         }
         else
         {
-            @* Landscape-everywhere mandate (backlog resolution batch 1 §10):
-               these modal sheets are hub-only (never opened mid-fight), so
-               they belong in the same portrait-blocked branch as the hub
-               itself -- RotateOverlay covers all of them from here. *@
-            <RotateOverlay />
-            @if (_bagOpen)
-            {
-                <BagSheet State="@_state"
-                          OnClose="@(() => { _bagOpen = false; StateHasChanged(); })" />
-            }
-            @if (_charOpen)
-            {
-                <CharacterSheet State="@_state"
-                                OnClose="@(() => { _charOpen = false; StateHasChanged(); })" />
-            }
-            @if (_loadoutOpen)
-            {
-                <LoadoutEditor State="@_state"
-                               OnClose="@(() => { _loadoutOpen = false; StateHasChanged(); })" />
-            }
-            @if (_bankOpen)
-            {
-                <BankSheet State="@_state"
-                           OnClose="@(() => { _bankOpen = false; StateHasChanged(); })" />
-            }
-            @if (_shopOpen)
-            {
-                <ShopSheet State="@_state"
-                           OnClose="@(() => { _shopOpen = false; StateHasChanged(); })" />
-            }
+            @* Landscape-everywhere mandate: the hub and its modal sheets
+               auto-rotate to fill the screen in landscape when the device is
+               held portrait, the same CSS trick .battle-fs uses for combat --
+               no blocking "rotate your device" prompt, ever. *@
+            <div class="hub-shell">
+                @if (_bagOpen)
+                {
+                    <BagSheet State="@_state"
+                              OnClose="@(() => { _bagOpen = false; StateHasChanged(); })" />
+                }
+                @if (_charOpen)
+                {
+                    <CharacterSheet State="@_state"
+                                    OnClose="@(() => { _charOpen = false; StateHasChanged(); })" />
+                }
+                @if (_loadoutOpen)
+                {
+                    <LoadoutEditor State="@_state"
+                                   OnClose="@(() => { _loadoutOpen = false; StateHasChanged(); })" />
+                }
+                @if (_bankOpen)
+                {
+                    <BankSheet State="@_state"
+                               OnClose="@(() => { _bankOpen = false; StateHasChanged(); })" />
+                }
+                @if (_shopOpen)
+                {
+                    <ShopSheet State="@_state"
+                               OnClose="@(() => { _shopOpen = false; StateHasChanged(); })" />
+                }
 
-            <ToastHost LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
-            <StatusStrip State="@_state" />
-            <HubMenu State="@_state"
-                     Processing="@_processing"
-                     OnFight="StartMaggotKingFight"
-                     OnRetry="RetryDuel"
-                     OnOpenLoadout="@(() => { _loadoutOpen = true; StateHasChanged(); })"
-                     OnOpenBank="@(() => { _bankOpen = true; StateHasChanged(); })"
-                     OnOpenShop="@(() => { _shopOpen = true; StateHasChanged(); })"
-                     OnGrantDevLoadout="GrantDevLoadout" />
+                <ToastHost LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
+                <StatusStrip State="@_state" />
+                <HubMenu State="@_state"
+                         Processing="@_processing"
+                         OnFight="StartMaggotKingFight"
+                         OnRetry="RetryDuel"
+                         OnOpenLoadout="@(() => { _loadoutOpen = true; StateHasChanged(); })"
+                         OnOpenBank="@(() => { _bankOpen = true; StateHasChanged(); })"
+                         OnOpenShop="@(() => { _shopOpen = true; StateHasChanged(); })"
+                         OnGrantDevLoadout="GrantDevLoadout" />
 
-            <ActionHud State="@_state" Layout="dock"
-                       OnOpenBag="@(() => { _bagOpen = true; StateHasChanged(); })"
-                       OnOpenCharacter="@(() => { _charOpen = true; StateHasChanged(); })" />
+                <ActionHud State="@_state" Layout="dock"
+                           OnOpenBag="@(() => { _bagOpen = true; StateHasChanged(); })"
+                           OnOpenCharacter="@(() => { _charOpen = true; StateHasChanged(); })" />
+            </div>
         }
     </div>
 }

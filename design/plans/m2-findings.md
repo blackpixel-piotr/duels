@@ -306,3 +306,42 @@ the user); this is what happened turning it into code.
   passing after batch 1, including the 3 fixed by the cold-start default
   and 9 new tests added for this batch (4 loot-group, 4 Rotfang poison, 1
   style-start theory set). `dotnet build`: 0 warnings, 0 errors.
+
+### Same-session follow-up: RotateOverlay replaced with auto-rotate
+
+Immediately after batch 1 landed, explicit user instruction: remove the
+blocking "rotate your device" prompt entirely — portrait should auto-rotate
+everything to landscape, matching what combat already did, not ask the
+player to physically turn their phone.
+
+- `RotateOverlay.razor` deleted; its two mount points (`Game.razor`,
+  `NewGame.razor`) removed.
+- `Game.razor`'s non-combat branch (hub + all 5 modal sheets) is now
+  wrapped in a `<div class="hub-shell">`. The CSS trick mirrors
+  `.battle-fs` exactly: `display: contents` outside portrait (so it's
+  invisible to `.game-shell`'s flex layout — zero behavior change in
+  landscape/desktop, confirmed by re-running the landscape Playwright pass
+  and diffing against the pre-follow-up screenshots), then
+  `position:fixed; inset:auto; top:0; left:100vw; width:100vh;
+  height:100vw; transform-origin:top left; transform:rotate(90deg)` inside
+  `@media (orientation: portrait)`.
+- `.new-game-screen` got the identical portrait-only override (it didn't
+  need a `display:contents` wrapper since it's already the page's sole
+  root element, not nested in a shared flex parent).
+- Verification caveat carries over from the original batch-1 pass: real
+  Playwright `page.click()`/`page.fill()` in a portrait viewport still hit
+  whatever element occupies that screen coordinate at the time of the
+  click, so mid-transition-state clicks can behave unpredictably during
+  the CSS transform if not waited for; this wasn't hit in manual
+  re-verification but wasn't stress-tested either. Confirmed via
+  screenshot: portrait viewport (400×800) after reaching the hub shows
+  the hub grid rendered sideways, filling the rotated 800×400 logical box,
+  fully interactive (no fixed-overlay interception) — the intended
+  behavior. Combat's own `.battle-fs` rotation is untouched (separate,
+  mutually-exclusive sibling branch; `.hub-shell` and `.battle-fs` never
+  render at the same time).
+- `backlog.md`'s batch-1 Resolved entry for the landscape mandate was
+  amended in place with a "superseded same session" note rather than
+  rewritten, so the original RotateOverlay decision stays visible as a
+  record of what actually shipped first. CLAUDE.md's landscape rule text
+  updated to describe auto-rotate instead of a rotate prompt.
