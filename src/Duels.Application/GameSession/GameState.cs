@@ -26,6 +26,9 @@ public sealed class GameState
     // throughout (2 / 1); only the cadence changes, so every drain event is
     // still a whole number of points, no fractional drift. Independent
     // counters since protection and boost can be toggled independently.
+    // Ratified, items doc §1 (backlog resolution batch 1 §9) -- canonical
+    // baseline; a future "Leaky Faith" invocation is the intended modifier
+    // hook for this cadence, not yet built (M4).
     private const int PrayerDrainCadenceTicks = 9;
     public int ProtectionDrainTickCounter { get; private set; }
     public int BoostDrainTickCounter { get; private set; }
@@ -357,6 +360,12 @@ public sealed class GameState
     public bool PlayerPoisoned { get; private set; }
     public int PoisonTickCounter { get; private set; }
 
+    // Rotward flask (design decisions doc, backlog resolution batch 1 §3):
+    // sip cleanses poison + grants a 15-tick immunity window.
+    public int PoisonImmuneTicksLeft { get; private set; }
+    public void GrantPoisonImmunity(int ticks) => PoisonImmuneTicksLeft = ticks;
+    public void TickPoisonImmunity() { if (PoisonImmuneTicksLeft > 0) PoisonImmuneTicksLeft--; }
+
     public int DamageTakenThisDuel { get; private set; }
 
     // Fight stats (m1-plan Workstream C.10 / H)
@@ -438,6 +447,7 @@ public sealed class GameState
         BleedPerTick = 0;
         PlayerPoisoned = false;
         PoisonTickCounter = 0;
+        PoisonImmuneTicksLeft = 0;
     }
 
     public void InitDuelCooldowns()

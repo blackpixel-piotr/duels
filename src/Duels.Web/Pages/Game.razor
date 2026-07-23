@@ -22,32 +22,6 @@
 else
 {
     <div class="game-shell">
-        @if (_bagOpen)
-        {
-            <BagSheet State="@_state"
-                      OnClose="@(() => { _bagOpen = false; StateHasChanged(); })" />
-        }
-        @if (_charOpen)
-        {
-            <CharacterSheet State="@_state"
-                            OnClose="@(() => { _charOpen = false; StateHasChanged(); })" />
-        }
-        @if (_loadoutOpen)
-        {
-            <LoadoutEditor State="@_state"
-                           OnClose="@(() => { _loadoutOpen = false; StateHasChanged(); })" />
-        }
-        @if (_bankOpen)
-        {
-            <BankSheet State="@_state"
-                       OnClose="@(() => { _bankOpen = false; StateHasChanged(); })" />
-        }
-        @if (_shopOpen)
-        {
-            <ShopSheet State="@_state"
-                       OnClose="@(() => { _shopOpen = false; StateHasChanged(); })" />
-        }
-
         @if (_state?.InDuel == true || _duelResult is not null)
         {
             @* Full-bleed landscape fight: canvas fills the screen, HUD floats. *@
@@ -76,6 +50,37 @@ else
         }
         else
         {
+            @* Landscape-everywhere mandate (backlog resolution batch 1 §10):
+               these modal sheets are hub-only (never opened mid-fight), so
+               they belong in the same portrait-blocked branch as the hub
+               itself -- RotateOverlay covers all of them from here. *@
+            <RotateOverlay />
+            @if (_bagOpen)
+            {
+                <BagSheet State="@_state"
+                          OnClose="@(() => { _bagOpen = false; StateHasChanged(); })" />
+            }
+            @if (_charOpen)
+            {
+                <CharacterSheet State="@_state"
+                                OnClose="@(() => { _charOpen = false; StateHasChanged(); })" />
+            }
+            @if (_loadoutOpen)
+            {
+                <LoadoutEditor State="@_state"
+                               OnClose="@(() => { _loadoutOpen = false; StateHasChanged(); })" />
+            }
+            @if (_bankOpen)
+            {
+                <BankSheet State="@_state"
+                           OnClose="@(() => { _bankOpen = false; StateHasChanged(); })" />
+            }
+            @if (_shopOpen)
+            {
+                <ShopSheet State="@_state"
+                           OnClose="@(() => { _shopOpen = false; StateHasChanged(); })" />
+            }
+
             <ToastHost LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
             <StatusStrip State="@_state" />
             <HubMenu State="@_state"

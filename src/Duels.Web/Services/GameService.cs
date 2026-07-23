@@ -35,10 +35,10 @@ public sealed class GameService
         _js = js;
     }
 
-    public async Task<CommandResult> StartNewGameAsync(string playerName)
+    public async Task<CommandResult> StartNewGameAsync(string playerName, string chosenStyle)
     {
         PlayerId = Guid.NewGuid().ToString("N");
-        var result = await _dispatcher.DispatchAsync(new StartGameCommand(PlayerId, playerName));
+        var result = await _dispatcher.DispatchAsync(new StartGameCommand(PlayerId, playerName, chosenStyle));
         NotifyStateChanged();
         await PersistAsync();
         return result;

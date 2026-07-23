@@ -6,11 +6,15 @@ namespace Duels.Application.Handlers;
 
 public sealed class SipFlaskHandler : ICommandHandler<SipFlaskCommand>
 {
+    // Rotward's 15-tick immunity window (backlog resolution batch 1 §3).
+    private const int RotwardImmunityTicks = 15;
+
     // Flask restore amounts (design decisions doc: unspecified — T-list tunable).
-    private static readonly Dictionary<string, (string Label, Action<Domain.Entities.Player> Apply)> Effects = new()
+    private static readonly Dictionary<string, (string Label, Action<Domain.Entities.Player, GameState> Apply)> Effects = new()
     {
-        ["flask_health"] = ("Health Flask", p => p.Heal(40)),
-        ["flask_prayer"] = ("Prayer Flask", p => p.RestorePrayerPoints(40)),
+        ["flask_health"] = ("Health Flask", (p, _) => p.Heal(40)),
+        ["flask_prayer"] = ("Prayer Flask", (p, _) => p.RestorePrayerPoints(40)),
+        ["flask_rotward"] = ("Rotward Flask", (_, s) => { s.CurePoison(); s.GrantPoisonImmunity(RotwardImmunityTicks); }),
     };
 
     private readonly IGameStateRepository _stateRepo;
@@ -35,7 +39,7 @@ public sealed class SipFlaskHandler : ICommandHandler<SipFlaskCommand>
         if (!slot.TrySip())
             return CommandResult.Fail($"{effect.Label} is empty.");
 
-        effect.Apply(state.Player);
+        effect.Apply(state.Player, state);
         state.AppendLog($"You sip the {effect.Label}. ({slot.SipsRemaining}/{slot.MaxSips} sips left)", LogEntryKind.Info);
 
         // Weapon-speed ratification: sipping always costs tempo, never a full

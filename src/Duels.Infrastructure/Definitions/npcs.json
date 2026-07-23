@@ -5,7 +5,42 @@
     "ExamineText": "A bloated horror crowned in chitin, fused to his own rotting mound. Pray against his rotation — but MOVE when the ground churns.",
     "Stats": { "Attack": 1, "Strength": 1, "Defence": 1, "Hitpoints": 450 },
     "Evasion": { "Melee": 0, "Ranged": 0, "Magic": 0 },
-    "LootTable": [],
+    // Backlog resolution batch 1 §2 (economy doc §5's two-stage "one roll on
+    // Slot" model): Common (65%) rolls once among Gold Cache/Chitin Fragment/
+    // Rot Gland at 40/35/25; Uncommon (25%) rolls once among a random T2
+    // weapon (30, split 3 ways), a random T2 armour piece (30, split 18 ways
+    // -- line rolled equally per the resolution), and Rotward Shard (40).
+    // Unique (1/20) stays its own independent roll, unchanged in shape.
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 0.65, "MinQty": 40, "MaxQty": 80, "GroupId": "common", "Weight": 40 },
+      { "ItemId": "chitin_fragment", "DropChance": 0.65, "GroupId": "common", "Weight": 35 },
+      { "ItemId": "rot_gland", "DropChance": 0.65, "GroupId": "common", "Weight": 25 },
+
+      { "ItemId": "wpn_melee_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "wpn_ranged_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "wpn_magic_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "arm_warbound_helmet_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_body_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_legs_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_boots_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_gloves_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_cape_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_helmet_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_body_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_legs_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_boots_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_gloves_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_cape_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_helmet_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_body_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_legs_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_boots_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_gloves_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_cape_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "rotward_shard", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 120 },
+
+      { "ItemId": "wpn_unique_mk", "DropChance": 0.05 }
+    ],
     "GoldReward": 500, // economy doc §3 gold-income table: Tier 1 = 500g/kill (ratified M2 pre-plan; absorbs the removed regular-duel income)
     "Script": {
       "PhaseTwoThresholdPercent": 50,

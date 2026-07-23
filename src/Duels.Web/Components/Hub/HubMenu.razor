@@ -44,6 +44,10 @@
         </span>
     </button>
 
+    @* PROVISIONAL: these dev-loadout grants have no dev gate (backlog.md #25)
+       -- always visible to any player, not just a debug build. Now that the
+       cold-start FTUE grants real starting gear (batch 4), these are pure
+       testing shortcuts, not the only way to get geared. *@
     <div class="hub-card-group">
         <button class="hub-card hub-card-test" disabled="@Processing" @onclick="() => OnGrantDevLoadout.InvokeAsync(1)">
             <span class="hub-card-icon">⚗</span>

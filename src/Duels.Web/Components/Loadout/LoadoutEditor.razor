@@ -101,7 +101,7 @@
             .Concat(State?.Player?.Equipped.Values ?? Array.Empty<string>())
             .Distinct().Where(id => ItemRepo.IsWeapon(id)).ToList();
 
-    private static readonly string[] KnownFlasks = ["flask_health", "flask_prayer"];
+    private static readonly string[] KnownFlasks = ["flask_health", "flask_prayer", "flask_rotward"];
     private List<string> OwnedFlasks() =>
         KnownFlasks.Where(id => State?.Player?.HasItem(id) == true).ToList();
 

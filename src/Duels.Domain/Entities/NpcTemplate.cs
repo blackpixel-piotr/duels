@@ -112,7 +112,17 @@ public sealed record NpcTemplate(
     public int MaxHp => Stats.Hitpoints;
 }
 
-public sealed record LootEntry(string ItemId, double DropChance, int MinQty = 1, int MaxQty = 1, bool OnceOnly = false);
+/// <summary>One loot-table row. Ungrouped entries (<see cref="GroupId"/> null)
+/// roll independently, exactly as before. Entries sharing a <see cref="GroupId"/>
+/// form a two-stage roll (economy doc §5's "one roll on... Slot": Common 65%/
+/// Uncommon 25% etc.) — the group's own chance (every member should carry the
+/// same <see cref="DropChance"/>) is rolled ONCE, and only on a hit is exactly
+/// one member picked, weighted by <see cref="Weight"/> (relative, not required
+/// to sum to 1). <see cref="ItemId"/> == "gold" is a pseudo-item: RollLoot
+/// grants MinQty..MaxQty gold directly instead of an inventory item (economy
+/// doc §5's "Gold Cache").</summary>
+public sealed record LootEntry(string ItemId, double DropChance, int MinQty = 1, int MaxQty = 1,
+    bool OnceOnly = false, string? GroupId = null, double Weight = 1.0);
 
 /// <summary>One spawned swarm add (m1-plan Workstream C.7): crawls 1 tile/tick
 /// toward the player; contact applies a bleed stack; dies in 2 hits (fixed
@@ -252,6 +262,30 @@ public sealed class NpcInstance
     // Pin Shot special: delays the boss's next rotation advance by N ticks
     public int PinDelayTicks { get; private set; }
     public void ApplyPinDelay(int ticks) => PinDelayTicks += ticks;
+
+    // Rotfang on-hit poison (items doc §3, backlog resolution batch 1):
+    // 5-tick duration, 2 dmg/stack/tick, max 3 stacks; any landed hit while
+    // wielded adds a stack (capped at 3) AND refreshes the duration to 5 --
+    // "reapplication refreshes," not a fresh independent timer per stack.
+    public const int MaxPoisonStacks = 3;
+    public int PoisonStacks { get; private set; }
+    public int PoisonDurationTicksLeft { get; private set; }
+    public int PoisonDamagePerTick => PoisonStacks * 2;
+    public void ApplyRotfangPoison()
+    {
+        PoisonStacks = Math.Min(MaxPoisonStacks, PoisonStacks + 1);
+        PoisonDurationTicksLeft = 5;
+    }
+    /// <summary>Returns true if this tick deals poison damage (see
+    /// <see cref="PoisonDamagePerTick"/>). Stacks clear when the duration
+    /// runs out — no lingering single stack at zero duration.</summary>
+    public bool TickPoison()
+    {
+        if (PoisonDurationTicksLeft <= 0) return false;
+        PoisonDurationTicksLeft--;
+        if (PoisonDurationTicksLeft <= 0) { PoisonStacks = 0; return true; } // last tick still hits
+        return true;
+    }
 
     public NpcInstance(NpcTemplate template)
     {

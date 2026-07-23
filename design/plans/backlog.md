@@ -21,36 +21,7 @@ pass, not later.
 
 ## A. Content gaps — blocked on design-doc content, not engineering
 
-Nothing here can be implemented without inventing numbers/names, which
-CLAUDE.md forbids. Each needs a human to add the missing content to the
-relevant `/design/*.md` doc before any agent can act on it.
-
-1. **Rotfang (Maggot King's unique) has no combat stats anywhere.** Items
-   doc §3 (Boss Uniques) gives every unique a Slot + Effect + Model, but
-   *no* Power/Speed/Precision — only §4 (Boss Rares) tabulates stats. Can't
-   ingest Rotfang as a real weapon without inventing its base numbers.
-   *(M2)*
-2. **Maggot King's Common/Uncommon loot table rows don't exist.** Economy
-   §5 defines the roll *mechanism* (Common 65% / Uncommon 25%) but no
-   design doc lists actual item rows for either slot — only a generic
-   category description ("sellables... materials", "off-tier gear pieces...
-   flask shards") and the boss-designs doc's one-line "drop niche" (which
-   only covers the Rare). The drop pipeline (`RollLoot`) already works;
-   only content is missing. *(M2, `m2-plan.md` Workstream E.2)*
-3. **What does economy §3's "Regular duels" paragraph refer to, now that
-   there's no non-boss NPC roster?** Ratified during M2 pre-plan: every
-   fightable thing is a boss, now and always. That leaves the economy doc's
-   original "regular duels: 50g→150g per win, warm-up content" language
-   pointing at nothing. Doesn't block anything (M2's income already
-   resolves to boss kill-gold either way) but the doc itself needs an
-   editorial pass — either describes a future easy-boss band, or the
-   sentence is stale and should be cut. *(M2)*
-4. **Rotward (Maggot King's counter-flask) and the specialty-flask shard
-   currency.** Items doc §6 names the flask (liquid tint, "Maggot King
-   shards" source) but shard accumulation is a real subsystem the domain
-   model doesn't have at all (`FlaskBelt`/`Loadout` only know fixed sip
-   charges). Content exists in outline; the mechanism needs designing, not
-   just data. *(M2, deferred per `m2-plan.md` A.4)*
+*(All resolved — see Resolved section. Numbers below retired, not reused.)*
 
 ## B. Deferred features — spec'd, just not built
 
@@ -118,68 +89,7 @@ relevant `/design/*.md` doc before any agent can act on it.
 
 ## D. Design questions needing human confirmation (not doc-blocked, just unanswered)
 
-16. **`Player.Gold` starts at 0 with no separate regular-duel income —
-    real cold-start gap.** A first-time player's only income (Maggot
-    King, 500g/kill) requires gear to realistically survive long enough to
-    land that kill; that gear is only obtainable *from* the gold the kill
-    provides. The dev-loadout hub buttons are the only working bootstrap
-    today, and they're not gated behind any build flag. This became
-    concrete (not hypothetical) once the Shop shipped and there was
-    somewhere to actually spend a starting seed. **Needs a product
-    decision**, not an invented number. *(M2)*
-17. **XP/levels: gone for good, or cosmetic progression later?** M1
-    removed Attack/Strength/Defence/Hitpoints XP entirely rather than
-    keeping it vestigial, trading away the plan's original "keep it
-    combat-inert" scope. Never explicitly re-confirmed since. *(M1
-    plan D3, still open)*
-18. **Fence/sell-value split (`m2-plan.md` A.6) is implemented as a
-    mechanism** (15% of shop price, or an explicit override, or 0) but the
-    override table (`fenceValues`) is still empty — no unique/rare content
-    exists yet to populate it with real numbers (items doc §4: uniques
-    sell for 15% of a T4 piece; rares never sellable — the 0 default
-    already gives the rare behavior, but the unique formula isn't wired to
-    an actual T4 anchor price yet since Rotfang can't ship, see #1).
-19. **Armour price interpolation formula is an assumption, not a doc
-    number.** Items doc §4 gives only a per-tier price *range* for armour
-    (e.g. "200–350g"); the actual per-slot prices in `items.json` were
-    derived by linearly interpolating within that range by the slot's Def
-    weight (heaviest = priciest). Endpoints match the doc; the shape in
-    between doesn't. Source-commented as PROVISIONAL in `items.json`
-    itself. *(M2)*
-20. **Weapon `AttackType` for the new T3/T4 melee weapons is inferred, not
-    stated.** Doombringer Maul (Warhammer archetype) → `Crush`, Kingsplitter
-    (Greatsword) → `Slash`, following the T1/T2 pattern — the doc's weapon
-    table has no explicit Stab/Slash/Crush column. Low-stakes (protection
-    prayer buckets all melee as one style) but could pick the wrong swing
-    animation in `toon.js`. *(M2)*
-21. **Carrion Edge's `Line` set to `None`** on the reasoning that rares sit
-    outside the shop-ladder armour-line identity/set-bonus system — not
-    stated either way in the doc. *(M2)*
-22. **Purchase-confirm threshold (2,500g)** implemented per the plan's own
-    proposal but never independently re-confirmed by a human before
-    landing. *(M2, `ShopSheet.razor`'s `ConfirmThresholdGold`)*
-23. **Economy §4's shop-ladder cadence-check row** ("~20 min" to a T1 kit)
-    was not recomputed against the new 500g/~7,500g-per-hour Tier-1 rate —
-    only the stale "of duels+first kills" wording was removed. The
-    playtest question (does purchase cadence match the economy targets)
-    should be checked against this before being called answered either
-    way. *(M2)*
-24. **Design-ambiguity assumptions from M1, still standing as
-    provisional** (implemented, playable, but genuinely invented numbers
-    per CLAUDE.md's own flagging rule — worth a real design pass rather
-    than staying permanent by default):
-    - Defensive style's "+20% defense value" implemented as a flat 20%
-      incoming-damage reduction, stacking additively with (and uncapped
-      by) the 40%-capped gear Def-point reduction — the doc doesn't say
-      whether this is the right shape.
-    - Boost prayer's magnitude (+20% Power) — carried over from the
-      pre-M1 Piety number, not sourced from any current doc.
-    - Scorch/Rend DoT magnitudes (3 ticks @ 3/tick; 4 ticks @ 3/tick +
-      1.3× base-hit) — doc only says "3-tick burn" / "bleed stack" with no
-      numbers.
-    - NPC (boss) armour = 0 Def — items doc's Def-point system is written
-      for player gear only; every player hit on a boss currently lands at
-      full weapon damage with zero boss-side mitigation.
+*(All resolved — see Resolved section. Numbers below retired, not reused.)*
 
 ## E. Technical debt / dev tooling
 
@@ -192,29 +102,19 @@ relevant `/design/*.md` doc before any agent can act on it.
     fight, acceptable only because every M1/M2 fight is currently a dev
     fight (reached via the dev-loadout cards). **Needs a real dev gate
     once non-dev fights ship** (i.e., once the Shop/Bank loop is the real
-    onboarding path, not a debug button). *(M1)*
-26. **`duels-economy.md` and `duels-economy_1.md` are byte-identical
-    duplicate files.** Both tracked in git, kept in sync manually during
-    the M2 pre-plan edits rather than silently diverging. Recommend
-    deleting `duels-economy_1.md` once confirmed nothing depends on having
-    two copies. *(M2)*
-27. **Unsourced constants found in a targeted sweep, reported but not
-    changed** (per instruction — report only): `Player.PrayerPoints = 99`
-    (no doc gives a prayer-pool size), `AttackRange.Distant = 8` (used
-    only by the now-provably-unused `DummyStyle` non-boss movement path —
-    see #28), `GameState.PrayerDrainCadenceTicks = 9` (no doc gives prayer
-    drain a tick cadence). Not urgent, but each is exactly the kind of
-    invented number CLAUDE.md's provisional-constant rule now requires
-    flagging in code (`// PROVISIONAL: <reason>`) — none of these three
-    carry that comment yet. *(M2 pre-plan sweep)*
+    onboarding path, not a debug button). Still open post-batch-1: the
+    cold-start resolution (#16, now resolved) explicitly kept the dev-loadout
+    buttons and only added a `// PROVISIONAL: needs dev gate (backlog #25)`
+    comment — this item is what that comment points at. *(M1)*
 28. **`NpcTemplate.DummyStyle` and its non-scripted movement path are now
     provably dead for real content.** Built for "the pathfinding/movement
     test fixtures and any future non-boss mob" — the boss-only ruling
     (backlog item, see Section D discussion in `m1-findings.md`'s M2
     pre-plan addendum) means there will never be a non-boss mob. Still
     load-bearing for test fixtures; safe to leave, but the "future non-boss
-    mob" half of its own doc comment is now known-stale. *(M2, discovered
-    during pre-plan)*
+    mob" half of its own doc comment is now known-stale. Now cross-referenced
+    from `AttackRange.Distant`'s own `// PROVISIONAL: dead path (#28)`
+    comment, added in batch 1 §9. *(M2, discovered during pre-plan)*
 
 ## F. Known cosmetic/renderer gaps
 
@@ -252,4 +152,73 @@ relevant `/design/*.md` doc before any agent can act on it.
 it — this is the record that it was tracked and picked up, not just that
 it disappeared.)*
 
-- None yet.
+**Backlog batch 1** (`design/plans/m2-backlog-resolutions.md`, "A+D
+resolutions, constants ratification, landscape mandate") closed the
+following 15 items. See `design/plans/m2-findings.md`'s batch-1 addendum
+for implementation detail.
+
+- **#1 Rotfang has no combat stats** — closed by batch 1 §1. Unique-quality
+  rule (boss tier + 1; weapon Power = tier DPS × AttackSpeed; armour uses
+  tier's slot Def) ratified in items doc §3, all 8 boss uniques' stats
+  tabulated, Rotfang ingested into `items.json` with on-hit poison (5
+  ticks @ 2/tick, max 3 stacks, refresh-on-reapply) wired end-to-end.
+- **#2 Maggot King Common/Uncommon loot rows don't exist** — closed by
+  batch 1 §2. Rows added to items doc, ingested into `npcs.json` via the
+  new weighted-group loot engine (`LootEntry.GroupId`/`Weight`).
+- **#3 Economy §3's "regular duels" language points at nothing** — closed
+  by batch 1 §6. Editorial sweep removed the stale wording; Tier-1 bosses
+  stated as the on-ramp.
+- **#4 Rotward/specialty-flask shard mechanism undesigned** — closed by
+  batch 1 §3. Shard-stacking → auto-combine-at-5 → post-unlock 100g
+  conversion mechanism designed and implemented (`GameTickService`,
+  `SipFlaskHandler`); Rotward flask (3 sips, cleanse + 15-tick poison
+  immunity) shipped.
+- **#16 Cold-start gap (0 starting gold)** — closed by batch 1 §4. Ruling:
+  600g starting gold + free T1 weapon of chosen style (new NewGame.razor
+  style-pick FTUE beat). Dev-loadout buttons kept, flagged
+  `// PROVISIONAL: needs dev gate` pointing at #25 (still open).
+- **#17 XP/levels: gone for good or revisit?** — closed by batch 1 §5.
+  Ruling: gone for good; progression = gear/invocations/collection log
+  only. Recorded in `duels-design-decisions.md` under Retired Mechanics.
+- **#18 Fence/sell-value split's unique formula unwired** — closed by
+  batch 1 §6. Ruling: uniques sell flat 2,000g (replaces the "15% of a T4
+  piece" formula); `fenceValues` override populated for Rotfang.
+- **#19 Armour price interpolation formula unconfirmed** — closed by
+  batch 1 §7. Ratified as canonical; rule stated in items doc §5.
+- **#20 T3/T4 melee weapon AttackType inferred** — closed by batch 1 §1.
+  Archetype rule ratified and stated: dagger=Stab, sword/axe=Slash,
+  hammer/maul=Crush.
+- **#21 Carrion Edge's Line=None unconfirmed** — closed by batch 1 §7.
+  Ratified: rares carry `Line=None` by design, outside line
+  identity/set-bonus system.
+- **#22 Purchase-confirm threshold (2,500g) unconfirmed** — closed by
+  batch 1 §7. Ratified as canonical.
+- **#23 Economy §4 cadence-check row not recomputed** — closed by batch 1
+  §6. Recomputed against 500g Tier-1 kills + 600g start + free T1 weapon;
+  updated timings printed in `duels-economy.md` §4.
+- **#24 M1 provisional-assumption sweep (4 sub-items)** — closed by
+  batch 1 §8. Defensive style (flat 20% incoming reduction, additive with
+  gear Def) ratified, **plus new rule**: total mitigation from all sources
+  hard-caps at 50% (`DamageModel.TotalMitigationCap`). Boost prayer (+20%
+  Power) ratified. Scorch (3 ticks @ 3/tick) / Rend (4 ticks @ 3/tick +
+  1.3× base hit) ratified as canonical DoT baselines. Boss Def=0 ratified
+  as doctrine and added to the boss bible's Global Combat Grammar.
+- **#26 `duels-economy_1.md` duplicate file** — closed by batch 1 §9.
+  Confirmed byte-identical-in-intent duplicate, deleted.
+- **#27 Unsourced constants sweep (PrayerPoints, PrayerDrainCadenceTicks,
+  AttackRange.Distant)** — closed by batch 1 §9. `Player.PrayerPoints = 99`
+  and `GameState.PrayerDrainCadenceTicks = 9` ratified as canonical
+  (documented in items doc §1); `AttackRange.Distant = 8` kept and marked
+  `// PROVISIONAL: dead path (#28)` since #28 itself stays open.
+
+**Landscape-everywhere mandate** (batch 1 §10, a new ruling rather than a
+backlog item) — Hub menu (single column → 2-col grid), Bag (single column →
+paperdoll+stats left / inventory right split), and Loadout Editor (widened
+480px → 640px) refactored to landscape-first layouts; a `<RotateOverlay />`
+now blocks all non-combat screens in portrait with a rotate-device prompt.
+Combat's pre-existing `.battle-fs` auto-rotate trick is untouched (verified
+unaffected). CLAUDE.md gained the "every screen is landscape-first" rule
+verbatim. See `m2-findings.md` batch-1 addendum for which screens
+structurally resisted full conversion (Loadout Editor's Action-Bar/
+Flask-Belt split stayed a widened single column rather than a true
+left/right split — flagged as a real follow-up, not risked unverified).

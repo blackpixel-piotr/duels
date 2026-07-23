@@ -22,6 +22,10 @@ public sealed class GameTickService : IDisposable
     private readonly IEventBus _events;
     private readonly ITickSource _tickSource;
 
+    // Items doc §3, backlog resolution batch 1: Rotfang's on-hit poison is
+    // hooked by item id (a single-item passive, not a generic system).
+    private const string RotfangItemId = "wpn_unique_mk";
+
     private CancellationTokenSource? _cts;
     private Action? _notify;
 
@@ -234,7 +238,7 @@ public sealed class GameTickService : IDisposable
         player.RechargeSpecial(1, MaxSpecialEnergy(player));
 
         ApplyDots(state, player, npc);
-        if (npc.IsAlive) npc.TickSap();
+        if (npc.IsAlive) { npc.TickSap(); ApplyNpcPoison(state, npc); }
 
         if (!npc.IsAlive)
         {
@@ -377,6 +381,15 @@ public sealed class GameTickService : IDisposable
         bool punished = npc.InPunishWindow;
         int damage = punished ? (int)Math.Round(roll.Damage * 1.25) : roll.Damage;
         npc.TakeDamage(damage);
+
+        // Rotfang (items doc §3, backlog resolution batch 1): on-hit poison,
+        // any landed hit while wielded, independent of the damage roll itself.
+        if (weapon?.Id == RotfangItemId)
+        {
+            npc.ApplyRotfangPoison();
+            state.AppendLog($"Rotfang's venom sinks in. ({npc.PoisonStacks} stack{(npc.PoisonStacks > 1 ? "s" : "")})", LogEntryKind.Info);
+        }
+
         // A max-hit (rolled the weapon's 2×Power ceiling) gets its own hitsplat
         // tier + MaxHit log kind (the latter already fires a screen shake) so it
         // reads distinctly from an ordinary hit — items doc §1's "distinct
@@ -837,10 +850,14 @@ public sealed class GameTickService : IDisposable
             state.SetKilledBy("Eruption (unprayable)");
             state.AppendLog($"{dmg}:hazard", LogEntryKind.HitsplatNpc);
             state.AppendLog($"The ground ERUPTS beneath you for {dmg}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
-            if (!state.PlayerPoisoned)
+            if (!state.PlayerPoisoned && state.PoisonImmuneTicksLeft <= 0)
             {
                 state.ApplyPoison();
                 state.AppendLog("The writhing mass poisons you!", LogEntryKind.System);
+            }
+            else if (state.PoisonImmuneTicksLeft > 0)
+            {
+                state.AppendLog("Rotward's ward shrugs off the poison.", LogEntryKind.System);
             }
         }
         else if (player.IsAlive && state.IsPool(state.PlayerTile) && state.IsMechanicEnabled(BossMechanic.Pools))
@@ -917,6 +934,7 @@ public sealed class GameTickService : IDisposable
 
     private static void ApplyDots(GameState state, Player player, NpcInstance npc)
     {
+        state.TickPoisonImmunity(); // Rotward's 15-tick window (backlog batch 1 §3) counts down regardless of the dev DoT toggle
         if (!state.IsMechanicEnabled(BossMechanic.Dots)) return; // dev toggle
 
         if (state.BleedTicksLeft > 0 && player.IsAlive)
@@ -937,6 +955,18 @@ public sealed class GameTickService : IDisposable
             state.AppendLog("3:poison", LogEntryKind.HitsplatNpc);
             state.AppendLog($"The poison courses through you. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
         }
+    }
+
+    // Boss-side poison DoT (Rotfang, items doc §3, backlog resolution batch
+    // 1) -- symmetric to ApplyDots' player-side poison above, but keyed off
+    // NpcInstance.PoisonStacks/PoisonDamagePerTick instead of a flat rate.
+    private static void ApplyNpcPoison(GameState state, NpcInstance npc)
+    {
+        int dmg = npc.PoisonDamagePerTick;
+        if (!npc.TickPoison()) return;
+        npc.TakeDamage(dmg);
+        state.AppendLog($"{dmg}:poison", LogEntryKind.HitsplatPlayer);
+        state.AppendLog($"Rotfang's venom festers in {npc.Template.Name} for {dmg}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.PlayerHit);
     }
 
     // ── Damage/mitigation helpers ────────────────────────────────────────
@@ -1096,34 +1126,97 @@ public sealed class GameTickService : IDisposable
         await _events.PublishAsync(new DuelWon(player.Id, npc.Template.Id, npc.Template.Name, npc.Template.GoldReward));
     }
 
+    // Backlog resolution batch 1 §3: shard -> flask auto-combine. 5 shards
+    // convert to the flask (one-time, per flask type); once owned, further
+    // shards convert to 100g on pickup instead of stacking further.
+    private static readonly Dictionary<string, string> ShardToFlask = new() { ["rotward_shard"] = "flask_rotward" };
+    private const int ShardsRequiredForFlask = 5;
+    private const int SurplusShardGold = 100;
+
     private List<string> RollLoot(GameState state, Player player, NpcTemplate template)
     {
         var lootedItems = new List<string>();
-        foreach (var entry in template.LootTable)
+
+        // Ungrouped entries: independent rolls, unchanged from before.
+        foreach (var entry in template.LootTable.Where(e => e.GroupId is null))
         {
             if (entry.OnceOnly && player.HasItem(entry.ItemId)) continue;
             if (_random.NextDouble() >= entry.DropChance) continue;
+            ResolveLootHit(state, player, entry, lootedItems);
+        }
 
-            int qty = entry.MaxQty > entry.MinQty ? _random.Next(entry.MinQty, entry.MaxQty + 1) : entry.MinQty;
-            var itemName = _items.GetItemName(entry.ItemId) ?? entry.ItemId;
+        // Grouped entries: economy doc §5's "one roll on... Slot" two-stage
+        // model — roll the group's own chance once, then weighted-pick one
+        // member (LootEntry.GroupId/Weight).
+        foreach (var group in template.LootTable.Where(e => e.GroupId is not null).GroupBy(e => e.GroupId))
+        {
+            var members = group.ToList();
+            if (_random.NextDouble() >= members[0].DropChance) continue; // every member shares the group's own chance
 
-            for (int i = 0; i < qty; i++)
+            double totalWeight = members.Sum(m => m.Weight);
+            double roll = _random.NextDouble() * totalWeight;
+            var picked = members[0];
+            double cursor = 0;
+            foreach (var m in members)
             {
-                if (player.Inventory.Count >= Player.BagCapacity) // UI bible §7: bag is 28 slots (fixed); bank is the unbounded overflow store.
+                cursor += m.Weight;
+                if (roll < cursor) { picked = m; break; }
+            }
+
+            if (picked.OnceOnly && player.HasItem(picked.ItemId)) continue;
+            ResolveLootHit(state, player, picked, lootedItems);
+        }
+
+        return lootedItems;
+    }
+
+    private void ResolveLootHit(GameState state, Player player, LootEntry entry, List<string> lootedItems)
+    {
+        int qty = entry.MaxQty > entry.MinQty ? _random.Next(entry.MinQty, entry.MaxQty + 1) : entry.MinQty;
+
+        // "gold" is a pseudo-item (economy §5 "Gold Cache"): direct gold, no inventory slot.
+        if (entry.ItemId == "gold")
+        {
+            player.AddGold(qty);
+            state.AppendLog($"You find a gold cache worth {qty:N0}g.", LogEntryKind.Loot);
+            return;
+        }
+
+        var itemName = _items.GetItemName(entry.ItemId) ?? entry.ItemId;
+
+        for (int i = 0; i < qty; i++)
+        {
+            // Shard already unlocked its flask -> surplus shards convert to gold on pickup, never stack further.
+            if (ShardToFlask.TryGetValue(entry.ItemId, out var flaskId) && player.HasItem(flaskId))
+            {
+                player.AddGold(SurplusShardGold);
+                state.AppendLog($"You find a {itemName} — already unlocked, worth {SurplusShardGold}g.", LogEntryKind.Loot);
+                continue;
+            }
+
+            if (player.Inventory.Count >= Player.BagCapacity) // UI bible §7: bag is 28 slots (fixed); bank is the unbounded overflow store.
+            {
+                int fenceValue = _items.GetFenceValue(entry.ItemId);
+                player.AddGold(fenceValue);
+                state.AppendLog($"Your pack is full — you fence the {itemName} for {fenceValue:N0}g.", LogEntryKind.Loot);
+            }
+            else
+            {
+                player.AddToInventory(entry.ItemId);
+                lootedItems.Add(entry.ItemId);
+                state.AppendLog($"You loot {itemName}.", LogEntryKind.Loot);
+
+                // Auto-combine: 5 shards -> the flask, one-time unlock.
+                if (ShardToFlask.TryGetValue(entry.ItemId, out var unlockFlaskId)
+                    && player.Inventory.Count(id => id == entry.ItemId) >= ShardsRequiredForFlask)
                 {
-                    int fenceValue = _items.GetFenceValue(entry.ItemId);
-                    player.AddGold(fenceValue);
-                    state.AppendLog($"Your pack is full — you fence the {itemName} for {fenceValue:N0}g.", LogEntryKind.Loot);
-                }
-                else
-                {
-                    player.AddToInventory(entry.ItemId);
-                    lootedItems.Add(entry.ItemId);
+                    for (int s = 0; s < ShardsRequiredForFlask; s++) player.RemoveFromInventory(entry.ItemId);
+                    player.AddToInventory(unlockFlaskId);
+                    var flaskName = _items.GetItemName(unlockFlaskId) ?? unlockFlaskId;
+                    state.AppendLog($"★ {ShardsRequiredForFlask} {itemName}s combine into a {flaskName}!", LogEntryKind.Loot);
                 }
             }
-            state.AppendLog($"You loot {(qty > 1 ? $"{qty}× " : "")}{itemName}.", LogEntryKind.Loot);
         }
-        return lootedItems;
     }
 
     private async Task HandleDefeat(GameState state, Player player, NpcInstance npc)

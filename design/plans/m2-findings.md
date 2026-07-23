@@ -187,3 +187,122 @@ actually exists.
 
 Other bosses and their items, invocations/raid level, collection log/
 profile/leaderboards, the cosmetic/transmog tab, wagers/win-streaks.
+
+---
+
+## Batch 1 addendum: `m2-backlog-resolutions.md` implementation findings
+
+This addendum covers implementing the user-authorized backlog batch 1 (10
+sections: unique stats, Maggot King loot rows, shard mechanism, cold start,
+XP ruling, economy edits, M1/M2 constant ratification, constants sweep
+follow-up, landscape-everywhere mandate). The plan is
+`m2-backlog-resolutions.md` itself (pre-written, pre-authorized verbatim by
+the user); this is what happened turning it into code.
+
+- **Loot table model needed a real extension, not just data entry.** The
+  existing `LootEntry` was flat independent-roll only. Batch 1 §2's
+  "Common 65% / Uncommon 25%, weighted members within each" required a
+  genuine two-stage model: `LootEntry` gained `GroupId`/`Weight`; `RollLoot`
+  now rolls the group's own chance once, then does a weighted pick among
+  its members — kept 100% backward compatible for ungrouped entries
+  (verified by the pre-existing suite staying green plus 4 new
+  `RollLootTests`). This is real engine work the resolution doc's one-line
+  loot-table content undersold.
+- **The "gold" pseudo-item convention is new and load-bearing.** Maggot
+  King's Common group's "Gold Cache" row grants currency directly rather
+  than an inventory item — `RollLoot`/`ResolveLootHit` special-case the
+  literal item id `"gold"` before touching the bag. Documented inline on
+  `LootEntry` since nothing in the loot pipeline previously needed to
+  distinguish "this row is not a real item."
+- **Shard auto-combine needed its own state, not reuse of an existing
+  currency/stacking system.** `ShardToFlask` mapping + `ShardsRequiredForFlask
+  = 5` + `SurplusShardGold = 100` constants live in `GameTickService`;
+  the "already unlocked → shards become gold" branch and the "still
+  collecting → auto-combine at 5" branch share the bag-full-fencing path
+  `RollLoot` already had for normal items, extended rather than
+  restructured.
+- **Rotward's "poison immunity" needed a new `GameState` field.** No
+  existing status-immunity framework existed to hook into, so this shipped
+  as the narrowest fix: `PoisonImmuneTicksLeft` + `GrantPoisonImmunity`/
+  `TickPoisonImmunity`, gated at the single call site
+  (`ProcessHazardResolution`) where environmental poison actually applies.
+  Not generalized to other status effects — nothing else needs it yet.
+- **Boss-side poison DoT (Rotfang's on-hit effect) is a new symmetric
+  system, not reuse of player poison.** `NpcInstance` gained its own
+  `PoisonStacks`/`PoisonDurationTicksLeft`/`TickPoison()` — mirrors the
+  player-side shape but is a separate field set since `NpcInstance` and
+  `Player` don't share a status-effect base type. Ordering matters: the
+  tick's damage must be read (`PoisonDamagePerTick`) *before* calling
+  `TickPoison()`, since that call zeroes `PoisonStacks` as a side effect on
+  the poison's final tick — got this right first try, confirmed by 4
+  `RotfangPoisonTests`.
+- **Cold start's 600g default broke 3 existing tests** that assumed a
+  `0`-gold player (`RollLootTests`' gold-pseudo-item assertion, and two
+  `BankAndShopHandlerTests` cases relying on exact post-spend gold /
+  insufficient-funds behavior). Fixed by updating the expected value in one
+  and adding a `ZeroGold(player)` helper called at the top of the other two
+  — not a sign of a design problem, just tests that had baked in the old
+  default.
+- **Style-picker FTUE required a `StartGameCommand` signature change**
+  (`ChosenStyle` param threaded through `StartGameHandler`, which now
+  grants + equips + binds the T1 weapon for that style to loadout slot 0)
+  rather than a purely cosmetic front-end change — the free weapon has to
+  actually exist in the new player's bag/loadout, not just be implied by
+  the copy.
+  - Hit one real Razor syntax trap along the way: `@onclick="() =>
+    _chosenStyle = \"Melee\""` doesn't compile (backslash-escaping a
+    string literal inside a double-quoted Razor attribute delimiter is
+    invalid) — fixed by switching to single-quoted attribute delimiters
+    calling a named `SelectStyle(string)` method instead of an inline
+    lambda with an embedded string literal.
+- **Landscape-everywhere mandate: which screens needed real refactoring
+  vs. just widening.**
+  - **Hub menu**: real refactor, `flex-direction:column` → CSS Grid
+    2-column (`repeat(2,1fr)`), with the Fight/Group/Anim-editor cards
+    spanning both columns via `grid-column:1/-1`.
+    - **Bag**: real refactor, single vertical column → `bag-left-col`
+    (paperdoll + stat sheet + compare card) as a sibling of the inventory
+    grid, `.bag-body` switched from column-flex to row-flex, panel widened
+    to `min(760px,94vw)`.
+  - **Loadout Editor**: widened only (480px → 640px `max-width`), *not* a
+    true left/right split. The resolution doc's own framing ("left/right
+    panel splits ... never a single vertical column") isn't fully met here
+    — Action Bar (4 slots) and Flask Belt (2 slots) still stack vertically
+    within the widened panel rather than sitting side-by-side. Flagged as
+    a real follow-up in `backlog.md` rather than risked unverified in this
+    pass, since a genuine split would need new markup/CSS structure beyond
+    what a width bump covers.
+  - **Shop, Bank, Character sheet**: already reasonably landscape-shaped
+    (grid-based item lists / short vertical forms that fit inside the
+    500px-tall viewport this app targets) — no structural change needed,
+    confirmed by browser verification rather than assumed.
+- **`RotateOverlay` is pure CSS** (`@media (orientation: portrait)`,
+  `position:fixed; inset:0; z-index:1000`) — no JS/interop, matching the
+  architecture invariant that Three.js/JS never makes gameplay or layout
+  decisions. It's mounted once per non-combat branch of `Game.razor` (and
+  once in `NewGame.razor`), explicitly never inside `.battle-fs`, so
+  combat's pre-existing CSS auto-rotate trick is untouched.
+- **Verification caveat — Playwright and the overlay's own correctness
+  interact in a way worth recording.** Real automated `page.click()`/
+  `page.fill()` calls respect actual browser hit-testing, so in a portrait
+  viewport they get intercepted by the overlay exactly like a real
+  finger-tap would — that's the feature working, not a test failure, but
+  it meant the first three verification scripts (`probe3`–`probe7`)
+  legitimately couldn't drive the app past the New Game screen in portrait
+  and produced misleading "element not found" timeouts. Confirmed this by
+  dispatching a JS-level synthetic click/input directly on the underlying
+  elements (bypassing hit-testing on purpose, simulating "what's
+  underneath still works") — reached the hub and combat screens fine with
+  no console errors, and combat's `.battle-fs` auto-rotate rendered
+  correctly. Landscape-viewport screenshots (Hub grid, Shop, Bag split,
+  Loadout Editor) were captured with real (non-bypassed) clicks and match
+  the intended layouts. Not exercised: an actual mobile device or a
+  Playwright device emulation profile with real touch events — viewport
+  resize was used as the orientation signal, consistent with how the CSS
+  `@media (orientation: ...)` query itself works, but device-level touch
+  behavior wasn't separately verified.
+- **Full test suite**: 115 tests across `Duels.Domain.Tests` (21),
+  `Duels.Application.Tests` (51), `Duels.Infrastructure.Tests` (43) — all
+  passing after batch 1, including the 3 fixed by the cold-start default
+  and 9 new tests added for this batch (4 loot-group, 4 Rotfang poison, 1
+  style-start theory set). `dotnet build`: 0 warnings, 0 errors.

@@ -63,6 +63,7 @@ public sealed class BankAndShopHandlerTests
     public async Task Buy_SpendsGoldAndAddsToBag()
     {
         var (state, repo) = BuildState();
+        ZeroGold(state.Player);
         state.Player.AddGold(1000);
         var handler = new BuyItemHandler(repo, new StubItemRepo());
 
@@ -77,6 +78,7 @@ public sealed class BankAndShopHandlerTests
     public async Task Buy_FailsWithoutEnoughGold()
     {
         var (state, repo) = BuildState();
+        ZeroGold(state.Player);
         var handler = new BuyItemHandler(repo, new StubItemRepo());
 
         var result = await handler.HandleAsync(new BuyItemCommand("p1", "wpn_melee_t1"));
@@ -84,6 +86,10 @@ public sealed class BankAndShopHandlerTests
         Assert.False(result.Success);
         Assert.Empty(state.Player.Inventory);
     }
+
+    // Player now starts with 600g (backlog resolution batch 1 §4, cold start) --
+    // zero it out first wherever a test needs a known, non-default gold baseline.
+    private static void ZeroGold(Player player) => player.SpendGold(player.Gold);
 
     [Fact]
     public async Task Buy_OverflowsToBankWhenBagFull()

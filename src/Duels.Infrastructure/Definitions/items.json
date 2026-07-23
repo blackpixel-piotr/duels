@@ -253,6 +253,23 @@
       "Range": 7
     },
     {
+      "Id": "wpn_unique_mk",
+      "Name": "Rotfang",
+      "AttackType": "Stab",
+      "Doc": {
+        "Power": 9,
+        "Precision": 0.02,
+        "DefPoints": 0,
+        "Line": "None",
+        "Tier": 2,
+        "Special": null
+      },
+      "AttackSpeed": 2,
+      "ExamineText": "Maggot King's unique (items doc §3, backlog resolution batch 1): unique quality = boss tier + 1 (Maggot King T1 -> quality T2), Power = tier DPS x AttackSpeed. On-hit poison (5 ticks @ 2/tick, max 3 stacks, reapplication refreshes) is a passive on every landed hit while wielded -- see NpcInstance.ApplyRotfangPoison, hooked in GameTickService.ExecuteBasicAttackOnBoss. 1/20 drop (economy §5's Unique slot), not OnceOnly (uniques are sellable dupes).",
+      "AttackLevelRequired": 1,
+      "Range": 1
+    },
+    {
       "Id": "wpn_rare_mk",
       "Name": "Carrion Edge",
       "AttackType": "Slash",
@@ -269,7 +286,7 @@
         }
       },
       "AttackSpeed": 3,
-      "ExamineText": "Maggot King's rare (items doc §4): RL 150+ gated, best-in-slot melee weapon. Data-ingested ahead of its drop source — no Rare loot-table slot exists until M4 adds raid level, so this cannot drop yet. Its passive (20% of hits apply poison) and Fester's poison-detonation are NOT wired up: both depend on a boss-side poison DoT track that doesn't exist in the engine (the existing GameState.PlayerPoisoned system only poisons the player, never an NpcInstance) — flagged in m2-findings.md, not implemented this pass.",
+      "ExamineText": "Maggot King's rare (items doc §4): RL 150+ gated, best-in-slot melee weapon. Data-ingested ahead of its drop source — no Rare loot-table slot exists until M4 adds raid level, so this cannot drop yet. The boss-side poison-stack mechanism now exists (NpcInstance.PoisonStacks, built for Rotfang, backlog resolution batch 1) but Carrion Edge's own passive (20% of hits apply poison) and Fester's detonation are still NOT wired to it — out of this batch's scope since the item can't drop yet to test against.",
       "AttackLevelRequired": 1,
       "Range": 1
     }
@@ -1292,6 +1309,22 @@
     {
       "Id": "flask_prayer",
       "Name": "Prayer Flask"
+    },
+    {
+      "Id": "flask_rotward",
+      "Name": "Rotward Flask"
+    },
+    {
+      "Id": "chitin_fragment",
+      "Name": "Chitin Fragment"
+    },
+    {
+      "Id": "rot_gland",
+      "Name": "Rot Gland"
+    },
+    {
+      "Id": "rotward_shard",
+      "Name": "Rotward Shard"
     }
   ],
   "shopPrices": {
@@ -1340,5 +1373,13 @@
     "flask_health": 1000,
     "flask_prayer": 1000
   },
-  "fenceValues": {}
+  "fenceValues": {
+    // Backlog resolution batch 1 (§6): uniques sell for a flat 2,000g,
+    // replacing the earlier "15% of a T4 piece" formula. Rares stay at the
+    // default 0 (never sellable) -- no override needed for wpn_rare_mk.
+    "wpn_unique_mk": 2000,
+    // Backlog resolution batch 1 (§2): Maggot King's Common-slot materials.
+    "chitin_fragment": 25,
+    "rot_gland": 35
+  }
 }

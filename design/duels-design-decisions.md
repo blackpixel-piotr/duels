@@ -59,6 +59,7 @@ Pots and food exist as **flasks with fixed sip charges**, not farmable inventory
 - **Tuning note:** all boss damage budgets assume ~3 Health sips available; Bloodtithe's attrition math and Transfusion (special-only interrupt, unchanged) tune around this.
 
 ## Retired / Reincarnated Mechanics
+- **XP/levels**: gone for good (backlog resolution batch 1 §5, ratified). No combat XP or levels, ever — progression is gear, invocations, and the collection log. Any future account-level system is cosmetic-only and post-launch, out of scope for now.
 - **Linear ladder**: retired.
 - **Win streaks**: retired as-is (was ladder-bound); high-invocation streaks can serve a similar role if wanted.
 - **Endless survival mode**: candidate to fold in as a minigame variant or unlockable route — TBD.

@@ -218,7 +218,7 @@ OSRS's bank is the genre's best inventory UI; adapt it, don't reinvent it.
 
 ## 9. Shops
 
-**Gold Shop (progression gear).** Categorized grid (weapons by style, armour by slot), each item card showing stats + compare-delta vs equipped, gold price, and a "why buy" tag (e.g., "Unlocks viable Magic swaps for Mirrorhide"). Buyback tab for accidental sales. No confirm-spam: single confirm on purchases above a threshold only.
+**Gold Shop (progression gear).** Categorized grid (weapons by style, armour by slot), each item card showing stats + compare-delta vs equipped, gold price, and a "why buy" tag (e.g., "Unlocks viable Magic swaps for Mirrorhide"). Buyback tab for accidental sales. No confirm-spam: single confirm on purchases above a threshold only — **2,500g, canonical** (backlog resolution batch 1 §7).
 
 **The Emporium (run-currency, prestige-only).** Distinct visual identity — gaudier, trophy-hall vibe. Sells: cosmetic skins, transmog sets, titles, weapon VFX trails, arena victory poses, starting-loadout variants *for the minigame*, and the flex milestones display (not purchasable — earned, but displayed here to be coveted). Every item card states "Cosmetic — no stats," reinforcing the prestige-not-power law.
 

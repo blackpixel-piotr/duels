@@ -1,7 +1,9 @@
 @page "/"
+@using Duels.Web.Components.Hud
 @inject Duels.Web.Services.GameService Game
 @inject NavigationManager Nav
 
+<RotateOverlay />
 <div class="new-game-screen">
     <div class="new-game-box">
         <pre class="title-art glow-green">
@@ -40,13 +42,29 @@
                    placeholder="e.g. Zezima"
                    autocomplete="off"
                    spellcheck="false" />
-            <button class="continue-btn" @onclick="StartGame" disabled="@_starting">
+
+            @* Backlog resolution batch 1 §4: cold-start FTUE beat — choose a
+               style, get its T1 weapon free (600g start covers the rest). *@
+            <label class="style-pick-label">Choose your style — you'll start with its T1 weapon:</label>
+            <div class="style-pick-row">
+                <button class="style-pick-btn style-pick-melee @(_chosenStyle == "Melee" ? "active" : "")" @onclick='() => SelectStyle("Melee")'>
+                    ⚔ Melee<span class="style-pick-sub">Rustcleaver</span>
+                </button>
+                <button class="style-pick-btn style-pick-ranged @(_chosenStyle == "Ranged" ? "active" : "")" @onclick='() => SelectStyle("Ranged")'>
+                    ➶ Ranged<span class="style-pick-sub">Poacher's Bow</span>
+                </button>
+                <button class="style-pick-btn style-pick-magic @(_chosenStyle == "Magic" ? "active" : "")" @onclick='() => SelectStyle("Magic")'>
+                    ✦ Magic<span class="style-pick-sub">Cinder Wand</span>
+                </button>
+            </div>
+
+            <button class="continue-btn" @onclick="StartGame" disabled="@(_starting || _chosenStyle is null)">
                 @(_starting ? "Creating..." : "▶ BEGIN ADVENTURE")
             </button>
         </div>
 
         <div class="hint-text">
-            <p>Grab a loadout · Face the Maggot King · Flick your prayers</p>
+            <p>Free T1 weapon + 600g · Face the Maggot King · Flick your prayers</p>
         </div>
     </div>
 </div>
@@ -56,6 +74,7 @@
     private string _error = "";
     private bool _starting;
     private string? _saveName;
+    private string? _chosenStyle;
 
     protected override async Task OnInitializedAsync()
     {
@@ -66,6 +85,8 @@
         }
         _saveName = await Game.GetSaveNameAsync();
     }
+
+    private void SelectStyle(string style) => _chosenStyle = style;
 
     private async Task OnKeyDown(KeyboardEventArgs e)
     {
@@ -86,10 +107,15 @@
             _error = "Name too long (max 20 characters).";
             return;
         }
+        if (_chosenStyle is null)
+        {
+            _error = "Choose a style first.";
+            return;
+        }
 
         _starting = true;
         await Game.ClearSaveAsync();
-        var result = await Game.StartNewGameAsync(name);
+        var result = await Game.StartNewGameAsync(name, _chosenStyle);
         _starting = false;
 
         if (result.Success)

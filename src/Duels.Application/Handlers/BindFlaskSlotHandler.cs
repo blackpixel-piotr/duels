@@ -5,7 +5,7 @@ namespace Duels.Application.Handlers;
 
 public sealed class BindFlaskSlotHandler : ICommandHandler<BindFlaskSlotCommand>
 {
-    private static readonly HashSet<string> KnownFlasks = ["flask_health", "flask_prayer"];
+    private static readonly HashSet<string> KnownFlasks = ["flask_health", "flask_prayer", "flask_rotward"];
 
     private readonly IGameStateRepository _stateRepo;
 

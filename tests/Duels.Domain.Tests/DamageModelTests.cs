@@ -157,6 +157,17 @@ public sealed class DamageModelTests
         Assert.Equal(120, overCap.Damage);
     }
 
+    // Backlog resolution batch 1 §8 (ratified): 40% gear cap + Defensive
+    // style's flat 20% would naively total 60% -- must hard-clamp at 50%.
+    [Fact]
+    public void TotalMitigation_HardCapsAtFiftyPercent()
+    {
+        var model = new DamageModel(new MaxRollRandom());
+        // Max roll = 2 x 100 = 200. Gear cap 40% + Defensive 20% = 60% naive -> clamped to 50% -> 200 x 0.5 = 100.
+        var result = model.Roll(new AttackerProfile(100, 0, AttackStyle.Accurate), new DefenderProfile(500, DefensiveStyle: true));
+        Assert.Equal(100, result.Damage);
+    }
+
     [Fact]
     public void LineDamageBonus_ScalesMaxHitMultiplicatively()
     {

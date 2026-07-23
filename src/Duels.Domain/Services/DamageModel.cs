@@ -15,11 +15,17 @@ public sealed class DamageModel : IDamageModel
     public const double GearDefCap = 0.40;       // 40% cap from gear Def points
     public const double DefPointValue = 0.004;   // 0.4% per point
 
-    // Design assumption (items doc doesn't define "defense value" units for
-    // Defensive style — flagged in m1-findings.md): the style's own +20%
-    // "defense value" reduces incoming damage by 20%, stacking additively with
-    // (and uncapped by) the gear Def-point cap above.
+    // Ratified (backlog resolution batch 1 §8, items doc §1 — was flagged as
+    // an invented assumption in m1-findings.md, now canonical): the style's
+    // own +20% "defense value" reduces incoming damage by 20%, additive with
+    // the gear Def-point cap above.
     public const double DefensiveStyleIncomingReduction = 0.20;
+
+    // NEW (backlog resolution batch 1 §8, ratified): total mitigation from
+    // ALL sources (gear Def + Defensive style, and any future source) hard
+    // caps here — replaces the old 0.95 safety clamp, which was never a real
+    // design cap (40% gear + 20% Defensive = 60% could exceed it unbounded).
+    public const double TotalMitigationCap = 0.50;
 
     private readonly IRandomProvider _random;
 
@@ -73,6 +79,6 @@ public sealed class DamageModel : IDamageModel
     {
         double gearReduction = Math.Min(defender.DefPoints * DefPointValue, GearDefCap);
         double total = gearReduction + (defender.DefensiveStyle ? DefensiveStyleIncomingReduction : 0.0);
-        return Math.Clamp(total, 0, 0.95);
+        return Math.Clamp(total, 0, TotalMitigationCap);
     }
 }

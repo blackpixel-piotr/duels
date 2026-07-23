@@ -14,13 +14,16 @@ Companion to the Economy doc. All names are placeholders that bind to nothing: s
 ## 1. Combat Math Baseline (tunable, but consistent everywhere below)
 
 - Player max HP: **100**. Base hit chance: **~80% at-tier** — an accuracy roll of **Precision + style mod vs the target's per-style Evasion**; at matched tier (neutral Evasion) it lands ~80%.
-- Attack styles: Accurate +10% hit · Aggressive +20% damage, −10% hit · Defensive +20% defense value, −10% damage.
+- Attack styles: Accurate +10% hit · Aggressive +20% damage, −10% hit · Defensive +20% defense value, −10% damage. **Defensive's "defense value" is a flat 20% reduction of incoming damage on the defender, additive with gear Def-point reduction** (backlog resolution batch 1 §8, ratified — was flagged as an invented shape in m1-findings.md, now canonical). **NEW: total mitigation from all sources (gear Def + Defensive style, and any future source) hard-caps at 50%** — replaces the earlier unbounded-in-practice 95% safety clamp.
 - Weapon **Power** = **average** damage. A landed hit rolls a **uniform 0..2×Power**, so Power is the mean and **2×Power is the max hit** (shown on item cards; a max roll gets a distinct visual). Weapon **Precision** = flat hit-chance bonus.
 - Weapons have an **AttackSpeed** in ticks (dagger 2 · sword/bow/wand/staff 3 · greatsword/maul/war crossbow 4). Power = mean damage per hit; per-hit roll is uniform 0..2×Power. Tier balance anchors on DPS: **Power = tier DPS × AttackSpeed** (tier DPS: 3.33 / 4.67 / 6.33 / 8.33; rares 9.33). Attack cooldown is **global and persists across swaps**; specials **consume the next attack slot**; a flask sip **adds +1 tick** to the current cooldown.
 - **Boss standard attacks (autos)** roll **60–100% of their listed band** each cast. **Mechanic/hazard damage** (eruptions, beams, boulders, dives) **and DoTs are deterministic** — dodge-checks that always land for exactly their listed value, never rolled.
 - **Per-style Evasion** (melee/ranged/magic) is each boss's accuracy lever: neutral (0) leaves the ~80% at-tier baseline; a positive value on one style makes the boss "favor" being fought another way, with no mechanic changes.
-- Armour **Def** points: each point reduces incoming damage of its matching style by **0.4%** (cap 40% from gear). Spread differs per armour line (§5).
+- Armour **Def** points: each point reduces incoming damage of its matching style by **0.4%** (cap 40% from gear). Spread differs per armour line (§5). The 40% gear cap and Defensive style's flat 20% (above) combine under the same 50% total-mitigation hard cap.
 - Special energy: max 100 base; regen ~2/tick out of danger, 1/tick in combat (tunable).
+- **Boost prayer: +20% Power while active** (backlog resolution batch 1 §8, ratified — carried over from the pre-M1 Piety number, now canonical rather than an unsourced carry-over).
+- **Scorch (Cinder Wand special): 3 ticks @ 3 dmg/tick. Rend (Splitter special): bleed 4 ticks @ 3 dmg/tick, plus a 1.3× base-hit multiplier on the triggering hit** (backlog resolution batch 1 §8, ratified DoT baselines).
+- **Prayer points: flat 99-point pool** (backlog resolution batch 1 §9, ratified). **Prayer drain cadence: 1 drain event per 9 ticks** while a protection or boost prayer is active (2 points/event for protection, 1 for boost) — a future "Leaky Faith" invocation is the intended modifier hook for this cadence, not yet built.
 - **Protection prayer** (matching style) **fully negates** boss basic-attack damage — 100% block, not a percentage reduction — unless the attack is marked Unprayable (ground hazards, arena-wide channeled blasts). Checked on the **impact tick**, not the cast tick — a ranged/magic attack travels as a homing doctrine-colored projectile (~3 tiles/tick, flight time scales with distance) so a prayer raised any time before it lands still blocks it. See boss bible's "Prayer grammar" and the Doubt invocation (75% block) for the one thing that weakens this.
 
 ---
@@ -48,16 +51,29 @@ Special descriptions are deliberately archetype-flexible (a "sweeping/heavy/line
 
 ## 3. Boss Uniques (1/20 drop, boss-flavored identity)
 
-| Boss | Name | Slot | Effect | Model |
-|---|---|---|---|---|
-| Maggot King | Rotfang | Melee (dagger) | Hits apply poison (stacking with fight mechanics) | 🟢 dagger |
-| Hive Matron | Chitin Recurve | Ranged (bow) | +10% damage against moving/airborne targets | 🟢 bow, chitin tint |
-| Mirrorhide | Prism Wand | Magic (wand) | Special attacks cost −15% energy | 🟢 wand + crystal kitbash |
-| Bloodtithe | Leech Blade | Melee (sword) | 8% lifesteal on melee hits | 🟢 sword, crimson tint |
-| Gale Roc | Talon Dirk | Melee (dagger) | +15% damage for 3 ticks after you Perfect Dodge | 🟢 dagger |
-| The Unblinking | Petrified Sabatons | Boots | +10 Def (all styles) while you haven't moved for 2+ ticks | 🟢 outfit boots, stone tint |
-| Millstone Golem | Quarry Gauntlets | Gloves | Knockback distance against you reduced by 1 tile | 🟢 outfit gloves |
-| Grand Duelist | Contender's Cloak | Cape | +5 max special energy | 🟡 cape → fallback: flat-plane mesh |
+**Unique-quality rule (backlog resolution batch 1 §1, closes the "no stats
+for uniques" gap for all 8):** a unique's quality tier = its boss's own tier
++ 1. Weapon Power = that quality tier's DPS × the weapon's AttackSpeed (§1's
+tier-DPS table). Armour uniques carry that quality tier's slot Def (§5's Def
+table). **Melee AttackType by archetype** (cosmetic-only, picks the swing
+animation, doesn't change mitigation — protection prayer buckets all melee
+as one style): dagger = Stab, sword/axe = Slash, hammer/maul = Crush.
+
+| Boss (tier) | Name | Slot | Stats | Effect | Model |
+|---|---|---|---|---|---|
+| Maggot King (T1→T2) | Rotfang | Melee (dagger, Stab) | 9 Power, 2t Speed, +2% Prec | On-hit poison: 5 ticks @ 2/tick, max 3 stacks, reapplication refreshes | 🟢 dagger |
+| Hive Matron (T1→T2) | Chitin Recurve | Ranged (bow) | 14 Power, 3t Speed, +2% Prec | +10% damage against moving/airborne targets | 🟢 bow, chitin tint |
+| Mirrorhide (T2→T3) | Prism Wand | Magic (wand) | 19 Power, 3t Speed, +4% Prec | Special attacks cost −15% energy | 🟢 wand + crystal kitbash |
+| Bloodtithe (T2→T3) | Leech Blade | Melee (sword, Slash) | 19 Power, 3t Speed, +4% Prec | 8% lifesteal on melee hits | 🟢 sword, crimson tint |
+| Gale Roc (T3→T4) | Talon Dirk | Melee (dagger, Stab) | 17 Power, 2t Speed, +6% Prec | +15% damage for 3 ticks after you Perfect Dodge | 🟢 dagger |
+| The Unblinking (T3→T4) | Petrified Sabatons | Boots | 7 Def | +10 Def (all styles) while you haven't moved for 2+ ticks | 🟢 outfit boots, stone tint |
+| Millstone Golem (T3→T4) | Quarry Gauntlets | Gloves | 7 Def | Knockback distance against you reduced by 1 tile | 🟢 outfit gloves |
+| Grand Duelist (→T4) | Contender's Cloak | Cape | 7 Def | +5 max special energy | 🟡 cape → fallback: flat-plane mesh |
+
+Only Rotfang is ingested into `items.json` so far (Maggot King is the only
+boss that exists) — the other seven now have real, doc-sourced stats ready
+for their own boss's milestone, so that milestone doesn't hit this same
+"no stats" gap again.
 
 ---
 
@@ -76,13 +92,17 @@ Special descriptions are deliberately archetype-flexible (a "sweeping/heavy/line
 
 **Legs BiS is intentionally absent at launch** — reserved for the first hard-mode boss variant, so the update ships with a chase item built in.
 
-Rares are never sellable; uniques sell for 15% of a T4 piece.
+**Rares (and uniques) carry no armour `Line`** (backlog resolution batch 1 §7, ratified) — they sit outside the shop-ladder's Warbound/Stalker/Occult identity/set-bonus system by design; that system is a shop-ladder mechanic, not a general one.
+
+Rares are never sellable; uniques sell for a flat **2,000g** (backlog resolution batch 1 §6, replacing the earlier "15% of a T4 piece" formula — simpler, and doesn't need picking which T4 piece to anchor against).
 
 ---
 
 ## 5. Armour — Three Style Lines (mapped to the outfit pack)
 
 **Design change from the Economy doc (superseding its generic ladder):** armour comes in three themed lines, one per combat style, mapped to the pack's outfits. Stats are shared per tier; each line adds a small identity bonus. Prices per piece are unchanged from the Economy ladder.
+
+**Per-slot pricing rule (backlog resolution batch 1 §7, ratified — closes the "range, not exact prices" gap):** economy §4 gives only a per-tier price *range*; the canonical per-slot price linearly interpolates within that range by the slot's own Def weight below — Boots/Gloves/Cape (lightest) anchor the range's low end, Body (heaviest) anchors the high end, Legs/Helmet fall proportionally between. `items.json`'s `shopPrices` implements this exactly.
 
 | Line | Identity bonus (any piece count) | Outfit mapping |
 |---|---|---|

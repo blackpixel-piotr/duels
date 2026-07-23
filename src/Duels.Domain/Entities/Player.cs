@@ -53,12 +53,13 @@ public sealed class Player
         Name = name;
         CurrentHp = MaxHp;
         SpecialEnergy = 100;
-        PrayerPoints = 99;
-        // PROVISIONAL: no design doc specifies new-player starting gold; the
-        // economy doc's pacing model (first purchase <=15 min, T1 kit ~1,600g)
-        // assumes near-zero starting gold, so 0 rather than the prior
-        // unattributed 10,000g (m1-findings.md addendum, M2 pre-plan sweep).
-        Gold = 0;
+        PrayerPoints = 99; // Ratified, items doc §1 (backlog resolution batch 1 §9) -- flat 99-point pool.
+        // Cold-start ruling (backlog resolution batch 1 §4, economy doc §1):
+        // 600g start + one free T1 weapon (granted by StartGameHandler) —
+        // resolves the M2 pre-plan's flagged cold-start gap (0 gold + no
+        // regular-duel income meant a fresh player couldn't afford gear
+        // without already having gear).
+        Gold = 600;
     }
 
     /// <summary>UI bible §7 (ratified M2 pre-plan): "The carried bag is 28

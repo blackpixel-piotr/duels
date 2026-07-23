@@ -6,7 +6,8 @@ All numbers are launch targets, chosen for coherence with the pacing decisions (
 
 ## 1. Design Targets (the numbers serve these, not vice versa)
 
-- First shop purchase within **15 minutes** of first play.
+- **Cold start (backlog resolution batch 1 §4, ratified):** new players start with **600g and one free T1 weapon** of their chosen style (a "choose your style" FTUE beat at character creation) — resolves the earlier flagged gap where 0 starting gold + no non-boss income left a fresh player unable to afford gear without already having gear.
+- First shop purchase within **15 minutes** of first play — trivially met: the 600g start makes the first purchase possible at minute 0, before the first fight.
 - A meaningful gear upgrade every **45–90 min** in early game, stretching to **3–5 h** per upgrade late game.
 - First Maggot King clear (base) reachable in **2–4 h** total play.
 - Failure costs **zero currency and zero items** — death is only time.
@@ -19,7 +20,7 @@ All numbers are launch targets, chosen for coherence with the pacing decisions (
 
 | Currency | Source | Spent on | Notes |
 |---|---|---|---|
-| **Gold** | Duels, boss kills, item drops (sell value) | Gold Shop gear | The vertical-progression currency |
+| **Gold** | Boss kills, item drops (sell value), the 600g cold-start grant | Gold Shop gear | The vertical-progression currency |
 | **Laurels** | Minigame runs (completion-weighted) | Emporium cosmetics/prestige | Never buys stats |
 | **Drops** | Boss loot tables | — (equipped or sold) | Uniques and rares are untradeable-flagged for now (no player trading at launch) |
 
@@ -50,18 +51,19 @@ At RL 150 those rates roughly ×2.5 — invocations are always the best gold in 
 
 Weapons per style (melee/ranged/magic) and armour per slot at each tier. Prices assume the income table above.
 
-| Tier | Weapon | Armour piece (×6 slots) | Full set | Earned at tier below in… |
+| Tier | Weapon | Armour piece (×6 slots) | Full set (weapon + 6 armour, actual priced total) | Earned at tier below in… |
 |---|---|---|---|---|
-| T1 | 500g | 200–350g | ~1,600g | ~20 min of first kills |
-| T2 | 2,500g | 900–1,400g | ~7,000g | ~1.5 h of Tier-1 bossing |
-| T3 | 10,000g | 3,500–5,500g | ~27,000g | ~3.5 h of Tier-2 bossing |
-| T4 (shop ceiling) | 30,000g | 10,000–15,000g | ~75,000g | ~7 h of Tier-3 bossing |
+| T1 | 500g | 200–350g | 2,000g | ~10 min (weapon is free — cold-start grant covers most of it) |
+| T2 | 2,500g | 900–1,400g | 8,900g | ~1h20 total from character creation |
+| T3 | 10,000g | 3,500–5,500g | 35,000g | ~3 h of Tier-2 bossing |
+| T4 (shop ceiling) | 30,000g | 10,000–15,000g | 100,500g | ~5.5 h of Tier-3 bossing |
 
 **Above T4, gear comes only from drops** — rares are the endgame chase, the shop is the floor.
 Flasks: baseline Health & Prayer flasks cost 1,000g each (one-time unlock); specialty flasks are drops only.
 **Buyback:** full price refund within the session, 80% after.
 
-**Cadence check:** T1 full kit ≈ minute 20–30 ✓ · T2 kit ≈ hour 2 (right at first Maggot King clears) ✓ · T3 kit ≈ hour 6–7 · T4 kit ≈ hour 14–18 — after which the economy hands progression to drop tables and invocation-scaled rares. Matches the target cadence.
+**Cadence check (recomputed, backlog resolution batch 1 §6 — was last computed against the pre-ratification 300g Tier-1 rate and never refreshed against the 500g rate, then the 600g/free-weapon cold-start grant changed the starting point too):**
+First purchase: **minute 0** (the 600g start covers 1–2 T1 armour pieces before the first fight — exceeds the ≤15 min target). T1 full kit ≈ **~10 min** (weapon free; 900g short of the 1,500g armour total after the 600g start, covered by 2 Maggot King kills at 500g/~4 min each) — notably faster than the old ~20–30 min target; worth a playtest sanity check on whether that's too fast, not just faster. T2 kit ≈ **~1h20** total from character creation (continuing at the Tier-1 rate, 7,500g/h) — fits the "45–90 min meaningful upgrade" target (§1) squarely. T3 kit ≈ **~3h** of Tier-2 bossing (12,000g/h). T4 kit ≈ **~5.5h** of Tier-3 bossing (18,000g/h) — after which the economy hands progression to drop tables and invocation-scaled rares. Full-set totals in the table above are the actual per-slot prices summed (`items.json`), not the pre-implementation ballpark this row used to cite — they run ~25–33% higher than the old rough estimates (e.g. T4 ~100.5k vs. the old "~75,000g"), a discrepancy this recompute surfaced and corrected rather than papering over.
 
 ---
 
@@ -117,7 +119,7 @@ At ~12–15 min per run, a full transmog set ≈ **7–9 hours** of minigame pla
 
 ## 7. Faucets & Sinks Audit
 
-**Faucets:** duel gold, boss gold (RL-scaled), item sell values.
+**Faucets:** boss gold (RL-scaled), item sell values, the one-time 600g cold-start grant.
 **Sinks:** shop ladder (finite — exhausted ~hour 15–18), flask unlocks, buyback friction.
 **Known gap:** once T4 is bought, gold has no sink and inflates. Acceptable at launch (drops carry endgame), but flag for the first content update: candidate sinks are gold-purchased cosmetic dyes, invocation-run "stakes" (optional gold ante for bonus loot rolls), or crafting using the reserved materials. Decide before inflation is visible, not after.
 **Laurels** have no gap: the Emporium catalogue grows with every cosmetic batch.

@@ -5,6 +5,11 @@ namespace Duels.Domain.ValueObjects;
 public static class AttackRange
 {
     public const int Melee = 1;
+    // PROVISIONAL: dead path (backlog.md #28). No design doc sources this
+    // value; kept only for the DummyStyle non-scripted movement fixture,
+    // which is itself provably unreachable by real content now that every
+    // fightable thing is a boss (m1-findings.md's M2 pre-plan addendum).
+    // Real weapon ranges come from each weapon's own Range field instead.
     public const int Distant = 8;
 
     public static int ForStyle(AttackType t) =>

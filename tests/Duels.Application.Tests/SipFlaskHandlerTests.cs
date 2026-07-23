@@ -51,6 +51,27 @@ public sealed class SipFlaskHandlerTests
         Assert.Equal(4, state.PlayerCooldown);
     }
 
+    // Backlog resolution batch 1 §3: Rotward sip cleanses poison + grants 15-tick immunity.
+    [Fact]
+    public async Task Sip_Rotward_CuresPoisonAndGrantsImmunity()
+    {
+        var player = new Player("p1", "Hero");
+        player.Loadout.BindFlask(0, "flask_rotward");
+        var state = new GameState("p1", player);
+        var goblin = new NpcTemplate("goblin", "Goblin", "It's a goblin.",
+            new CombatStats(1, 1, 1, 10), [], GoldReward: 5, DummyStyle: AttackType.Crush);
+        state.StartDuel(new NpcInstance(goblin));
+        state.ApplyPoison();
+        Assert.True(state.PlayerPoisoned);
+
+        var handler = new SipFlaskHandler(new InMemoryStateRepo(state));
+        var result = await handler.HandleAsync(new SipFlaskCommand("p1", 0));
+
+        Assert.True(result.Success);
+        Assert.False(state.PlayerPoisoned);
+        Assert.Equal(15, state.PoisonImmuneTicksLeft);
+    }
+
     private sealed class InMemoryStateRepo : IGameStateRepository
     {
         private readonly GameState _state;
