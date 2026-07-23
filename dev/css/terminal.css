@@ -116,6 +116,28 @@ html, body {
 }
 .name-form button:hover { background: rgba(57,211,57,0.12); }
 .name-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── Cold-start "choose your style" FTUE (backlog resolution batch 1 §4) ─── */
+.style-pick-label { color: var(--amber); font-size: 11px; margin-top: 4px; }
+.style-pick-row { display: flex; gap: 6px; }
+.style-pick-btn {
+    flex: 1;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 12px;
+    padding: 10px 4px;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    cursor: pointer;
+    border-radius: 0;
+    touch-action: manipulation;
+}
+.style-pick-sub { font-size: 9px; color: var(--text-dim); }
+.style-pick-melee.active  { border-color: var(--doctrine-melee); color: var(--doctrine-melee); }
+.style-pick-ranged.active { border-color: var(--doctrine-ranged); color: var(--doctrine-ranged); }
+.style-pick-magic.active  { border-color: var(--doctrine-magic); color: var(--doctrine-magic); }
+.style-pick-btn:hover:not(.active) { border-color: var(--text-dim); }
 .error-msg { color: var(--red); margin-bottom: 12px; font-size: 12px; }
 .hint-text { color: var(--text-dim); font-size: 11px; line-height: 1.8; }
 .hint-text code { color: var(--amber); }
@@ -676,15 +698,20 @@ html, body {
 .duel-result-actions .quickslot:hover { border-color: var(--west-orange); color: var(--west-gold); }
 
 /* ─── Hub menu (out-of-duel home screen) ─── */
-/* With the event log gone the hub fills the column above the HUD. */
+/* Landscape-everywhere mandate (backlog resolution batch 1 §10): a 2-column
+   grid uses the wide-short viewport instead of a single scrolling vertical
+   column. FIGHT (the primary CTA) and the dev-loadout group (already its
+   own internal row) each span both columns; everything else pairs 2-up. */
 .hub-menu {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     gap: 6px;
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
+    align-content: start;
 }
+.hub-card-fight, .hub-card-group, .hub-card-anim-editor { grid-column: 1 / -1; }
 .hub-card {
     display: flex;
     align-items: center;
@@ -1228,7 +1255,11 @@ html, body {
 }
 
 /* ─── Bag & Character sheets ─── */
-.bag-panel, .char-panel { width: min(480px, 96vw); }
+/* Landscape-everywhere mandate (backlog resolution batch 1 §10): wider panel,
+   left/right split instead of one tall scrolling column. */
+.bag-panel { width: min(760px, 94vw); max-height: 92dvh; }
+.char-panel { width: min(480px, 96vw); }
+.bag-left-col { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; width: min(300px, 40vw); }
 
 /* ─── Paper doll (spinnable voxel player + equipment slots) ─── */
 .paperdoll {
@@ -1251,13 +1282,24 @@ html, body {
 }
 .voxel-canvas:active { cursor: grabbing; }
 .voxel-icon { image-rendering: pixelated; flex-shrink: 0; }
-.bag-body, .char-body {
+.char-body {
     overflow-y: auto;
     padding: 8px;
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
+/* .bag-body: left column (paperdoll/preview/stat sheet/compare card) beside
+   the inventory grid, not stacked above it -- see .bag-left-col above. */
+.bag-body {
+    overflow-y: auto;
+    padding: 8px;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 10px;
+}
+.bag-body .inventory-panel { flex: 1 1 0; min-width: 0; }
 
 /* ─── Collection log modal ─── */
 .log-panel {
@@ -1468,6 +1510,38 @@ html, body {
     overflow: hidden;
     touch-action: none;
 }
+/* ─── Landscape-everywhere mandate (backlog resolution batch 1 §10) ───
+   Every non-combat screen: no portrait layout, ever -- block with a
+   rotate-device prompt instead. Combat is the one exception (its own
+   auto-rotate trick below), so <RotateOverlay /> is only mounted on
+   non-combat pages/branches, never inside .battle-fs. */
+.rotate-overlay { display: none; }
+@media (orientation: portrait) {
+    .rotate-overlay {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        background: var(--bg);
+        color: var(--amber);
+        text-align: center;
+        padding: 24px;
+    }
+    .rotate-overlay-icon {
+        font-size: 48px;
+        animation: rotate-overlay-spin 1.6s ease-in-out infinite;
+    }
+    .rotate-overlay-text { font-size: 14px; color: var(--text); max-width: 260px; }
+}
+@keyframes rotate-overlay-spin {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(-90deg); }
+}
+
 /* Auto-rotate to landscape when the phone is held portrait: the fight is
    rotated 90° to fill the screen sideways. Real DOM buttons rotate with it and
    stay tappable; voxel.js is told viewRot=90 so canvas taps map back. */
@@ -1627,7 +1701,12 @@ html, body {
 .qs-special .qs-icon { position: relative; z-index: 1; }
 
 /* ─── M1: Loadout Editor ─── */
-.loadout-panel { max-width: 480px; }
+/* Landscape-everywhere mandate (backlog resolution batch 1 §10): widened
+   from 480px so the modal reads less like a tall portrait column, though the
+   Action Bar / Flask Belt sections still stack -- a full side-by-side split
+   needs the weapon/flask picker panels pulled out of the linear flow first;
+   flagging as a real follow-up rather than risking that restructure unverified. */
+.loadout-panel { max-width: 640px; width: min(640px, 94vw); }
 .loadout-body { display: flex; flex-direction: column; gap: var(--panel-gap); padding: 10px; overflow-y: auto; }
 .loadout-bar { display: flex; flex-direction: column; gap: 6px; }
 .loadout-slot {
