@@ -89,7 +89,26 @@ pass, not later.
 
 ## D. Design questions needing human confirmation (not doc-blocked, just unanswered)
 
-*(All resolved — see Resolved section. Numbers below retired, not reused.)*
+*(Items #16–24 all resolved — see Resolved section. Those numbers retired,
+not reused.)*
+
+34. **Distribution: browser/PWA vs. store wrapper (e.g. Capacitor) — never
+    actually decided.** Flagged in the implementation brief itself
+    ("affects input/fullscreen/perf testing targets. Decide by M1's
+    playtest") but M1 shipped without deciding it and it was never carried
+    forward as an open item until now. This isn't cosmetic: it determines
+    how fullscreen and portrait/landscape orientation are even supposed to
+    work. A store-wrapped app gets OS-level landscape lock (no phone-held-
+    portrait case exists at all) and real fullscreen for free — no CSS
+    trick or in-page button needed for either. A pure browser/PWA target
+    can't get true fullscreen on iOS at all (Safari/Firefox-iOS, both
+    WebKit, don't implement the Fullscreen API for arbitrary elements —
+    only `<video>` can), and needs the CSS rotate-prompt workaround
+    (`RotateOverlay`, see the landscape-mandate Resolved entry above) to
+    handle portrait. Currently building/testing as if it's a Capacitor
+    target eventually — the in-browser fullscreen button and rotate-prompt
+    are both provisional, dev-time-only affordances until this is decided.
+    *(Brief, flagged since M0/M1, surfaced concretely this session)*
 
 ## E. Technical debt / dev tooling
 
@@ -220,14 +239,26 @@ batch-1 addendum for which screens structurally resisted full conversion
 (Loadout Editor's Action-Bar/Flask-Belt split stayed a widened single
 column rather than a true left/right split — flagged as a real follow-up,
 not risked unverified).
-  - **Superseded same session**: batch 1 originally shipped this via a
-    `<RotateOverlay />` that blocked all non-combat screens in portrait
-    with a "rotate your device" prompt. Immediately revised per explicit
-    user instruction: no blocking prompt anywhere — every screen now
-    auto-rotates to fill the display, using the exact same CSS
-    fixed+`transform:rotate(90deg)` trick `.battle-fs` already used for
-    combat (`.hub-shell` wraps the hub/modals in `Game.razor`, `display:
-    contents` outside portrait so it's invisible to `.game-shell`'s normal
-    flex layout, a real rotated fixed box only in portrait;
-    `.new-game-screen` got the same portrait-only override).
-    `RotateOverlay.razor` deleted. CLAUDE.md's rule text updated to match.
+  - **Superseded same session, then reverted back**: batch 1 originally
+    shipped this via a `<RotateOverlay />` that blocked all non-combat
+    screens in portrait with a "rotate your device" prompt. First revised
+    per explicit user instruction to auto-rotate everywhere instead (no
+    blocking prompt), using the same CSS fixed+`transform:rotate(90deg)`
+    trick `.battle-fs` uses for combat. Real-device playtesting then
+    surfaced a structural bug this approach can't cleanly solve: rotating
+    an ancestor swaps which DOM axis reads as "visual vertical" for
+    everything inside it, so any *flowing/stacking, potentially-scrollable*
+    content (the New Game form, Bag's grid, Bank's lists, Shop, Loadout —
+    all of it, since none of these screens are absolutely-positioned like
+    combat's HUD) gets its overflow pushed onto the wrong screen axis and
+    the native scroll gesture stops matching what the user expects — "badly
+    overflowing, can't even scroll up." `.battle-fs` never hit this because
+    it has no scrolling content at all.
+    **Reverted to `<RotateOverlay />`** (recreated, same file/behavior as
+    originally shipped) for all non-combat screens; combat's own
+    `.battle-fs` auto-rotate is untouched throughout both changes.
+    This also lines up with the still-undecided Distribution question
+    below: a store-wrapped app gets OS-level landscape lock and real
+    fullscreen for free, making the in-browser rotate-prompt only a
+    dev/playtest-time affordance, not a permanent UX compromise in the
+    shipped product. CLAUDE.md's rule text reverted to describe the prompt.

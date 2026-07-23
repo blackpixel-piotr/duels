@@ -345,3 +345,74 @@ player to physically turn their phone.
   rewritten, so the original RotateOverlay decision stays visible as a
   record of what actually shipped first. CLAUDE.md's landscape rule text
   updated to describe auto-rotate instead of a rotate prompt.
+
+### Second same-session follow-up: fullscreen button, then reverting auto-rotate back to RotateOverlay
+
+- **Fullscreen button added** to the New Game screen: a small `⛶`
+  icon-button top-right, calling a new `window.toggleFullscreen()` JS
+  interop function (standard + webkit-prefixed Fullscreen API, try/catch
+  fallback matching the existing `hapticPulse` pattern). Verified working
+  in Chromium (`document.fullscreenElement` becomes truthy on click).
+  **Caveat surfaced immediately by the user on a real device**: iOS
+  Safari and Firefox-for-iOS don't implement the Fullscreen API for
+  arbitrary DOM elements at all (only `<video>` can go fullscreen on iOS,
+  via `webkitEnterFullscreen`) — this is an Apple/WebKit platform
+  limitation, not something fixable in JS. The button silently no-ops
+  there (try/catch swallows the failure) rather than erroring, but it
+  doesn't do anything useful on iOS either. Left as-is: correct/working
+  on Chromium-family browsers, harmless no-op on iOS.
+- **Auto-rotate reverted back to RotateOverlay.** The prior follow-up's
+  CSS-transform auto-rotate (`.hub-shell` + `.new-game-screen` fixed +
+  `rotate(90deg)`) looked correct in Playwright (content fit the test
+  viewport with no overflow) but the user hit real breakage on an actual
+  device: "every ingame menu and even the start screen is overflowing
+  badly, sometimes it's not even possible to scroll up." Root cause,
+  worked out analytically and confirmed against the CSS: rotating an
+  ancestor 90° doesn't change how its descendants compute layout (layout
+  happens pre-transform, in "local" coordinates) — it only repaints the
+  whole subtree rotated. A `rotate(90deg)` maps local point `(x,y)` to
+  screen `(-y,x)` relative to the transform origin, so **local +X maps to
+  screen +Y (down) and local +Y maps to screen -X (left)**. Combat's HUD
+  never hit this because every element in `.battle-fs` is
+  absolutely-positioned with small corner offsets — those look fine near
+  either corner regardless of which local axis is "screen-down" after
+  rotation. But `.new-game-screen`/`.hub-shell`'s children are normal
+  flowing/stacking content (a form, panel lists, an inventory grid): the
+  default flex `row` main-axis (local X) is the one that maps correctly to
+  "visual vertical," but each screen's actual content stacks along local
+  Y (their own internal flex-columns) — which maps to *screen-horizontal*
+  after rotation. Content taller than the rotated box's cross-axis
+  bleeds sideways off-screen, and the `overflow-y:auto` that would
+  normally fix it scrolls the *local* Y axis, which is horizontal on
+  screen post-rotation — so a vertical swipe doesn't scroll it. This
+  isn't a one-line fix: it affects every scrollable descendant panel
+  bundled inside the rotated subtree (Bag's inventory grid, Bank's panes,
+  Shop's list, Loadout's action bar), not just the outer screen, since the
+  whole subtree rotates as one paint layer. Fixing it properly would mean
+  reworking each panel's internal stacking axis to swap with orientation
+  — high risk of missing a panel, not attempted.
+  - Reverted: `RotateOverlay.razor` recreated (deleted, then recreated
+    identical), remounted in `Game.razor`'s non-combat branch and
+    `NewGame.razor`; `.hub-shell` wrapper and both portrait `rotate(90deg)`
+    overrides removed from `terminal.css`; `.rotate-overlay` CSS restored.
+    Combat's own `.battle-fs` auto-rotate was never touched by either
+    follow-up — it doesn't have this problem since it never scrolls.
+  - Re-verified via Playwright: portrait shows the rotate overlay again
+    (blocking, as originally shipped); landscape hub/loadout/bag screens
+    render identically to the pre-regression screenshots, no overflow.
+- **Distribution decision surfaced as a real, overdue gap** (added to
+  `backlog.md` as item #34): the implementation brief flagged
+  "browser/PWA vs. store wrapper (e.g. Capacitor) — decide by M1's
+  playtest" and it was never actually decided or carried forward as an
+  open backlog item. This session's back-and-forth (CSS auto-rotate vs.
+  rotate-prompt, fullscreen button vs. iOS's total lack of support for it)
+  is exactly the kind of decision that question was meant to prevent
+  re-litigating ad hoc: a Capacitor-wrapped app gets OS-level landscape
+  lock and real fullscreen for free, making both the in-browser fullscreen
+  button and the rotate-prompt dev/playtest-time-only affordances rather
+  than permanent product UX. Recommended (not yet decided by a human):
+  Capacitor wrapper for the App Store target, per the user's stated intent
+  to ship there.
+- **Full test suite re-verified**: 115/115 passing, `dotnet build`: 0
+  warnings, 0 errors, after both the fullscreen-button addition and the
+  auto-rotate revert.
