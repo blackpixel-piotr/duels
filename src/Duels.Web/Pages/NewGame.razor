@@ -1,8 +1,10 @@
 @page "/"
 @inject Duels.Web.Services.GameService Game
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 <div class="new-game-screen">
+    <button class="fullscreen-btn" @onclick="ToggleFullscreen" title="Toggle fullscreen">⛶</button>
     <div class="new-game-box">
         <pre class="title-art glow-green">
   ____  _   _ _____ _     ____
@@ -85,6 +87,8 @@
     }
 
     private void SelectStyle(string style) => _chosenStyle = style;
+
+    private async Task ToggleFullscreen() => await JS.InvokeVoidAsync("toggleFullscreen");
 
     private async Task OnKeyDown(KeyboardEventArgs e)
     {
