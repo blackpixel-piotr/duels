@@ -66,6 +66,22 @@
             const b = document.getElementById('tick-bar');
             if (b) b.style.transform = 'scaleX(0)';
         };
+        // Fullscreen toggle (main-menu button) -- best-effort, same
+        // try/catch-and-ignore approach as hapticPulse: not every browser
+        // supports the Fullscreen API (notably iOS Safari), so this
+        // silently no-ops there rather than erroring out.
+        window.toggleFullscreen = () => {
+            try {
+                const el = document.documentElement;
+                const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+                if (!fsEl) {
+                    (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el);
+                } else {
+                    (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+                }
+            } catch { /* unsupported */ }
+        };
+        window.isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
     </script>
     <script>
         // service-worker.js is currently a self-unregistering kill switch,
