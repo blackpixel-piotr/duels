@@ -105,9 +105,13 @@ not reused.)*
     WebKit, don't implement the Fullscreen API for arbitrary elements —
     only `<video>` can), and needs the CSS rotate-prompt workaround
     (`RotateOverlay`, see the landscape-mandate Resolved entry above) to
-    handle portrait. Currently building/testing as if it's a Capacitor
-    target eventually — the in-browser fullscreen button and rotate-prompt
-    are both provisional, dev-time-only affordances until this is decided.
+    handle portrait. **Update**: the rotate-prompt approach was abandoned
+    (see the landscape-mandate Resolved entry's third follow-up) — non-
+    combat screens are now genuinely orientation-responsive, no forced
+    layout in either state, so portrait is no longer blocked at all in the
+    browser build. The in-browser fullscreen button remains a provisional,
+    dev-time-only affordance (real fullscreen still only matters for a
+    non-wrapped browser/PWA target) until this decision is made.
     *(Brief, flagged since M0/M1, surfaced concretely this session)*
 
 ## E. Technical debt / dev tooling
@@ -262,3 +266,26 @@ not risked unverified).
     fullscreen for free, making the in-browser rotate-prompt only a
     dev/playtest-time affordance, not a permanent UX compromise in the
     shipped product. CLAUDE.md's rule text reverted to describe the prompt.
+  - **Fully reverted a third time — the whole §10 mandate is undone.**
+    Even the rotate-prompt turned out to be the wrong call for actual
+    playtesting: forcing a tester to physically rotate their phone just to
+    reach the Hub/Bag/Bank/Shop/Loadout, on the promise of a landscape
+    layout that only partially delivered on the UI bible's spec anyway
+    (see the "structurally resisted full conversion" note above), made
+    those screens worse to use, not better. Per explicit instruction,
+    restored the exact pre-batch-1 behavior: **no forced orientation on
+    any non-combat screen at all** — `RotateOverlay` deleted outright (not
+    just its auto-rotate variant), Hub menu back to a single-column flex
+    list, Bag back to one scrolling column (no left/right split), Loadout
+    Editor back to its original 480px width. A phone held vertically gets
+    a vertical menu; held horizontally gets a horizontal one — genuinely
+    responsive, not a forced presentation either way. Combat is the sole
+    screen that's ever forced into a specific orientation, via
+    `.battle-fs`'s pre-existing auto-rotate (never touched by any of this).
+    Re-verified via Playwright: no `.rotate-overlay` in the DOM at all in
+    either orientation, New Game/Hub/Bag render as natural single-column
+    layouts in a portrait viewport with no overflow, landscape viewport
+    renders identically to before batch 1 ever touched these screens,
+    combat still auto-rotates. CLAUDE.md's rule rewritten a third time to
+    describe this as the actual, final state — do not re-attempt a forced-
+    landscape mandate for non-combat screens without being asked again.

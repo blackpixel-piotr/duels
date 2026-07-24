@@ -50,12 +50,6 @@ else
         }
         else
         {
-            @* Landscape-everywhere mandate: these modal sheets are hub-only
-               (never opened mid-fight), so they belong in the same
-               portrait-blocked branch as the hub itself -- RotateOverlay
-               covers all of them from here. See RotateOverlay.razor for why
-               this blocks rather than auto-rotates like combat does. *@
-            <RotateOverlay />
             @if (_bagOpen)
             {
                 <BagSheet State="@_state"

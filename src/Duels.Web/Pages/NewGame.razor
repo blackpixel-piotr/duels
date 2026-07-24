@@ -1,10 +1,8 @@
 @page "/"
-@using Duels.Web.Components.Hud
 @inject Duels.Web.Services.GameService Game
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
-<RotateOverlay />
 <div class="new-game-screen">
     <button class="fullscreen-btn" @onclick="ToggleFullscreen" title="Toggle fullscreen">⛶</button>
     <div class="new-game-box">

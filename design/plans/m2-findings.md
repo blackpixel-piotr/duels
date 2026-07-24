@@ -416,3 +416,67 @@ player to physically turn their phone.
 - **Full test suite re-verified**: 115/115 passing, `dotnet build`: 0
   warnings, 0 errors, after both the fullscreen-button addition and the
   auto-rotate revert.
+
+### Third follow-up: the whole landscape-everywhere mandate reverted
+
+Explicit user instruction: remove the forced-horizontal UI for menus
+entirely and restore the exact pre-batch-1 behavior — "if phone vert menu
+vert, if horizontal menu's horizontal." Even the rotate-prompt (the second
+follow-up's fallback) was rejected: blocking a playtester from reaching the
+Hub/Bag/Bank/Shop/Loadout until they physically rotate their phone made
+those screens *worse* to test, not better, especially since the landscape
+refactor itself only partially delivered on the UI bible's actual specs
+(Loadout Editor never got the doc's literal "left: bar, right: list" split
+— see the original batch-1 addendum's flag on this).
+
+- Reverted, file by file, against the pre-batch-1 commit (`9796341`, the
+  parent of batch 1's `2a48ab6`) so the restored CSS/markup matches exactly
+  what shipped before any of this session's landscape work, rather than an
+  approximation:
+  - `.hub-menu`: `display:grid;grid-template-columns:repeat(2,1fr)` → back
+    to `display:flex;flex-direction:column`; removed the
+    `.hub-card-fight/-group/-anim-editor { grid-column:1/-1 }` span rule.
+  - `.bag-panel`: `width:min(760px,94vw);max-height:92dvh` → back to the
+    shared `.bag-panel, .char-panel { width:min(480px,96vw) }` rule;
+    `.bag-left-col` deleted; `BagSheet.razor`'s left-column wrapper div
+    removed, paperdoll/stat-sheet/compare-card/inventory-grid restored as
+    flat siblings in `.bag-body`; `.bag-body` reverted from
+    `flex-direction:row` back to the shared `.bag-body, .char-body { ...
+    flex-direction:column }` rule.
+  - `.loadout-panel`: `max-width:640px;width:min(640px,94vw)` → back to
+    `max-width:480px`.
+  - `RotateOverlay.razor` deleted outright this time (not recreated) —
+    both mount points (`Game.razor`'s non-combat branch, `NewGame.razor`)
+    removed along with the now-unused `@using Duels.Web.Components.Hud` in
+    `NewGame.razor`. The `.rotate-overlay`/`.rotate-overlay-icon`/
+    `.rotate-overlay-text` CSS block and its keyframes deleted from
+    `terminal.css`.
+  - Kept (not part of the landscape mandate, unrelated features from the
+    same batch-1 commit or later): the cold-start style-picker FTUE and
+    its `.style-pick-*` CSS, the fullscreen button and its `.fullscreen-
+    btn` CSS, `flask_rotward` in `LoadoutEditor.razor`'s `KnownFlasks`, the
+    dev-gate `PROVISIONAL` comment in `HubMenu.razor`.
+  - `.battle-fs` and its portrait auto-rotate media query: untouched by
+    any of the three follow-ups in this whole saga. Combat has never had
+    this problem (no scrolling content) and was never the thing being
+    reverted.
+- Re-verified via Playwright: `.rotate-overlay` selector matches zero
+  elements in the DOM in either orientation (not just hidden — genuinely
+  gone). Portrait (400×800) New Game, Hub, and Bag all render as natural
+  single-column layouts with no overflow and no rotation. Landscape
+  (900×500) Hub renders as the original single-column list, identical in
+  structure to the pre-batch-1 layout. Combat (`.hub-card-fight` →
+  `.battle-fs`) still auto-rotates to fill a portrait viewport sideways,
+  confirming the revert didn't touch it. Zero console/page errors across
+  all passes.
+- `backlog.md`'s landscape-mandate Resolved entry gained a third,
+  final amendment documenting this (the entry now records all three states
+  batch-1's landscape work passed through: RotateOverlay → CSS auto-rotate
+  → RotateOverlay again → fully reverted). Item #34 (Distribution) updated
+  to note portrait is no longer blocked at all in the browser build now,
+  only the fullscreen button remains a provisional affordance.
+  CLAUDE.md's orientation rule rewritten a third time to state the final,
+  actual behavior plainly and tell future work not to re-attempt either
+  prior approach without being asked.
+- Full suite re-verified again after this revert: 115/115 tests passing,
+  `dotnet build`: 0 warnings, 0 errors.

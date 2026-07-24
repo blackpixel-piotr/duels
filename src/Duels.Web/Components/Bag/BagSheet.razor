@@ -13,37 +13,32 @@
             <span class="shop-gold">@(State?.Player?.Gold.ToString("N0") ?? "0") gp</span>
             <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
         </div>
-        @* Landscape-everywhere mandate (backlog resolution batch 1 §10): gear
-           + preview + stats sit in a left column beside the inventory grid,
-           not stacked above it in one tall scrolling column. *@
         <div class="bag-body">
-            <div class="bag-left-col">
-                <div class="paperdoll">
-                    <div class="paperdoll-col">
-                        @foreach (var slot in _leftSlots)
-                        {
-                            <EquipmentSlotButton Slot="@slot" ItemId="@Item(slot)" />
-                        }
-                    </div>
-                    <PlayerPreview EquippedItemIds="@(State?.Player?.Equipped.Values.ToList() ?? [])" />
-                    <div class="paperdoll-col">
-                        @foreach (var slot in _rightSlots)
-                        {
-                            <EquipmentSlotButton Slot="@slot" ItemId="@Item(slot)" />
-                        }
-                    </div>
+            <div class="paperdoll">
+                <div class="paperdoll-col">
+                    @foreach (var slot in _leftSlots)
+                    {
+                        <EquipmentSlotButton Slot="@slot" ItemId="@Item(slot)" />
+                    }
                 </div>
-
-                <EquipmentStatSheet State="@State" />
-
-                @if (_compareItemId is { } compareId)
-                {
-                    <CompareCard ItemId="@compareId"
-                                 EquippedItemId="@EquippedInSameSlot(compareId)"
-                                 OnEquip="@(() => Equip(compareId))"
-                                 OnCancel="@(() => _compareItemId = null)" />
-                }
+                <PlayerPreview EquippedItemIds="@(State?.Player?.Equipped.Values.ToList() ?? [])" />
+                <div class="paperdoll-col">
+                    @foreach (var slot in _rightSlots)
+                    {
+                        <EquipmentSlotButton Slot="@slot" ItemId="@Item(slot)" />
+                    }
+                </div>
             </div>
+
+            <EquipmentStatSheet State="@State" />
+
+            @if (_compareItemId is { } compareId)
+            {
+                <CompareCard ItemId="@compareId"
+                             EquippedItemId="@EquippedInSameSlot(compareId)"
+                             OnEquip="@(() => Equip(compareId))"
+                             OnCancel="@(() => _compareItemId = null)" />
+            }
 
             <InventoryGrid State="@State" OnSelectItem="@(id => _compareItemId = id)" />
         </div>
