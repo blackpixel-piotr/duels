@@ -29,6 +29,11 @@ import { createVfxSystem } from './vfx.js';
 const TILE = 1.75;            // must match voxel.js — sim tiles are shared
 const WALK_R = 5;
 const TILE_MS = 600;
+// Facing controller (combat-feel-plan.md §1): max angular speed, not an
+// exponential ease — a full 180° reversal now takes a bounded ~200ms
+// instead of an ease's long asymptotic tail. PROVISIONAL: "~90°/100ms" is
+// the brief's own stated figure, not a design-doc number or device-tuned.
+const MAX_TURN_RAD_PER_S = (Math.PI / 2) / 0.1;
 // Off by default — flip to true to trace boss-projectile spawn/despawn
 // events in the console (id, style, speed). Added while diagnosing "phantom
 // projectile at Maggot King style-switch, never deals damage" (an orphan
@@ -45,6 +50,29 @@ const PROJ_TRACE = false;
 // wider than the whole arena with margin. Ceiling (zoom-in) untouched.
 const ZOOM_MIN = 0.22, ZOOM_MAX = 2.5;
 const SNAP_DIST = 4.5 * TILE;
+
+// clientPrefs (combat-feel-plan.md §5): a single localStorage object,
+// named/structured as M6's actual Settings screen's future backend, not a
+// throwaway dev flag — a real Settings UI later just needs a form over an
+// object that already exists, and any prefs added between now and then
+// (this pass adds cameraMotion; vfxQuality was already a stub from the VFX
+// layer, iteration 1 — folded in here rather than left as its own key)
+// accumulate in the same place instead of scattering.
+const CLIENT_PREFS_KEY = 'duels_client_prefs';
+const DEFAULT_CLIENT_PREFS = { cameraMotion: 'full', vfxQuality: 'full' };
+function loadClientPrefs() {
+    try {
+        const raw = localStorage.getItem(CLIENT_PREFS_KEY);
+        return raw ? { ...DEFAULT_CLIENT_PREFS, ...JSON.parse(raw) } : { ...DEFAULT_CLIENT_PREFS };
+    } catch (e) {
+        console.warn('toon.js: failed to read clientPrefs, using defaults.', e);
+        return { ...DEFAULT_CLIENT_PREFS };
+    }
+}
+function saveClientPrefs(prefs) {
+    try { localStorage.setItem(CLIENT_PREFS_KEY, JSON.stringify(prefs)); }
+    catch (e) { console.warn('toon.js: failed to persist clientPrefs.', e); }
+}
 // Player movement stays the original constant-speed pursuit (playtest
 // feedback: the snapshot-interpolation layer below made the player visibly
 // jump/overshoot — it was only ever meant for NPCs like the swarm adds).
@@ -176,6 +204,9 @@ const LIB_ROLES = {
     spec: 'Sword_Attack', throw: 'OverhandThrow', cast: 'Spell_Simple_Shoot',
     hitA: 'Hit_Chest', hitB: 'Hit_Head', hitBig: 'Hit_Knockback',
     eat: 'Consume', death: 'Death01', swordIdle: 'Sword_Idle',
+    // Combat-feel pass 1: melee block reaction — the clip was already
+    // extracted (tools/extract_anims.mjs) but sat unused until now.
+    block: 'Sword_Block',
 };
 let animLibPromise = null;
 function loadAnimLibrary() {
@@ -673,6 +704,7 @@ async function makeActor(st, key, colors) {
         facing: 0, crumbled: false, hp: 1,
         weaponMesh: null, weaponToken: 0, armorMeshes: [], armorKey: '',
         overheadSprite: null, overheadKey: null,
+        presentFx: null, // combat-feel pass 1: attack lunge / forced-move slide, see updatePresentOffset
     };
     mixer.addEventListener('finished', e => {
         if (actor.overlay && e.action === actor.overlay.action && !actor.overlay.hold) {
@@ -718,6 +750,108 @@ function windupRoleForStyle(actor, style) {
     if (style === 'magic') return actor.clips.cast ? 'cast' : 'swordA';
     actor.swingAlt ^= 1;
     return actor.swingAlt ? 'swordA' : 'swordB';
+}
+
+// Attack clip choice (combat-feel-plan.md): spec flourish > style
+// (throw/cast) > armed sword combo (A/B alternating for variety) >
+// unarmed jab/cross. Promoted out of the old battleEvent closure so the
+// attack_swing vfxEvent handler (setVfxEvents) can reuse it directly —
+// same selection either side of the migration off CombatLog-parsed
+// battleEvent calls.
+function attackRoleForStyle(actor, style, armed, tier) {
+    if (tier === 'spec') return 'spec';
+    if (style === 'ranged') return 'throw';
+    if (style === 'magic') return 'cast';
+    actor.swingAlt ^= 1;
+    return armed ? (actor.swingAlt ? 'swordA' : 'swordB')
+                 : (actor.swingAlt ? 'punchA' : 'punchB');
+}
+
+// Block reaction role (combat-feel-plan.md §3): melee reuses the
+// Sword_Block clip (extracted by tools/extract_anims.mjs but unused
+// before this pass); ranged/magic have no dedicated block pose — their
+// reaction is VFX-only (shield-dome / deflect-ward, see vfx-manifest.json)
+// plus the ordinary hit-react flinch.
+function blockRoleForStyle(style) {
+    return style === 'melee' ? 'block' : null;
+}
+
+// Flinches never interrupt a swing — the hit still splats, and the swing
+// reads better than a mid-swing twitch. Promoted alongside attackRoleForStyle
+// for the same reason.
+function flinch(actor, tier, dmg) {
+    if (actor.crumbled || tier === 'miss' || tier === 'poison' || tier === 'blocked') return;
+    if (actor.overlay && actor.overlay.role !== 'hitA' && actor.overlay.role !== 'hitB') return;
+    const big = tier === 'heavy' || tier === 'spec' || tier === 'boss' || tier === 'max';
+    playOverlay(actor, big ? 'hitB' : 'hitA', { ts: 1.25, fade: 0.05 });
+}
+
+// Damage-number sprite, positioned at the actor's live rendered spot.
+// Promoted out of the old battleEvent closure (see flinch's comment).
+function spawnSplat(st, actor, dmg, tier, style, now) {
+    const sp = splatSprite(dmg, tier, DOCTRINE_HEX[style]);
+    sp.position.set(actor.pos.wx, actor.ch.height * 0.72, actor.pos.wz);
+    st.scene.add(sp);
+    st.splats.push({ sprite: sp, t0: now });
+}
+
+// Combat-feel pass 1 (§2/§4): a small additive world-space offset (plus an
+// optional squash scale) layered on TOP of an actor's real tile position at
+// the final ch.group.position.set call — never touching actor.pos itself,
+// so hit resolution/occupancy/camera-focus/projectile-homing all stay
+// exactly where the sim says they are. Two kinds share the one `presentFx`
+// slot per actor (a lunge and a forced-move slide can't overlap in practice
+// — a knockback interrupts whatever the actor was doing):
+//   'lunge'  — attack_swing: an out-and-back sine toward the target, capped
+//              at MAX_LUNGE_TILES, timed to finish within one weapon
+//              cooldown (so it's always home before the next tick's move).
+//   'slide'  — forced_move: starts at the offset that puts the actor back
+//              at their PRE-knockback spot (the sim already snapped
+//              actor.pos to the new tile the instant this fires) and eases
+//              that offset out to 0 over SLIDE_MS, then a brief landing
+//              squash — a genuine arc-slide instead of the ordinary
+//              teleport snap/lerp this event's `discontinuous` flag would
+//              otherwise produce.
+const MAX_LUNGE_TILES = 0.3;
+const LUNGE_MS = 220;
+const SLIDE_MS = 150;
+const LANDING_SQUASH_MS = 120;
+
+function startLunge(actor, targetActor, now) {
+    const dx = targetActor.pos.wx - actor.pos.wx, dz = targetActor.pos.wz - actor.pos.wz;
+    const dist = Math.hypot(dx, dz) || 1;
+    const reach = MAX_LUNGE_TILES * TILE;
+    actor.presentFx = { kind: 'lunge', t0: now, dur: LUNGE_MS, dx: dx / dist * reach, dz: dz / dist * reach };
+}
+
+function startForcedMoveSlide(actor, fromX, fromZ, now) {
+    // Offset that, added to the actor's NEW (already-snapped) position,
+    // renders them back at their pre-knockback spot; eased to 0 over
+    // SLIDE_MS so they visibly slide into place instead of popping.
+    actor.presentFx = {
+        kind: 'slide', t0: now, dur: SLIDE_MS,
+        offX: fromX - actor.pos.wx, offZ: fromZ - actor.pos.wz,
+    };
+}
+
+// Returns this frame's { x, z, scale } for `actor` and clears presentFx once
+// its whole lifecycle (lunge, or slide + landing squash) has finished.
+function updatePresentOffset(actor, now) {
+    const fx = actor.presentFx;
+    if (!fx) return { x: 0, z: 0, scale: 1 };
+    const t = (now - fx.t0) / fx.dur;
+    if (fx.kind === 'lunge') {
+        if (t >= 1) { actor.presentFx = null; return { x: 0, z: 0, scale: 1 }; }
+        const s = Math.sin(Math.max(0, t) * Math.PI);
+        return { x: fx.dx * s, z: fx.dz * s, scale: 1 };
+    }
+    if (t < 1) {
+        const rem = (1 - Math.max(0, t)) ** 2; // ease-out quad toward 0
+        return { x: fx.offX * rem, z: fx.offZ * rem, scale: 1 };
+    }
+    const squashT = (now - fx.t0 - fx.dur) / LANDING_SQUASH_MS;
+    if (squashT >= 1) { actor.presentFx = null; return { x: 0, z: 0, scale: 1 }; }
+    return { x: 0, z: 0, scale: 1 - 0.22 * Math.sin(Math.min(1, squashT) * Math.PI) };
 }
 
 // Sets (rgb != null) or clears (rgb == null) a pulsing rim-outline color on
@@ -999,7 +1133,13 @@ async function initBattle(canvasId, opts) {
         clock: new THREE.Clock(), raf: 0, drag: null,
         enemyId: opts.enemyId,
         vfx: createVfxSystem(scene), // vfx-plan.md — renderer-only, driven by voxel.setVfxEvents
+        cameraMotion: 'full', // clientPrefs-backed, see below
     };
+    {
+        const prefs = loadClientPrefs();
+        st.cameraMotion = prefs.cameraMotion;
+        st.vfx.setQuality(prefs.vfxQuality);
+    }
 
     // ── ground: flat toon plane + ink tile grid + square edge ──
     const ground = new THREE.Mesh(
@@ -1042,6 +1182,7 @@ async function initBattle(canvasId, opts) {
     // st.player.pos with its own fast damping (see the loop below) instead of
     // the camera reading the player's raw position directly.
     st.camFocus = { wx: st.player.pos.wx, wz: st.player.pos.wz };
+    st.distSpring = 1; // combat-feel-plan.md §5 — smoothed multiplier on camera distance
     setActorHealthBar(st.player);
     setActorHealthBar(st.enemy);
 
@@ -1239,8 +1380,11 @@ async function initBattle(canvasId, opts) {
                 let da = destFacing - actor.facing;
                 while (da > Math.PI) da -= Math.PI * 2;
                 while (da < -Math.PI) da += Math.PI * 2;
-                actor.facing += da * Math.min(1, dt * 14);
-                actor.ch.group.position.set(actor.pos.wx, 0, actor.pos.wz);
+                const maxStep = MAX_TURN_RAD_PER_S * dt;
+                actor.facing += Math.max(-maxStep, Math.min(maxStep, da));
+                const fx = updatePresentOffset(actor, now);
+                actor.ch.group.position.set(actor.pos.wx + fx.x, 0, actor.pos.wz + fx.z);
+                actor.ch.group.scale.y = fx.scale;
                 actor.ch.group.rotation.y = actor.facing;
             }
             updateActorAnim(actor, instSpeed, dt);
@@ -1272,8 +1416,11 @@ async function initBattle(canvasId, opts) {
                 let da = destFacing - actor.facing;
                 while (da > Math.PI) da -= Math.PI * 2;
                 while (da < -Math.PI) da += Math.PI * 2;
-                actor.facing += da * Math.min(1, dt * 14);
-                actor.ch.group.position.set(actor.pos.wx, 0, actor.pos.wz);
+                const maxStep = MAX_TURN_RAD_PER_S * dt;
+                actor.facing += Math.max(-maxStep, Math.min(maxStep, da));
+                const fx = updatePresentOffset(actor, now);
+                actor.ch.group.position.set(actor.pos.wx + fx.x, 0, actor.pos.wz + fx.z);
+                actor.ch.group.scale.y = fx.scale;
                 actor.ch.group.rotation.y = actor.facing;
             }
             updateActorAnim(actor, instSpeed, dt);
@@ -1295,10 +1442,25 @@ async function initBattle(canvasId, opts) {
         // remainder to keep smoothing over the next frame. 18*0.05=0.9 always
         // leaves a small remainder even in the worst case; 20 did not.
         const focusK = Math.min(1, dt * 18);
-        st.camFocus.wx += (st.player.pos.wx - st.camFocus.wx) * focusK;
-        st.camFocus.wz += (st.player.pos.wz - st.camFocus.wz) * focusK;
+        // Camera spring (combat-feel-plan.md §5, toggleable via clientPrefs
+        // cameraMotion): pulls the focus point toward the player-enemy
+        // midpoint and nudges distance with their separation — never
+        // yaw/pitch, which stay exactly user-controlled (dodge muscle
+        // memory: the tile grid's screen orientation must never change).
+        // 'off' collapses `pull` and `band` to 0, restoring today's
+        // fixed-on-player, fixed-distance behavior exactly, not just
+        // approximately (pull=0 makes focusTarget === player.pos itself).
+        const pull = st.cameraMotion === 'off' ? 0 : st.cameraMotion === 'reduced' ? 0.5 : 1;
+        const band = st.cameraMotion === 'off' ? 0 : st.cameraMotion === 'reduced' ? 0.075 : 0.15;
+        const focusTargetX = st.player.pos.wx + (st.enemy.pos.wx - st.player.pos.wx) * 0.5 * pull;
+        const focusTargetZ = st.player.pos.wz + (st.enemy.pos.wz - st.player.pos.wz) * 0.5 * pull;
+        st.camFocus.wx += (focusTargetX - st.camFocus.wx) * focusK;
+        st.camFocus.wz += (focusTargetZ - st.camFocus.wz) * focusK;
+        const sep = Math.hypot(st.player.pos.wx - st.enemy.pos.wx, st.player.pos.wz - st.enemy.pos.wz);
+        const distSpringTarget = 1 + Math.max(-1, Math.min(1, (sep - 4 * TILE) / (4 * TILE))) * band;
+        st.distSpring += (distSpringTarget - st.distSpring) * focusK;
         const p = st.camFocus;
-        const dist = 18.3 / st.zoom;
+        const dist = (18.3 / st.zoom) * st.distSpring;
         st.camera.position.set(
             p.wx + Math.sin(st.yaw) * dist * Math.cos(st.camPitch),
             dist * Math.sin(st.camPitch) + 1,
@@ -1537,6 +1699,95 @@ function destroyPreview(canvasId) {
     previews.delete(canvasId);
 }
 
+// Combat-feel pass 1 (combat-feel-plan.md): non-particle presentation for
+// the vfxEvents that used to be battleEvent calls the renderer built by
+// parsing CombatLog message TEXT (a sip's item name string-sliced out of
+// prose, a hitsplat's damage/tier/style colon-split out of a log line, a
+// boss cast's style literally read from e.Message). Particle VFX for these
+// same events (slash_arc, impact_burst, blocked_spark/shield_dome/
+// deflect_ward, landing_dust) is handled generically by st.vfx —
+// vfx-manifest.json rows, dispatched by event type (+ style filter) — this
+// only covers clips/splats/lunges/shake/the perfect-dodge glint that
+// aren't three.quarks particles.
+function handleCombatVfxEvent(st, ev, now) {
+    const actorFor = id => id === 'player' ? st.player : st.enemy;
+    switch (ev.type) {
+        case 'attack_swing': {
+            const attacker = actorFor(ev.entityId);
+            const target = actorFor(ev.data?.targetId ?? (ev.entityId === 'player' ? 'enemy' : 'player'));
+            const style = ev.data?.style ?? 'melee';
+            const tier = ev.data?.tier ?? 'normal';
+            const armed = attacker === st.player ? !!st.weaponId : true; // bosses are always "armed" (swordA/B, never punch)
+            playOverlay(attacker, attackRoleForStyle(attacker, style, armed, tier),
+                { ts: attacker === st.player ? 1.15 : 1.1 });
+            startLunge(attacker, target, now);
+            // The player's own ranged/magic outgoing attack is a purely
+            // cosmetic fixed-duration projectile — player attacks resolve
+            // synchronously (no travel-time sim), unlike the boss's
+            // sim-authoritative homing projectiles (setBattleProjectiles).
+            if (attacker === st.player && (style === 'ranged' || style === 'magic')) {
+                const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8),
+                    new THREE.MeshBasicMaterial({ color: style === 'magic' ? '#7ab8ff' : '#ffd166' }));
+                st.scene.add(mesh);
+                st.projectiles.push({
+                    mesh, t0: now, dur: 300,
+                    from: new THREE.Vector3(st.player.pos.wx, 1.2, st.player.pos.wz),
+                    toActor: st.enemy, toY: 1.2,
+                });
+            }
+            break;
+        }
+        case 'impact': {
+            const victim = actorFor(ev.entityId);
+            const dmg = ev.data?.dmg ?? 0, tier = ev.data?.tier ?? 'normal', style = ev.data?.style;
+            spawnSplat(st, victim, dmg, tier, style, now);
+            flinch(victim, tier, dmg);
+            // A max-hit/spec/boss-tier hit gets a screen shake (items doc
+            // §1's "distinct max-hit visual") — cameraMotion 'off' cuts it
+            // entirely, matching that setting's promise elsewhere.
+            const BIG_TIERS = tier === 'heavy' || tier === 'spec' || tier === 'boss' || tier === 'max';
+            if (BIG_TIERS && st.cameraMotion !== 'off') window.triggerShake?.('battle-scene', 180);
+            break;
+        }
+        case 'hit_blocked': {
+            const victim = actorFor(ev.entityId);
+            const style = ev.data?.style ?? 'melee';
+            spawnSplat(st, victim, 0, 'blocked', style, now); // splatSprite's own 'blocked' tier: a slashed doctrine-color ring, not a numeral
+            const role = blockRoleForStyle(style);
+            // Melee: a real block pose (Sword_Block). Ranged/magic have no
+            // dedicated block clip — their read is the VFX (shield-dome /
+            // deflect-ward, vfx-manifest.json) plus the ordinary hit-react
+            // flinch; playing 'hitA' directly here (not via flinch()) since
+            // flinch() deliberately excludes tier 'blocked' for the
+            // unblocked-hit case this isn't.
+            playOverlay(victim, role ?? 'hitA', { ts: 1.1 });
+            break;
+        }
+        case 'flask_sip':
+            // Flask belt (m1-plan Workstream E) reuses the raise-to-mouth clip.
+            playOverlay(st.player, 'eat', { ts: 1.3 });
+            break;
+        case 'perfect_dodge': {
+            // Gold glint at the player's feet — always a reward, never
+            // required. Reuses the splat fade/rise/remove lifecycle
+            // (st.splats) for a gentle sparkle-up-and-fade instead of a
+            // thrown-projectile arc.
+            const ring = new THREE.Mesh(new THREE.RingGeometry(TILE * 0.1, TILE * 0.5, 16),
+                new THREE.MeshBasicMaterial({ color: '#ffd700', transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
+            ring.rotation.x = -Math.PI / 2;
+            ring.position.set(st.player.pos.wx, 0.03, st.player.pos.wz);
+            st.scene.add(ring);
+            st.splats.push({ sprite: ring, t0: now });
+            break;
+        }
+        case 'forced_move': {
+            const actor = actorFor(ev.entityId);
+            startForcedMoveSlide(actor, ev.data?.fromX ?? actor.pos.wx, ev.data?.fromZ ?? actor.pos.wz, now);
+            break;
+        }
+    }
+}
+
 const api = {
     _battles: battles, // debug handle for Playwright probes
     _previews: previews,
@@ -1554,6 +1805,7 @@ const api = {
                 n.action.reset().setEffectiveWeight(n.w).play();
             }
             if (a.ch.pivot) { a.ch.pivot.quaternion.identity(); a.ch.pivot.position.set(0, 0, 0); }
+            a.presentFx = null; a.ch.group.scale.y = 1;
         }
     },
     setBattleEnemy(canvasId, enemyId) {
@@ -1646,15 +1898,34 @@ const api = {
     setVfxEvents(canvasId, events) {
         const st = battles.get(canvasId);
         if (!st) return;
+        const now = performance.now();
         st.vfx.handleEvents(events, {
             player: { wx: st.player.pos.wx, wz: st.player.pos.wz },
             enemy: { wx: st.enemy.pos.wx, wz: st.enemy.pos.wz },
-        }, performance.now());
+        }, now);
+        // Non-particle presentation (clips/splats/lunges/shake) — see
+        // handleCombatVfxEvent's own header comment.
+        for (const ev of events) handleCombatVfxEvent(st, ev, now);
     },
-    // Stub for later UI wiring (vfx-plan.md §6) — 'off' | 'low' | 'full'.
+    // clientPrefs (combat-feel-plan.md §5) — read for any future Settings UI
+    // (M6) and applied live to whatever battle is currently mounted.
+    getClientPrefs() { return loadClientPrefs(); },
+    // 'off' | 'low' | 'full' (vfx-plan.md §6, iteration 1's stub — now
+    // clientPrefs-backed instead of a bare in-memory setter).
     setVfxQuality(canvasId, quality) {
+        const prefs = loadClientPrefs();
+        prefs.vfxQuality = quality;
+        saveClientPrefs(prefs);
         const st = battles.get(canvasId);
         if (st) st.vfx.setQuality(quality);
+    },
+    // 'off' | 'reduced' | 'full' (combat-feel-plan.md §5).
+    setCameraMotion(canvasId, motion) {
+        const prefs = loadClientPrefs();
+        prefs.cameraMotion = motion;
+        saveClientPrefs(prefs);
+        const st = battles.get(canvasId);
+        if (st) st.cameraMotion = motion;
     },
     setBattlePositions(canvasId, pos) {
         const st = battles.get(canvasId);
@@ -1794,85 +2065,15 @@ const api = {
                 st.scene.remove(m); st.projectileMeshes.delete(id);
             }
     },
+    // The only remaining battleEvent cases are driven by EnemyDead/PlayerDead
+    // flags (BattleScene.razor), never CombatLog — attack/hit/block/sip/
+    // dodge all migrated to vfxEvents (setVfxEvents below) in combat-feel
+    // pass 1; see that pass's plan/findings for why (CombatLog is UI text
+    // only now, never a renderer data source).
     battleEvent(canvasId, evt) {
         const st = battles.get(canvasId);
         if (!st) return;
-        const now = performance.now();
-        const splatOn = (actor, dmg, tier, style) => {
-            const sp = splatSprite(dmg, tier, DOCTRINE_HEX[style]);
-            sp.position.set(actor.pos.wx, actor.ch.height * 0.72, actor.pos.wz);
-            st.scene.add(sp);
-            st.splats.push({ sprite: sp, t0: now });
-        };
-        // Attack clip choice: spec flourish > style (throw/cast) > armed sword
-        // combo (A/B alternating for variety) > unarmed jab/cross.
-        const attackRole = (actor, style, weaponId, tier) => {
-            if (tier === 'spec') return 'spec';
-            if (style === 'ranged') return 'throw';
-            if (style === 'magic') return 'cast';
-            actor.swingAlt ^= 1;
-            const armed = !!weaponId;
-            return armed ? (actor.swingAlt ? 'swordA' : 'swordB')
-                         : (actor.swingAlt ? 'punchA' : 'punchB');
-        };
-        // Flinches never interrupt a swing — the hit still splats, and the
-        // swing reads better than a mid-swing twitch.
-        const flinch = (actor, tier, dmg) => {
-            if (actor.crumbled || tier === 'miss' || tier === 'poison' || tier === 'blocked') return;
-            if (actor.overlay && actor.overlay.role !== 'hitA' && actor.overlay.role !== 'hitB') return;
-            const big = tier === 'heavy' || tier === 'spec' || tier === 'boss' || tier === 'max';
-            playOverlay(actor, big ? 'hitB' : 'hitA', { ts: 1.25, fade: 0.05 });
-        };
         switch (evt.type) {
-            case 'playerAttack': {
-                playOverlay(st.player,
-                    attackRole(st.player, evt.style, evt.weapon ?? st.weaponId, evt.tier),
-                    { ts: 1.15 });
-                if (evt.style === 'ranged' || evt.style === 'magic') {
-                    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8),
-                        new THREE.MeshBasicMaterial({ color: evt.style === 'magic' ? '#7ab8ff' : '#ffd166' }));
-                    st.scene.add(mesh);
-                    st.projectiles.push({ mesh, t0: now,
-                        dur: 300,
-                        from: new THREE.Vector3(st.player.pos.wx, 1.2, st.player.pos.wz),
-                        toActor: st.enemy, toY: 1.2 });
-                }
-                break;
-            }
-            case 'enemyAttack': {
-                const style = evt.style ?? 'melee';
-                // The projectile visual itself (Ranged/Magic) is now driven
-                // by the sim-authoritative entity sync (setBattleProjectiles
-                // / GameState.Projectiles), not spawned here — this event's
-                // only remaining job is the windup/swing animation trigger.
-                playOverlay(st.enemy, attackRole(st.enemy, style, true, evt.tier), { ts: 1.1 });
-                break;
-            }
-            case 'enemyHit':
-                splatOn(st.enemy, evt.dmg | 0, evt.tier ?? 'normal', evt.style);
-                flinch(st.enemy, evt.tier, evt.dmg | 0);
-                break;
-            case 'playerHit':
-                splatOn(st.player, evt.dmg | 0, evt.tier ?? 'normal', evt.style);
-                flinch(st.player, evt.tier, evt.dmg | 0);
-                break;
-            case 'playerSip':
-                // Flask belt (m1-plan Workstream E) reuses the raise-to-mouth clip.
-                playOverlay(st.player, 'eat', { ts: 1.3 });
-                break;
-            case 'perfectDodge': {
-                // Perfect Dodge (m1-plan Workstream C.8): gold glint at the
-                // player's feet — always a reward, never required. Reuses the
-                // splat fade/rise/remove lifecycle (st.splats) for a gentle
-                // sparkle-up-and-fade instead of a thrown-projectile arc.
-                const ring = new THREE.Mesh(new THREE.RingGeometry(TILE * 0.1, TILE * 0.5, 16),
-                    new THREE.MeshBasicMaterial({ color: '#ffd700', transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
-                ring.rotation.x = -Math.PI / 2;
-                ring.position.set(st.player.pos.wx, 0.03, st.player.pos.wz);
-                st.scene.add(ring);
-                st.splats.push({ sprite: ring, t0: now });
-                break;
-            }
             case 'enemyDeath': case 'playerDeath': {
                 const dying = evt.type === 'enemyDeath' ? st.enemy : st.player;
                 dying.crumbled = true;
