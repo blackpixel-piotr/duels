@@ -7,6 +7,42 @@ flagged rather than invented.
 
 ---
 
+## Post-merge bug: facing clamp broke smooth tracking (user-reported)
+
+The user reported that, after this pass, animations looked *worse* overall
+(camera improvement aside). Root cause: §1's facing clamp
+(`actor.facing += Math.max(-maxStep, Math.min(maxStep, da))`) clamped the
+*raw* angle gap, not an eased step. Since `destFacing` is recomputed fresh
+every frame (e.g. the enemy re-aims at the player's live position
+continuously), the per-frame gap is almost always well under `maxStep`
+(~15°/frame at 60fps) — meaning the clamp was a no-op nearly every frame
+and `facing` just snapped straight to that frame's target, every frame.
+All the smoothing the pre-pass exponential ease provided was gone except
+during a genuinely large, sudden reversal — exactly backwards from what
+was needed, and it read as twitchy/robotic tracking rather than a
+bounded-speed turn.
+
+Fixed by clamping the *eased* step instead: `eased = da * Math.min(1, dt *
+14)` (the original ease, unchanged), then `Math.max(-maxStep,
+Math.min(maxStep, eased))`. Verified by sampling the enemy's `facing`
+across 60 real frames while the player walked: ordinary continuous
+tracking now decays geometrically (~30%/frame, matching the original ease
+exactly — `0.32° → 0.097° → 0.029° → 0.0088°...`), and the one large jump
+observed (during a headless-Chromium frame-hitch, `dt` at its 0.05s cap)
+was capped at exactly 45° = 90°/100ms × 50ms — the bounded-turn-speed
+behavior working as intended, not a regression.
+
+Lesson: a max-*step* clamp and a max-*speed* clamp are not the same thing
+when the target itself moves every frame — clamping the delta directly
+only bounds speed when the target is stationary from the actor's
+perspective; against a live-recomputed target it deletes the smoothing.
+Should have been caught by the original browser verification pass, which
+sampled `facing` values but didn't check frame-to-frame *smoothness*
+(only that turning happened at all) — a gap in that verification, not
+just in the implementation.
+
+---
+
 ## Verification
 
 - `dotnet build Duels.sln`: 0 errors, 0 warnings.
