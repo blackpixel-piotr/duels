@@ -250,12 +250,15 @@ not reused.)*
     mismatch). No per-effect behavior override exists yet in `vfx.js` —
     worth adding once there's a second data point beyond "everything
     drifts a little." *(Combat feel pass 1)*
-45. **No Settings UI exists to read/write `clientPrefs`** (`cameraMotion`/
-    `vfxQuality`, one `duels_client_prefs` localStorage object). Built as
-    M6's future Settings screen's backend per explicit instruction, not a
-    throwaway flag — `api.getClientPrefs`/`setCameraMotion`/`setVfxQuality`
-    are the entry points a real screen would call; nothing calls them
-    outside a console/dev context yet. *(Combat feel pass 1)*
+45. **No real Settings UI exists to read/write `clientPrefs`** (`cameraMotion`/
+    `vfxQuality`, one `duels_client_prefs` localStorage object) — a dev-only
+    `PREFS` toggle panel in `BattleScene.razor` (same "always visible, not
+    TestScene-gated" convention as `MECH`) was added after the fact once a
+    user couldn't find any way to reach `cameraMotion` at all, but it's
+    styled/labeled as a debug panel, not the real player-facing settings
+    screen M6 owns. Built as that future screen's backend per explicit
+    instruction — `api.getClientPrefs`/`setCameraMotion`/`setVfxQuality`
+    are the entry points a real screen would call. *(Combat feel pass 1)*
 
 ---
 

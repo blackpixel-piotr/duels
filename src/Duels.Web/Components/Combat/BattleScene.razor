@@ -64,6 +64,27 @@
             }
         </div>
     }
+    @* clientPrefs toggle (combat-feel-plan.md §5) — same "reachable in every
+       fight, not TestScene-gated" convention as MECH above. No Settings UI
+       exists yet (M6); this is the only way to actually reach cameraMotion/
+       vfxQuality today. *@
+    <button class="cam-toggle-btn prefs-toggle-btn" @onclick="TogglePrefsPanel"
+            title="Camera motion / VFX quality">
+        @(_prefsPanelOpen ? "PREFS ▲" : "PREFS ▼")
+    </button>
+    @if (_prefsPanelOpen)
+    {
+        <div class="cam-debug-panel prefs-debug-panel">
+            <div class="cam-debug-row">
+                <label>Camera motion</label>
+                <button class="cam-debug-reset" @onclick="CycleCameraMotion">@_cameraMotion</button>
+            </div>
+            <div class="cam-debug-row">
+                <label>VFX quality</label>
+                <button class="cam-debug-reset" @onclick="CycleVfxQuality">@_vfxQuality</button>
+            </div>
+        </div>
+    }
     @if (State?.TestScene == true)
     {
         <button class="freeze-btn @(EnemyFrozen ? "freeze-btn-on" : "")"
@@ -186,6 +207,41 @@
         if (GameSvc.PlayerId is { } pid)
             await GameSvc.DispatchAsync(new ToggleMechanicCommand(pid, mech));
         StateHasChanged();
+    }
+
+    // clientPrefs (combat-feel-plan.md §5) — seeded from voxel.getClientPrefs
+    // on open (same "read, don't assume" convention as the MOVE panel below,
+    // since the value persists in localStorage across reloads).
+    private bool _prefsPanelOpen;
+    private string _cameraMotion = "full";
+    private string _vfxQuality = "full";
+    private static readonly string[] CameraMotionCycle = ["full", "reduced", "off"];
+    private static readonly string[] VfxQualityCycle = ["full", "low", "off"];
+
+    private sealed record ClientPrefs(string CameraMotion, string VfxQuality);
+
+    private async Task TogglePrefsPanel()
+    {
+        _prefsPanelOpen = !_prefsPanelOpen;
+        if (_prefsPanelOpen)
+        {
+            var prefs = await JS.InvokeAsync<ClientPrefs>("voxel.getClientPrefs");
+            _cameraMotion = prefs.CameraMotion;
+            _vfxQuality = prefs.VfxQuality;
+        }
+        StateHasChanged();
+    }
+
+    private Task CycleCameraMotion()
+    {
+        _cameraMotion = CameraMotionCycle[(Array.IndexOf(CameraMotionCycle, _cameraMotion) + 1) % CameraMotionCycle.Length];
+        return JS.InvokeVoidAsync("voxel.setCameraMotion", "battle-canvas", _cameraMotion).AsTask();
+    }
+
+    private Task CycleVfxQuality()
+    {
+        _vfxQuality = VfxQualityCycle[(Array.IndexOf(VfxQualityCycle, _vfxQuality) + 1) % VfxQualityCycle.Length];
+        return JS.InvokeVoidAsync("voxel.setVfxQuality", "battle-canvas", _vfxQuality).AsTask();
     }
 
     // Admin camera debug panel (test fights only) — mirrors the JS defaults

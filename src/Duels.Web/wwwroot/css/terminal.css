@@ -614,6 +614,12 @@ html, body {
 }
 .mech-toggle-row input[type="checkbox"] { accent-color: var(--west-orange); margin: 0; }
 
+/* clientPrefs toggle (combat-feel-plan.md §5) — top row, left of MECH, same
+   "always visible, no TestScene gate" convention. Only entry point to
+   cameraMotion/vfxQuality until a real Settings screen exists (M6). */
+.prefs-toggle-btn { top: 6px; right: 66px; bottom: auto; color: var(--blue); }
+.prefs-debug-panel { top: 26px; right: 66px; bottom: auto; width: 130px; }
+
 /* Telegraphed special — wanted-poster warning banner above the enemy */
 .telegraph-bubble {
     position: absolute;

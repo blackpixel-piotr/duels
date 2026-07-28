@@ -7,6 +7,57 @@ flagged rather than invented.
 
 ---
 
+## Post-merge bugs, round 2 (user-reported)
+
+Three more issues from live playtesting, none caught by the original
+verification pass (which drove one full fight but didn't specifically
+probe these):
+
+1. **Lunge fired for ranged/magic attacks too.** `startLunge` was called
+   unconditionally in the `attack_swing` handler, so a caster/archer
+   physically lurched toward the target while casting/firing — read as
+   "attacking with a sword lunge" regardless of which clip actually
+   played. Melee closing distance into a swing makes sense; a ranged/magic
+   attacker staying at range and firing in place does not. Fixed: gated
+   `startLunge` to `style === 'melee'` only.
+2. **Ranged/magic `hit_blocked` played `hitA`, a hurt-flinch, for a fully
+   negated 0-damage hit** — backwards, and a direct (unnoticed)
+   contradiction of this codebase's own existing rule: `flinch()` already
+   deliberately excludes tier `'blocked'` for exactly the reason that a
+   successful defense shouldn't look like getting hurt. The original
+   in-code comment even reasoned through this exclusion correctly, then
+   the code defeated it anyway by calling `playOverlay(..., 'hitA', ...)`
+   directly instead of going through `flinch()`. Since Maggot King is
+   mostly ranged/magic, nearly every prayer-block a player saw against him
+   hit this path — which is almost certainly why it read as "no block
+   animation" even though the melee `block` pose (confirmed present and
+   loading correctly — `st.player.clips.block` truthy, checked live) was
+   never actually broken. Fixed: ranged/magic `hit_blocked` now plays no
+   body animation at all — VFX (`shield_dome`/`deflect_ward`) + the
+   splat's "blocked" ring alone carry the read, matching `flinch()`'s own
+   convention. Verified with a synthetic `setVfxEvents` call (bypassing
+   the need to actually land a prayer-timed block in a real fight):
+   `style:'magic'` → `overlay` stays `null`; `style:'melee'` → `overlay`
+   becomes `'block'`.
+3. **`cameraMotion`/`vfxQuality` had no UI at all**, dev or otherwise —
+   `clientPrefs` existed only as a JS API (`getClientPrefs`/
+   `setCameraMotion`/`setVfxQuality`) nothing called. Added a `PREFS`
+   toggle button in `BattleScene.razor`, same "always visible, not
+   TestScene-gated" convention as the existing `MECH` panel (the only
+   other reason no prior panel existed for this: iteration 1 explicitly
+   scoped out building any UI, correctly, but a zero-UI dev entry point
+   should have shipped alongside the backend rather than after a user had
+   to ask where it was).
+
+Lesson: the original verification pass checked that each new mechanism
+*fired* (an event was observed, a clip name showed up in `overlaysSeen`)
+but not always whether the *result* looked right end-to-end (facing
+smoothness, style-appropriateness of a physical effect, animation valence
+matching outcome). "It ran without erroring" and "it did the right thing"
+are different claims — worth two different checks, not one.
+
+---
+
 ## Post-merge bug: facing clamp broke smooth tracking (user-reported)
 
 The user reported that, after this pass, animations looked *worse* overall

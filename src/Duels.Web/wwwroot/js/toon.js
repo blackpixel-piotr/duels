@@ -1742,7 +1742,10 @@ function handleCombatVfxEvent(st, ev, now) {
             const armed = attacker === st.player ? !!st.weaponId : true; // bosses are always "armed" (swordA/B, never punch)
             playOverlay(attacker, attackRoleForStyle(attacker, style, armed, tier),
                 { ts: attacker === st.player ? 1.15 : 1.1 });
-            startLunge(attacker, target, now);
+            // Melee only — a caster/archer stays put and fires at range;
+            // physically lunging forward to cast a spell or loose an arrow
+            // read as a "sword lunge" regardless of which clip played.
+            if (style === 'melee') startLunge(attacker, target, now);
             // The player's own ranged/magic outgoing attack is a purely
             // cosmetic fixed-duration projectile — player attacks resolve
             // synchronously (no travel-time sim), unlike the boss's
@@ -1775,14 +1778,18 @@ function handleCombatVfxEvent(st, ev, now) {
             const victim = actorFor(ev.entityId);
             const style = ev.data?.style ?? 'melee';
             spawnSplat(st, victim, 0, 'blocked', style, now); // splatSprite's own 'blocked' tier: a slashed doctrine-color ring, not a numeral
-            const role = blockRoleForStyle(style);
             // Melee: a real block pose (Sword_Block). Ranged/magic have no
-            // dedicated block clip — their read is the VFX (shield-dome /
-            // deflect-ward, vfx-manifest.json) plus the ordinary hit-react
-            // flinch; playing 'hitA' directly here (not via flinch()) since
-            // flinch() deliberately excludes tier 'blocked' for the
-            // unblocked-hit case this isn't.
-            playOverlay(victim, role ?? 'hitA', { ts: 1.1 });
+            // dedicated block clip and play NO body animation at all — the
+            // read is entirely the VFX (shield-dome/deflect-ward,
+            // vfx-manifest.json) + the splat's slashed "blocked" ring.
+            // Earlier draft called playOverlay(..., 'hitA', ...) here as a
+            // fallback — wrong: hitA is a HURT flinch, and this is a fully
+            // negated 0-damage hit. flinch() itself already deliberately
+            // excludes tier 'blocked' for exactly this reason (a
+            // successful defense shouldn't look like getting hit); this
+            // case was accidentally defeating that same principle.
+            const role = blockRoleForStyle(style);
+            if (role) playOverlay(victim, role, { ts: 1.1 });
             break;
         }
         case 'flask_sip':
