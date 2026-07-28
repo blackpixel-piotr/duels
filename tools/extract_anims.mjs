@@ -17,7 +17,7 @@ const KEEP = {
         clips: ['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop',
                 'Punch_Jab', 'Punch_Cross', 'Sword_Attack', 'Sword_Idle',
                 'Death01', 'Hit_Chest', 'Hit_Head',
-                'Spell_Simple_Shoot', 'Roll'],
+                'Spell_Simple_Shoot', 'Spell_Simple_Idle_Loop', 'Roll'],
     },
     'resources/assets/Universal Animation Library 2[Standard]/Unreal-Godot/UAL2_Standard.glb': {
         out: 'src/Duels.Web/wwwroot/assets/models/anims2.glb',

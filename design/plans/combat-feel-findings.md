@@ -7,6 +7,88 @@ flagged rather than invented.
 
 ---
 
+## Post-merge, round 3 (user-reported): facing-while-engaged + magic cast asset audit
+
+### "When running, we're still not facing the target"
+
+Round 2's facing fix (clamp the eased step) was correct as far as it went,
+but a separate, older behavior was still live: the player block's
+`destFacing` picked movement direction *whenever moving*, and only fell
+back to "face the enemy" once fully stationary. That's the literal
+behavior `combat-feel-plan.md` §1 asked for ("Moving: face movement
+direction... Stationary + target-locked: face the target") — but in
+practice the player is almost always moving *while* engaged mid-fight
+(repositioning, circling, chasing), so "face the target" essentially never
+won. Changed the priority: engagement (`!holdPosition`, i.e. target-locked)
+now beats movement for facing — moving or stationary, an engaged player
+faces the enemy; only *unengaged* movement (walking to a spot, not
+currently locked on) faces the direction of travel. Verified directly:
+ordered a move to a point away from the enemy while engaged, sampled the
+angular error between `player.facing` and the true bearing to the enemy
+across 15 frames — converges from ~1.5° to ~0° within the first several
+frames instead of tracking the (irrelevant) movement direction.
+
+Left alone: the enemy/boss block still faces movement direction while
+actually moving (unchanged) — bosses don't have an engagement-lock concept
+the same way, and some boss mechanics (dashes, spacing AI) may have a real
+reason to face their movement rather than the player mid-move. Flagging
+rather than guessing; not touched this round.
+
+### "Do we even have a staff/staff cast animation set we can use?"
+
+Investigated the actual vendored assets (not the curated `LIB_ROLES`
+subset) directly — both questions have a real, checkable answer:
+
+- **No staff/wand model exists anywhere in the vendored packs.** Listed
+  every file in `resources/assets/weapons assets/FBX/`: swords, axes,
+  daggers, hammers, a spear, a scythe, bows, shields — no staff, no wand.
+  This is why `wpn_magic_t1` (Cinder Wand) already renders as the
+  `sword.glb` placeholder — a pre-existing, already-flagged M1 gap
+  (`asset-map.md`), not something this pass could fix without sourcing a
+  real asset.
+- **A real casting *animation* set does exist, mostly unused.** Parsed the
+  actual glTF JSON out of the source `UAL1_Standard.glb` (not just
+  `extract_anims.mjs`'s curated list) and found a genuine 4-clip set:
+  `Spell_Simple_Enter`, `Spell_Simple_Idle_Loop`, `Spell_Simple_Shoot`,
+  `Spell_Simple_Exit` — clearly authored as an enter/hold/release/exit
+  sequence. Only `Shoot` was ever extracted, so casting snapped directly
+  from a *sword-ready* idle stance (armed-but-unstyled) straight into the
+  shoot gesture with no transition — likely a big part of "doesn't fit at
+  all," on top of the sword-shaped prop mismatch above.
+
+  Fixed the cheap, high-value half: extracted `Spell_Simple_Idle_Loop`
+  too (`tools/extract_anims.mjs`'s KEEP list, `anims1.glb` regenerated —
+  14 clips now, `anims2.glb` incidentally re-serialized byte-different but
+  clip-set-identical, confirmed by re-parsing both files' animation
+  names) and wired a new `spellIdle` role, selected by
+  `setActorStance`/`setActorWeapon`/`setBattleWeapon` whenever the
+  equipped weapon's style is `magic` (required threading a `style`
+  parameter through those three call sites and re-adding `IItemRepository`
+  to `BattleScene.razor` — a live equipped-item lookup for a render
+  decision, not the CombatLog-parsing anti-pattern this pass otherwise
+  killed). A magic-armed player now idles in the actual spell-ready stance
+  and releases `Shoot` from it, instead of releasing it from a sword
+  stance. Verified live: `st.player.clips.spellIdle` truthy, and
+  `st.player.loco[0].role === 'spellIdle'` after equipping the magic
+  weapon.
+
+  **Not done**: chaining `Spell_Simple_Enter`/`Exit` around the shoot
+  one-shot. Player attacks resolve synchronously (no travel-time sim, per
+  the boss's own homing-projectile contrast in `ARCHITECTURE.md`) — a real
+  enter/exit wind-up would add cosmetic latency ahead of an already-instant
+  hit, which risks reading as sluggish/disconnected rather than better.
+  Flagging as a judgment call, not resolving silently; logged to
+  backlog.md if it's worth a closer look after playtesting the idle-stance
+  fix alone.
+- Ranged deliberately still falls back to the sword-ready stance (not
+  `idle`), unchanged from before this round — no bow-ready pose asset
+  exists either, and an unarmed-looking idle while gripping the (also
+  sword-shaped) bow placeholder mesh would look more wrong, not less. Not
+  something this round was asked to touch; left as-is rather than
+  "fixing" it into a different wrong state.
+
+---
+
 ## Post-merge bugs, round 2 (user-reported)
 
 Three more issues from live playtesting, none caught by the original

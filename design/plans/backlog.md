@@ -259,6 +259,25 @@ not reused.)*
     screen M6 owns. Built as that future screen's backend per explicit
     instruction — `api.getClientPrefs`/`setCameraMotion`/`setVfxQuality`
     are the entry points a real screen would call. *(Combat feel pass 1)*
+46. **`Spell_Simple_Enter`/`Spell_Simple_Exit` (the wind-up/return halves
+    of the magic-cast clip set) are not chained around `Spell_Simple_Shoot`.**
+    Only `Spell_Simple_Idle_Loop` (the held stance) was extracted and
+    wired this round — a real Enter/Exit chain would add cosmetic latency
+    ahead of the player's attack, which resolves synchronously with no
+    travel-time sim, and risks reading as sluggish rather than better.
+    Judgment call, not a technical blocker — worth revisiting after
+    playtesting the idle-stance fix alone; if casting still feels abrupt,
+    `tools/extract_anims.mjs`'s KEEP list already has the clip names
+    documented. *(Combat feel pass 1, round-3 follow-up)*
+47. **No ranged (bow) or magic (staff/wand) weapon model exists in any
+    vendored asset pack** — checked directly (every file in
+    `resources/assets/weapons assets/FBX/`): swords, axes, daggers,
+    hammers, a spear, a scythe, bows, shields, no staff/wand. This is the
+    same root cause as `asset-map.md`'s existing M1 placeholder note
+    (`wpn_*` all render as `sword.glb`); re-confirmed while investigating
+    the magic-cast animation report, not a new finding, just re-surfaced
+    with the exact file inventory checked. *(Combat feel pass 1, round-3
+    follow-up)*
 
 ---
 

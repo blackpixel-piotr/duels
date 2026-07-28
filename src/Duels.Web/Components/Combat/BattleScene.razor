@@ -1,7 +1,9 @@
 @using Duels.Application.GameSession
+@using Duels.Application.Abstractions
 @using Duels.Application.Commands
 @using Duels.Domain.ValueObjects
 @inject IJSRuntime JS
+@inject IItemRepository ItemRepo
 @inject Duels.Web.Services.GameService GameSvc
 @inject Duels.Application.Services.GameTickService TickService
 @implements IAsyncDisposable
@@ -420,7 +422,7 @@
                 dotnetRef = _selfRef,
             });
             _lastWeapon = WeaponId;
-            await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId);
+            await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId, WeaponStyle());
             _lastEquipment = EquipmentKey();
             await JS.InvokeVoidAsync("voxel.setBattleEquipment", "battle-canvas", EquippedGearIds());
             // Solid obstacles the movers pathfind around — placed as low props the
@@ -452,7 +454,7 @@
         if (WeaponId != _lastWeapon)
         {
             _lastWeapon = WeaponId;
-            await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId);
+            await JS.InvokeVoidAsync("voxel.setBattleWeapon", "battle-canvas", WeaponId, WeaponStyle());
         }
 
         // Armor changes show up on the player's body (modeled pieces only).
@@ -681,6 +683,13 @@
             .ToArray() ?? [];
 
     private string EquipmentKey() => string.Join(",", EquippedGearIds());
+
+    // Idle-stance selection (melee sword-ready vs magic spell-ready) —
+    // live equipped-item lookup, same shape as EquippedGearIds() above;
+    // not the CombatLog-parsing anti-pattern (see CLAUDE.md), just a
+    // render-only fact about currently equipped gear.
+    private string WeaponStyle() =>
+        WeaponId is { } id && ItemRepo.GetWeapon(id) is { } w ? StyleClass(w.AttackType) : "melee";
 
     private static string StyleClass(AttackType t) => t switch
     {
