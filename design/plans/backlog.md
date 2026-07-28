@@ -33,6 +33,19 @@ pass, not later.
    row, placeholder ghost icons, the "Prepare Loadout" bank↔loadout bridge
    button. Core loop (deposit/withdraw/quantity toggle) shipped; these were
    explicitly deferred past it. *(M2, `m2-plan.md` Workstream B.4)*
+35. **Hive Matron's Pin "stunned 2 ticks against the wall" is approximated
+    with `DelayPlayerAttack`** (delays the player's next attack) rather
+    than a real movement-lock — no player-movement-freeze mechanism exists
+    in the engine, and building one for a single boss's one attack was
+    judged the wrong trade against M3's actual scope. Revisit if a future
+    boss needs a real stun (a genuine movement-lock, not an attack-delay
+    stand-in). *(M3, `m3-findings.md`)*
+36. **Hive Matron's drones station-keep at their orbit radius rather than
+    truly body-blocking melee approach lanes.** The Boss Bible's "body-
+    blocking melee approach lanes" implies real lane-collision the
+    player's pathing must route around; what shipped is real-HP adds
+    (3 hits) near the boss that must be dealt with, not collision
+    geometry. *(M3, `m3-findings.md`)*
 7. **Shop "why buy" tags** (UI bible §9: e.g. "Unlocks viable Magic swaps
    for Mirrorhide") — omitted; no per-item tag content exists beyond
    Maggot King, and the doc gives no tag table. *(M2, `m2-plan.md` D.1)*
@@ -64,21 +77,19 @@ pass, not later.
 
 ## C. Data exists, engine doesn't dispatch it (unwired mechanics)
 
-13. **T3/T4 weapon specials + Carrion Edge's Fester are data-only.**
-    `quake`, `piercing_arrow`, `arc`, `executioner`, `ballista_bolt`,
-    `annihilate`, `fester` all exist as real `SpecialEffect` rows (id,
-    cost, description) but `GameTickService.PerformSpecialAttack`'s
-    dispatch switch only has cases for M1's six specials — pressing any of
-    these seven logs `"Unknown special"` and no-ops. Quake is a real AoE,
-    Annihilate an interruptible 2-tick cast bar — six distinct mechanics,
-    not a small patch. *(M2, items ingested in Workstream A)*
-14. **No boss-side poison DoT track exists.** `GameState.PlayerPoisoned`
-    only ever poisons the *player* (applied by Maggot King's eruption
-    pools) — `NpcInstance` has no equivalent field. Blocks Rotfang's
-    "hits apply poison" and Carrion Edge's "20% of hits apply poison" /
-    Fester's "detonates all poison on the target" from ever doing anything
-    even once their stats exist. Real new engine work. *(M2, discovered
-    while investigating A.3)*
+13. **T3/T4 weapon specials + all four bosses' rares/uniques are
+    data-only.** `quake`, `piercing_arrow`, `arc`, `executioner`,
+    `ballista_bolt`, `annihilate`, `fester`, `sting_volley`, `refract` all
+    exist as real `SpecialEffect` rows (id, cost, description) but
+    `GameTickService.PerformSpecialAttack`'s dispatch switch only has
+    cases for M1's six specials — pressing any of these logs `"Unknown
+    special"` and no-ops. Same for the passives: Carrion Edge's 20%-poison,
+    Chitin Recurve's +10%-vs-moving, Hivepiercer's every-3rd-crit, Prism
+    Wand's -15%-special-cost, Mirrorshard Staff's swap-bonus, Leech Blade's
+    8%-lifesteal, Tithebound Cuirass's flask-cleanses-DoT are all
+    unwired — real per-item passive-hook work, one boss's worth (Rotfang)
+    is the only exception. *(M2/M3, items ingested in each milestone's own
+    Workstream A/E)*
 15. **Maggot King's P1 Eruption still runs on an independent timer**,
     violating the "Master-script rule" doctrine added for P2 (Global
     Combat Grammar: "every phase runs on one master tick script... never
@@ -113,6 +124,35 @@ not reused.)*
     dev-time-only affordance (real fullscreen still only matters for a
     non-wrapped browser/PWA target) until this decision is made.
     *(Brief, flagged since M0/M1, surfaced concretely this session)*
+37. **Common/Uncommon loot content is undocumented for every boss but
+    Maggot King** — now affects Hive Matron, Mirrorhide, and Bloodtithe
+    too (each shipped reusing Maggot King's exact generic-materials shape,
+    shifted to their own tier's gear bridge, PROVISIONAL). Needs either a
+    real per-boss content-authoring pass or a human ruling that the
+    generic reuse *is* the intended permanent design, not a placeholder.
+    *(M3, `m3-plan.md` design question 1 / `m3-findings.md`)*
+38. **Bloodtithe's bleed can kill a fresh 100-HP player in ~7 seconds**
+    (verified in browser testing, "Slain by: Bleed," no direct hit was the
+    killing blow) — the combination of his rotation landing 2–3 hits
+    inside a very short opening window (each both damaging and
+    stacking/refreshing a 10-tick bleed) plus the Tithe aura's separate
+    continuous drain outpaces what a player can realistically counter
+    (reach a Font) before dying on a first, ungeared attempt. Every number
+    involved is PROVISIONAL (no boss bible value for bleed's per-stack
+    rate); needs a human tuning pass — candidates are lowering the
+    per-stack rate, widening his early rotation's spacing, or ruling this
+    lethality intentional (his fantasy is "inevitable" pressure) and
+    leaning on FTUE guidance instead. *(M3, `m3-findings.md`)*
+39. **DoT unification (player poison / NPC poison / player bleed) was
+    flagged as a possible task in `m3-plan.md` Workstream A.4 and
+    deliberately not attempted** — the three tracks turned out to have
+    different enough shapes that a real unification looked like a risky
+    refactor of two already-shipped mechanisms for uncertain benefit.
+    Bloodtithe's bleed shipped as a fourth, parallel, Rotfang-poison-shaped
+    track instead (`GameState.PlayerBleedStacks`). A future milestone that
+    touches DoTs again should treat "four parallel shapes" as the current
+    state, not assume this unification already happened. *(M3,
+    `m3-findings.md`)*
 
 ## E. Technical debt / dev tooling
 
@@ -174,6 +214,16 @@ not reused.)*
 *(Move an item here, with a pointer to what closed it, instead of deleting
 it — this is the record that it was tracked and picked up, not just that
 it disappeared.)*
+
+**#14 No boss-side poison DoT track exists** — closed for its
+Rotfang-shaped half back in M2 batch 1 (`NpcInstance.PoisonStacks`,
+built for Rotfang's on-hit poison) but the item's own text ("blocks...
+Carrion Edge's 20% of hits apply poison / Fester's detonates all poison")
+was never updated to say so and stayed listed as fully open. Corrected
+now: the mechanism this item asked for exists and works (confirmed by
+`RotfangPoisonTests`); Carrion Edge's own passive/Fester's detonation
+using that mechanism is a separate, still-open gap, folded into #13
+(data-only passives) rather than tracked twice.
 
 **Backlog batch 1** (`design/plans/m2-backlog-resolutions.md`, "A+D
 resolutions, constants ratification, landscape mandate") closed the
