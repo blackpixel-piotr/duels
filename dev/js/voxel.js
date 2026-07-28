@@ -366,7 +366,11 @@
     const CAM_ANGLE0 = 0.10;   // initial camera yaw
     const CAM_DRAG = 0.010;    // camera yaw per dragged px
     const TAP_PX = 6;          // pointer travel below this = click, above = drag
-    const WALK_R = 5;          // walkable tile radius (matches GameState.ArenaRadius)
+    // Walkable tile radius (M3: mutable — set per-duel from the sim's own
+    // GameState.ArenaRadius via initBattle's opts.arenaRadius, since arena
+    // size is no longer one shared compile-time constant across every boss).
+    // Default 5 (= radius-4's ArenaRadius+1) matches every pre-M3 boss.
+    let WALK_R = 5;
     const FIELD_R = 12;        // grass extent of the field scene, tiles
     const TILE_MS = 600;       // move-segment duration: one sim step per game tick
     const TILE = 1.75;         // world units per sim tile — sets tile size RELATIVE
@@ -375,8 +379,9 @@
                                // fighter; 1.75 puts the 2.8wu player at ~1.6 tiles
                                // tall, the OSRS ratio). Actors sit at tile CENTERS
                                // (tx*TILE), so grid lines fall BETWEEN tiles.
-    const ARENA_R = 4.2 * TILE; // camera-framing radius: scales with the tile so
-                               // the camera zooms out to fit the bigger floor
+    let ARENA_R = 4.2 * TILE;  // camera-framing radius: scales with the tile so
+                               // the camera zooms out to fit the bigger floor.
+                               // Mutable (M3): recomputed from WALK_R in initBattle.
     const STRIDE = Math.PI;    // walk-phase radians per world unit (a step per tile)
     // Movement pacing: actors glide toward the latest sim tile at a CONSTANT speed
     // matched to the sim cadence (player RUNS 2 tiles/tick, enemy WALKS 1), so a
@@ -2377,6 +2382,13 @@
 
     async function initBattle(canvasId, opts) {
         destroyBattle(canvasId);
+
+        // Per-duel arena size (M3: no longer one shared constant — see the
+        // sim's own GameState.ArenaRadius). +1 keeps the visual floor padding
+        // one tile past the walkable square, same as the old fixed 5-vs-4.
+        const arenaRadius = opts.arenaRadius ?? 4;
+        WALK_R = arenaRadius + 1;
+        ARENA_R = (arenaRadius + 0.2) * TILE;
 
         const [playerModel, rigs] = await Promise.all([
             loadModel(opts.playerUrl).catch(e => {
