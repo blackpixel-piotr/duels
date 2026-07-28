@@ -1,0 +1,14 @@
+{
+  "rows": [
+    {
+      "event": "entity_moved",
+      "effectId": "dust_puff",
+      "texture": "procedural:radial_soft",
+      "count": 5,
+      "size": 0.35,
+      "lifetime": 0.4,
+      "colorToken": "--border",
+      "blend": "normal"
+    }
+  ]
+}
