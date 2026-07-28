@@ -1380,8 +1380,19 @@ async function initBattle(canvasId, opts) {
                 let da = destFacing - actor.facing;
                 while (da > Math.PI) da -= Math.PI * 2;
                 while (da < -Math.PI) da += Math.PI * 2;
+                // Ease toward the target (smooth tracking of a continuously-
+                // recomputed destFacing, e.g. the enemy re-aiming at the
+                // player's live position every frame) — same law as before
+                // this pass — then cap the step so a big sudden reversal is
+                // speed-bounded instead of a long asymptotic tail. Clamping
+                // the raw delta instead of the eased step (tried first) was
+                // a bug: for any da under the cap it's a no-op, so facing
+                // snapped straight to a shifting target every frame with no
+                // smoothing left at all — reads as twitchy/robotic tracking,
+                // not a bounded-speed turn.
+                const eased = da * Math.min(1, dt * 14);
                 const maxStep = MAX_TURN_RAD_PER_S * dt;
-                actor.facing += Math.max(-maxStep, Math.min(maxStep, da));
+                actor.facing += Math.max(-maxStep, Math.min(maxStep, eased));
                 const fx = updatePresentOffset(actor, now);
                 actor.ch.group.position.set(actor.pos.wx + fx.x, 0, actor.pos.wz + fx.z);
                 actor.ch.group.scale.y = fx.scale;
@@ -1416,8 +1427,19 @@ async function initBattle(canvasId, opts) {
                 let da = destFacing - actor.facing;
                 while (da > Math.PI) da -= Math.PI * 2;
                 while (da < -Math.PI) da += Math.PI * 2;
+                // Ease toward the target (smooth tracking of a continuously-
+                // recomputed destFacing, e.g. the enemy re-aiming at the
+                // player's live position every frame) — same law as before
+                // this pass — then cap the step so a big sudden reversal is
+                // speed-bounded instead of a long asymptotic tail. Clamping
+                // the raw delta instead of the eased step (tried first) was
+                // a bug: for any da under the cap it's a no-op, so facing
+                // snapped straight to a shifting target every frame with no
+                // smoothing left at all — reads as twitchy/robotic tracking,
+                // not a bounded-speed turn.
+                const eased = da * Math.min(1, dt * 14);
                 const maxStep = MAX_TURN_RAD_PER_S * dt;
-                actor.facing += Math.max(-maxStep, Math.min(maxStep, da));
+                actor.facing += Math.max(-maxStep, Math.min(maxStep, eased));
                 const fx = updatePresentOffset(actor, now);
                 actor.ch.group.position.set(actor.pos.wx + fx.x, 0, actor.pos.wz + fx.z);
                 actor.ch.group.scale.y = fx.scale;
