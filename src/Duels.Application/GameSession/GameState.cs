@@ -12,6 +12,19 @@ public sealed class GameState
     public string? LastOpponentId { get; private set; }
     public List<CombatLogEntry> CombatLog { get; } = new();
 
+    // VFX layer (renderer-only cosmetics): semantic events for THIS tick
+    // only, cleared at the top of GameTickService.ProcessTick and read once
+    // by BattleScene before the next tick clears them — unlike CombatLog
+    // (append-only, cursor-read, must never miss a line), it's fine for a
+    // coalesced render to drop a tick's worth of these; see vfx-plan.md.
+    // The sim only ever names WHAT happened (type/entity/a numeric payload)
+    // — never an effect id, color, or particle count.
+    private readonly List<VfxEvent> _vfxEvents = new();
+    public IReadOnlyList<VfxEvent> VfxEvents => _vfxEvents;
+    public void AppendVfxEvent(string type, string entityId, IReadOnlyDictionary<string, double>? data = null) =>
+        _vfxEvents.Add(new VfxEvent(type, entityId, data));
+    public void ClearVfxEvents() => _vfxEvents.Clear();
+
     // Tick engine
     public int PlayerCooldown { get; private set; }
     public int NpcCooldown { get; private set; }
@@ -574,6 +587,12 @@ public sealed class GameState
 }
 
 public sealed record CombatLogEntry(string Message, LogEntryKind Kind, DateTimeOffset Timestamp);
+
+/// <summary>A semantic VFX event (vfx-plan.md): the sim names what happened,
+/// never how it looks — Data is a small numeric payload (e.g. movement
+/// direction), resolved to an actual effect only by the renderer's
+/// vfx-manifest.json.</summary>
+public sealed record VfxEvent(string Type, string EntityId, IReadOnlyDictionary<string, double>? Data = null);
 
 public enum HazardState { Warning, Pool, Scorch }
 

@@ -462,6 +462,15 @@
             // matches the sim's average pace.
             await JS.InvokeVoidAsync("voxel.setBattleProjectiles", "battle-canvas",
                 s.Projectiles.Select(p => new { id = p.Id, x = p.X, z = p.Z, style = StyleClass(p.Attack.Style), speed = p.Attack.ProjectileSpeedTiles }).ToArray());
+
+            // VFX layer (vfx-plan.md): semantic events only, resolved to an
+            // actual effect entirely renderer-side. Skipped when empty so a
+            // standing-still player adds zero interop calls, and dropped
+            // entirely if a render gets coalesced — cosmetic-only, no
+            // gameplay state depends on this array ever being complete.
+            if (s.VfxEvents.Count > 0)
+                await JS.InvokeVoidAsync("voxel.setVfxEvents", "battle-canvas",
+                    s.VfxEvents.Select(e => new { type = e.Type, entityId = e.EntityId, data = e.Data }).ToArray());
         }
 
         // Overhead prayer icons (billboarded in-world sprite); send only on change.

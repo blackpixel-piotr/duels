@@ -72,3 +72,22 @@ models as they're sourced; zero data-shape changes needed elsewhere.
 Everything else in the items doc's tables (§3–§4, boss uniques/rares — M2+)
 ships without a modeled asset yet — those item ids render animation-only
 until a row is added here (and to asset-manifest.json) as models are sourced.
+
+## VFX textures (`wwwroot/data/vfx-manifest.json`, `design/plans/vfx-plan.md`)
+
+Not item icons — mirrors `vfx-manifest.json` the same way the table above
+mirrors `asset-manifest.json`. Not covered by `AssetMapSyncTests` (that test
+only checks the weapons/armor manifest above).
+
+| effectId | event | texture | flag |
+|---|---|---|---|
+| dust_puff | entity_moved | procedural (runtime radial-gradient `CanvasTexture`, `vfx.js`) | 🔴 |
+
+`dust_puff` is a placeholder, not a sourced asset: the brief calls for
+Kenney particle-pack (CC0) textures, but `kenney.nl` and `itch.io` both
+return 403 from this sandbox's egress proxy (org policy — confirmed, not
+transient). Swap `resolveTexture` in `vfx.js` for a real
+`TextureLoader().load('assets/vfx/dust_puff.png')` once a session with
+broader network access can vendor the actual pack; update this row's
+texture path and flag to 🟢/🟡 at the same time. Tracked in
+`design/plans/backlog.md`.

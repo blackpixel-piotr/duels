@@ -24,6 +24,7 @@ import * as THREE from '../lib/three.module.min.js';
 import { OutlineEffect } from '../lib/OutlineEffect.js';
 import { GLTFLoader } from '../lib/GLTFLoader.js';
 import * as SkeletonUtils from '../lib/SkeletonUtils.js';
+import { createVfxSystem } from './vfx.js';
 
 const TILE = 1.75;            // must match voxel.js — sim tiles are shared
 const WALK_R = 5;
@@ -997,6 +998,7 @@ async function initBattle(canvasId, opts) {
         projectileMeshes: new Map(),
         clock: new THREE.Clock(), raf: 0, drag: null,
         enemyId: opts.enemyId,
+        vfx: createVfxSystem(scene), // vfx-plan.md — renderer-only, driven by voxel.setVfxEvents
     };
 
     // ── ground: flat toon plane + ink tile grid + square edge ──
@@ -1430,6 +1432,8 @@ async function initBattle(canvasId, opts) {
             pr.mesh.position.y += Math.sin(t * Math.PI) * 0.8;
         }
 
+        st.vfx.update(dt);
+
         effect.render(scene, camera);
         st.raf = requestAnimationFrame(loop);
     };
@@ -1445,6 +1449,7 @@ function destroyBattle(canvasId) {
     st.canvas.removeEventListener('pointerup', st.onUp);
     st.canvas.removeEventListener('pointercancel', st.onCancel);
     st.canvas.removeEventListener('wheel', st.onWheel);
+    st.vfx.dispose();
     st.renderer.dispose();
     battles.delete(canvasId);
 }
@@ -1633,6 +1638,23 @@ const api = {
         // its target), not eased — a slider drag shouldn't lag behind itself.
         if (typeof d.pitch === 'number') st.camPitch = st.camPitchTarget = Math.max(0.2, Math.min(1.4, d.pitch));
         if (typeof d.zoom === 'number') st.zoom = st.zoomTarget = d.zoom;
+    },
+    // VFX layer (vfx-plan.md): semantic events only — st.vfx resolves each
+    // one to an effect via vfx-manifest.json, positioned at the entity's
+    // LIVE rendered spot (st.player/enemy.pos, already tracked every frame
+    // by the pursuit/interpolation blocks above), not the raw sim tile.
+    setVfxEvents(canvasId, events) {
+        const st = battles.get(canvasId);
+        if (!st) return;
+        st.vfx.handleEvents(events, {
+            player: { wx: st.player.pos.wx, wz: st.player.pos.wz },
+            enemy: { wx: st.enemy.pos.wx, wz: st.enemy.pos.wz },
+        }, performance.now());
+    },
+    // Stub for later UI wiring (vfx-plan.md §6) — 'off' | 'low' | 'full'.
+    setVfxQuality(canvasId, quality) {
+        const st = battles.get(canvasId);
+        if (st) st.vfx.setQuality(quality);
     },
     setBattlePositions(canvasId, pos) {
         const st = battles.get(canvasId);

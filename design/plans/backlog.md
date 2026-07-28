@@ -206,6 +206,27 @@ not reused.)*
     boss); the "favors ranged/melee" lever is covered by a unit test but
     not by any real fight yet. Will get real coverage from the first
     boss with non-neutral Evasion (M3+). *(M1)*
+40. **VFX texture asset (`assets/vfx/`) uses a procedural placeholder,
+    not the brief's Kenney particle pack.** `kenney.nl` and `itch.io` both
+    return 403 from this session's egress proxy (org policy — confirmed
+    via direct request, not a transient failure), and this session's
+    GitHub access is scoped to `blackpixel-piotr/duels` only, so a
+    third-party mirror wasn't substituted either. Movement dust
+    (iteration 1) instead uses a runtime-generated radial-gradient
+    `CanvasTexture` (`vfx.js`'s `makeProceduralDustTexture`) — visually a
+    soft round puff, functionally fine, just not the sourced CC0 asset.
+    Swap `resolveTexture` for a real `TextureLoader().load(...)` of a
+    vendored PNG once a session with broader network access can fetch the
+    Kenney pack; update `vfx-manifest.json`'s `texture` field and
+    `asset-map.md`'s VFX Textures section flag at the same time.
+    *(VFX layer iteration 1, `design/plans/vfx-plan.md`/`vfx-findings.md`)*
+41. **VFX global particle budget (`PARTICLE_BUDGET = 300` in `vfx.js`) is
+    marked `// PROVISIONAL`** — it's the brief's own stated default, not a
+    number from a `/design/*.md` file, and hasn't been tuned against a
+    real device. Iteration 1 (movement dust, max 3 concurrent × ~5
+    particles per entity) never gets close to it, so the auto-cull-oldest
+    path is untested by real load — revisit once a second VFX effect ships
+    and this can actually be exercised. *(VFX layer iteration 1)*
 
 ---
 

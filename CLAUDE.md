@@ -29,6 +29,15 @@ previews, and any future visual surface. No secondary renderers.
 - Telegraphs are always visual (outline/rim glow in doctrine color, windup pose,
   projectile color) plus audio — never text popups. The HUD forecast icon is a
   secondary echo, never the primary tell.
+- VFX are renderer-only, driven by semantic vfxEvents in the snapshot, and
+  mapped to effects via vfx-manifest.json. VFX never encode gameplay
+  information on their own, always use doctrine color tokens, and are always
+  subordinate to telegraph readability — no effect may obscure a telegraph,
+  projectile, or overhead prayer icon. The VFX system can be disabled with
+  zero gameplay impact. First shipped (movement dust, player only) per
+  design/plans/vfx-plan.md; see vfx-findings.md for what actually landed,
+  including a flagged non-doctrine color usage (dust has no gameplay meaning
+  to encode) and a Kenney-texture network blocker now in backlog.md.
 
 ## Codebase navigation (knowledge graph)
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

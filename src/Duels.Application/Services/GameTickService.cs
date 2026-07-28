@@ -86,9 +86,16 @@ public sealed class GameTickService : IDisposable
 
         for (int i = 0; i < 2 && state.PlayerMoveTarget is not null; i++)
         {
+            var prevTile = state.PlayerTile;
             var step = NextStepToward(state, state.PlayerTile, moveTarget, state.NpcTile);
             bool blocked = step == state.PlayerTile;
             state.SetPlayerTile(step.X, step.Z);
+            if (!blocked)
+                state.AppendVfxEvent("entity_moved", "player", new Dictionary<string, double>
+                {
+                    ["dx"] = step.X - prevTile.X,
+                    ["dz"] = step.Z - prevTile.Z,
+                });
             if (state.PlayerTile == moveTarget || blocked)
                 state.ClearMoveOrder();
         }
@@ -105,6 +112,7 @@ public sealed class GameTickService : IDisposable
         var npc = state.ActiveNpc!;
 
         state.TickStartProtection = player.ActiveProtection;
+        state.ClearVfxEvents(); // this tick's vfx events only — see GameState.VfxEvents
         var preTickPlayerTile = state.PlayerTile;
         var erupting = state.TilesErupting(); // captured before movement/new waves
 
@@ -127,6 +135,18 @@ public sealed class GameTickService : IDisposable
         // already captured above (for hazard Perfect-Dodge), so this is
         // free to reuse rather than a second snapshot.
         bool playerMovedThisTick = state.PlayerTile != preTickPlayerTile;
+        if (playerMovedThisTick)
+        {
+            // Movement dust (vfx-plan.md iteration 1): ordinary steps only —
+            // playerMovedThisTick is already false for anything a teleport
+            // (Lunge, knockback) would cause, since those run later in this
+            // same tick, after this line.
+            state.AppendVfxEvent("entity_moved", "player", new Dictionary<string, double>
+            {
+                ["dx"] = state.PlayerTile.X - preTickPlayerTile.X,
+                ["dz"] = state.PlayerTile.Z - preTickPlayerTile.Z,
+            });
+        }
 
         int playerRange = GetPlayerWeaponRange(player);
         bool targetInRange = state.CurrentTargetAdd is { } targetAdd
