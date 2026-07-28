@@ -75,7 +75,8 @@ public sealed record BossPhaseDef(
     int SwarmHp = 2,                 // per-swarm HP (P2 master script: 1)
     int SwarmMaxAlive = 2,           // cap on concurrent swarms
     int RotBurstEveryNCycles = 3,    // Rot Burst fires on every Nth master cycle
-    IReadOnlyList<DroneWaveDef>? Drones = null); // Hive Matron's real-HP orbiting adds
+    IReadOnlyList<DroneWaveDef>? Drones = null, // Hive Matron's real-HP orbiting adds
+    AttunementDef? Attunement = null); // Mirrorhide: per-phase (P2 tightens the window)
 
 /// <summary>Boss footprint in tiles (plain record, not a ValueTuple — System.Text.Json
 /// has no built-in ValueTuple converter).</summary>
@@ -116,6 +117,32 @@ public sealed record DroneWaveDef(int ThresholdPercent, int Count, int Hp, int O
 /// Dodge eligible (sidestep the line on its final warning tick).</summary>
 public sealed record LineChargeDef(int WarningTicks, int Damage, int StunTicks, int MissPunishTicks, bool DoubleChainInPhase2 = false);
 
+/// <summary>Mirrorhide's Attunement (Boss Bible §3, "Core mechanic"): after
+/// being hit by the same style HitsToAttune times in a row, shimmers
+/// (ShimmerTicks warning), then becomes immune to that style for
+/// ImmuneTicks. A DIFFERENT style landed during the shimmer window Shatters
+/// it instead — cancels the attunement and opens a ShatterWindowTicks
+/// bonus-damage window (reuses the shared punish-window primitive).</summary>
+public sealed record AttunementDef(int HitsToAttune, int ShimmerTicks, int ImmuneTicks, int ShatterWindowTicks);
+
+/// <summary>Mirrorhide's periodic cloak: untargetable + repositions behind
+/// the player for DurationTicks, every CadenceTicks. PounceOnEnd (Phase 2):
+/// a single-tile mark on the player's tile as the cloak ends, 1-tick
+/// warning, Perfect-Dodge eligible.</summary>
+public sealed record CloakDef(int CadenceTicks, int DurationTicks, int PounceDamage, bool PounceOnEnd = false);
+
+/// <summary>Mirrorhide's Reflection (signature): channels for ChannelTicks,
+/// then reflects ReflectPercent of the player's own damage — when dealt in
+/// the currently-attuned style — back at them for WindowTicks.</summary>
+public sealed record ReflectDef(int ChannelTicks, int WindowTicks, double ReflectPercent);
+
+/// <summary>Copycat (Mirrorhide, Phase 2): replays the player's last-used
+/// special attack with boss numbers, TelegraphTicks ahead of landing, on a
+/// CadenceTicks cooldown. Simplified to a single fixed-Damage hit rather
+/// than porting each of the six specials' individual effects onto the boss
+/// — see m3-findings.md's scoping note.</summary>
+public sealed record CopycatDef(int TelegraphTicks, int Damage, int CadenceTicks);
+
 /// <summary>Full boss-fight definition consumed by the shared boss engine
 /// (m1-plan Workstream C) — the rotation script, hazards, swarms and Rot
 /// Burst are all data here; GameTickService/BossEngine contain no
@@ -132,7 +159,10 @@ public sealed record BossScript(
     SpacingAiDef? SpacingAi = null,
     AdjacencyPunishDef? AdjacencyPunish = null,
     DamageReductionWindowDef? DamageReductionWindow = null,
-    LineChargeDef? LineCharge = null);
+    LineChargeDef? LineCharge = null,
+    CloakDef? Cloak = null,
+    ReflectDef? Reflect = null,
+    CopycatDef? Copycat = null);
 
 // DummyStyle: approach style for a non-scripted (Script=null) NPC's generic
 // chase-to-range movement — the shared mover, not boss-specific code. Real M1
@@ -361,6 +391,117 @@ public sealed class NpcInstance
     }
     public void ClearLineCharge() { LineChargeTiles = null; LineChargeTicksLeft = 0; }
 
+    // ── M3, Mirrorhide (Boss Bible §3) ───────────────────────────────────
+
+    // Echo Offense / Attunement tracking: the style the player's last
+    // landed hit used, and how many consecutive hits have shared it.
+    public AttackType? LastHitStyle { get; private set; }
+    public int ConsecutiveStyleHits { get; private set; }
+
+    public AttackType? AttunedStyle { get; private set; }
+    public int AttunementShimmerTicksLeft { get; private set; }
+    public int AttunementImmuneTicksLeft { get; private set; }
+    public bool IsAttuned => AttunedStyle is not null && AttunementImmuneTicksLeft > 0;
+    public bool IsShimmering => AttunedStyle is not null && AttunementShimmerTicksLeft > 0 && AttunementImmuneTicksLeft <= 0;
+
+    /// <summary>Records a landed, non-immune player hit for Echo Offense +
+    /// Attunement (immune-blocked hits never reach here — see
+    /// GameTickService's Attunement-immunity check). Returns "shatter" if
+    /// this hit broke a shimmering attunement (a different style during the
+    /// warning window), "attune" if it just crossed the threshold and
+    /// started the shimmer, else "none".</summary>
+    public string RecordPlayerHitStyle(AttackType style, AttunementDef? def)
+    {
+        bool wasShimmering = IsShimmering;
+        var priorStyle = LastHitStyle;
+        LastHitStyle = style;
+
+        if (wasShimmering && AttunedStyle != style)
+        {
+            AttunedStyle = null;
+            AttunementShimmerTicksLeft = 0;
+            ConsecutiveStyleHits = 1;
+            return "shatter";
+        }
+
+        if (def is null) return "none";
+
+        ConsecutiveStyleHits = priorStyle == style ? ConsecutiveStyleHits + 1 : 1;
+
+        if (AttunedStyle is null && ConsecutiveStyleHits >= def.HitsToAttune)
+        {
+            AttunedStyle = style;
+            AttunementShimmerTicksLeft = def.ShimmerTicks;
+            return "attune";
+        }
+        return "none";
+    }
+
+    /// <summary>Advances the shimmer -> full-immunity handoff; called once
+    /// per tick with the def's own ImmuneTicks (only consulted the instant
+    /// the shimmer expires). Resets the streak once immunity actually
+    /// starts, so the next attunement cycle counts fresh hits.</summary>
+    public void TickAttunement(int immuneTicksOnExpiry)
+    {
+        if (AttunementShimmerTicksLeft > 0)
+        {
+            AttunementShimmerTicksLeft--;
+            if (AttunementShimmerTicksLeft <= 0 && AttunedStyle is not null)
+            {
+                AttunementImmuneTicksLeft = immuneTicksOnExpiry;
+                ConsecutiveStyleHits = 0;
+            }
+        }
+        else if (AttunementImmuneTicksLeft > 0)
+        {
+            AttunementImmuneTicksLeft--;
+            if (AttunementImmuneTicksLeft <= 0) AttunedStyle = null;
+        }
+    }
+
+    // Cloak: untargetable window + cooldown.
+    public int CloakCooldown { get; private set; }
+    public int CloakTicksLeft { get; private set; }
+    public bool IsCloaked => CloakTicksLeft > 0;
+    public void ResetCloakCooldown(int ticks) => CloakCooldown = ticks;
+    public void TickCloakCooldown() { if (CloakCooldown > 0) CloakCooldown--; }
+    public void StartCloak(int ticks) => CloakTicksLeft = ticks;
+    public bool TickCloak() // returns true the tick the cloak ENDS
+    {
+        if (CloakTicksLeft <= 0) return false;
+        CloakTicksLeft--;
+        return CloakTicksLeft <= 0;
+    }
+
+    // Reflection: channel then a reflect-damage window, against whichever
+    // style was attuned (or last hit) at the moment the channel began.
+    public int ReflectChannelTicksLeft { get; private set; }
+    public int ReflectWindowTicksLeft { get; private set; }
+    public bool ReflectWindowActive => ReflectWindowTicksLeft > 0;
+    public AttackType? ReflectStyle { get; private set; }
+    public void StartReflectChannel(int ticks) => ReflectChannelTicksLeft = ticks;
+    public bool TickReflectChannel() // returns true the tick the channel resolves
+    {
+        if (ReflectChannelTicksLeft <= 0) return false;
+        ReflectChannelTicksLeft--;
+        return ReflectChannelTicksLeft <= 0;
+    }
+    public void StartReflectWindow(int ticks, AttackType style) { ReflectWindowTicksLeft = ticks; ReflectStyle = style; }
+    public void TickReflectWindow() { if (ReflectWindowTicksLeft > 0) ReflectWindowTicksLeft--; }
+
+    // Copycat (Phase 2): cooldown + pending telegraph.
+    public int CopycatCooldown { get; private set; }
+    public int CopycatTelegraphTicksLeft { get; private set; }
+    public void ResetCopycatCooldown(int ticks) => CopycatCooldown = ticks;
+    public void TickCopycatCooldown() { if (CopycatCooldown > 0) CopycatCooldown--; }
+    public void StartCopycatTelegraph(int ticks) => CopycatTelegraphTicksLeft = ticks;
+    public bool TickCopycatTelegraph()
+    {
+        if (CopycatTelegraphTicksLeft <= 0) return false;
+        CopycatTelegraphTicksLeft--;
+        return CopycatTelegraphTicksLeft <= 0;
+    }
+
     // Rotfang on-hit poison (items doc §3, backlog resolution batch 1):
     // 5-tick duration, 2 dmg/stack/tick, max 3 stacks; any landed hit while
     // wielded adds a stack (capped at 3) AND refreshes the duration to 5 --
@@ -393,9 +534,12 @@ public sealed class NpcInstance
         {
             EruptionCooldown = s.Phase1.Eruption.CooldownTicks;
             RotBurstCooldown = s.Phase1.RotBurst?.CadenceTicks ?? 0;
-            // M3: Chitin Guard's own cadence, same "seed the cooldown so it
-            // doesn't fire on tick 0" pattern as Eruption/RotBurst above.
+            // M3: Chitin Guard's/Cloak's/Copycat's own cadences, same "seed
+            // the cooldown so it doesn't fire on tick 0" pattern as
+            // Eruption/RotBurst above.
             DamageReductionCooldown = s.DamageReductionWindow?.CadenceTicks ?? 0;
+            CloakCooldown = s.Cloak?.CadenceTicks ?? 0;
+            CopycatCooldown = s.Copycat?.CadenceTicks ?? 0;
 
             // Seed the forecast with the fight's opening move. The rotation's
             // own style-shift telegraphs only fire mid-loop (T8/T16) — without

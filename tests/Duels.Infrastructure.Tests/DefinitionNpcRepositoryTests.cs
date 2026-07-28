@@ -15,7 +15,7 @@ public class DefinitionNpcRepositoryTests
         var items = new DefinitionItemRepository();
         var repo = new DefinitionNpcRepository(items);
 
-        Assert.Equal(2, repo.GetAll().Count);
+        Assert.Equal(3, repo.GetAll().Count);
 
         var maggotKing = repo.GetTemplate("maggot_king");
         Assert.NotNull(maggotKing);
@@ -63,6 +63,19 @@ public class DefinitionNpcRepositoryTests
         Assert.True(hiveMatron.Script.LineCharge!.DoubleChainInPhase2);
         Assert.NotNull(hiveMatron.Script.Phase1.Drones);
         Assert.Equal(3, hiveMatron.Script.Phase1.Drones!.Count);
+
+        // M3: Mirrorhide — Attunement is per-phase, Cloak/Reflect/Copycat shared.
+        var mirrorhide = repo.GetTemplate("mirrorhide");
+        Assert.NotNull(mirrorhide);
+        Assert.NotNull(mirrorhide!.Script!.Phase1.Attunement);
+        Assert.Equal(4, mirrorhide.Script.Phase1.Attunement!.HitsToAttune);
+        Assert.NotNull(mirrorhide.Script.Phase2.Attunement);
+        Assert.Equal(3, mirrorhide.Script.Phase2.Attunement!.HitsToAttune);
+        Assert.NotNull(mirrorhide.Script.Cloak);
+        Assert.True(mirrorhide.Script.Cloak!.PounceOnEnd);
+        Assert.NotNull(mirrorhide.Script.Reflect);
+        Assert.Equal(0.5, mirrorhide.Script.Reflect!.ReflectPercent);
+        Assert.NotNull(mirrorhide.Script.Copycat);
     }
 
     [Fact]

@@ -208,6 +208,8 @@ public sealed class GameTickService : IDisposable
             ProcessHazardResolution(state, player, preTickPlayerTile, erupting);
             if (npc.Template.Script?.SpacingAi is not null)
                 ProcessSpacingAiMechanics(state, player, npc, preTickPlayerTile);
+            if (npc.Template.Script?.Cloak is not null)
+                ProcessMirrorhideMechanics(state, player, npc);
         }
 
         // Prayer drain at tick end (D7: 2 pts per drain event for a
@@ -416,6 +418,13 @@ public sealed class GameTickService : IDisposable
 
     private async Task ExecuteBasicAttackOnBoss(GameState state, Player player, NpcInstance npc)
     {
+        // M3, Mirrorhide's cloak: untargetable, the attack finds nothing there.
+        if (npc.IsCloaked)
+        {
+            state.AppendLog($"Your attack passes through empty air — {npc.Template.Name} is cloaked!", LogEntryKind.PlayerMiss);
+            return;
+        }
+
         var weapon = GetPlayerWeapon(player);
         var attacker = BuildAttackerProfile(player, weapon);
         // Accuracy is rolled vs the boss's per-style Evasion for the doctrine
@@ -431,30 +440,83 @@ public sealed class GameTickService : IDisposable
             return;
         }
 
+        // M3, Mirrorhide's Attunement: fully immune to its currently-attuned
+        // style — the hit still "connects" (it was accurate) but deals zero,
+        // same distinct-from-a-miss treatment prayer blocks get.
+        bool attuneImmune = npc.IsAttuned && npc.AttunedStyle == doctrine;
+
         bool punished = npc.InPunishWindow;
-        int damage = punished ? (int)Math.Round(roll.Damage * 1.25) : roll.Damage;
+        int damage = attuneImmune ? 0 : (punished ? (int)Math.Round(roll.Damage * 1.25) : roll.Damage);
         damage = ApplyBossDamageReduction(npc, doctrine, damage);
         npc.TakeDamage(damage);
 
         // Rotfang (items doc §3, backlog resolution batch 1): on-hit poison,
         // any landed hit while wielded, independent of the damage roll itself.
-        if (weapon?.Id == RotfangItemId)
+        if (weapon?.Id == RotfangItemId && damage > 0)
         {
             npc.ApplyRotfangPoison();
             state.AppendLog($"Rotfang's venom sinks in. ({npc.PoisonStacks} stack{(npc.PoisonStacks > 1 ? "s" : "")})", LogEntryKind.Info);
         }
 
-        // A max-hit (rolled the weapon's 2×Power ceiling) gets its own hitsplat
-        // tier + MaxHit log kind (the latter already fires a screen shake) so it
-        // reads distinctly from an ordinary hit — items doc §1's "distinct
-        // max-hit visual."
-        string tier = roll.MaxHit ? "max" : "normal";
-        state.AppendLog($"{damage}:{tier}", LogEntryKind.HitsplatPlayer);
-        string punishMsg = punished ? " (punish window!)" : "";
-        string maxMsg = roll.MaxHit ? " — MAX HIT!" : "";
-        state.AppendLog($"You hit {npc.Template.Name} for {damage}{punishMsg}{maxMsg}. [{npc.CurrentHp}/{npc.MaxHp} HP]",
-            roll.MaxHit ? LogEntryKind.MaxHit : LogEntryKind.PlayerHit);
+        if (attuneImmune)
+        {
+            state.AppendLog($"0:blocked", LogEntryKind.HitsplatPlayer);
+            state.AppendLog($"{npc.Template.Name} shrugs it off — immune to {StyleName(doctrine)} right now!", LogEntryKind.PlayerMiss);
+        }
+        else
+        {
+            // A max-hit (rolled the weapon's 2×Power ceiling) gets its own hitsplat
+            // tier + MaxHit log kind (the latter already fires a screen shake) so it
+            // reads distinctly from an ordinary hit — items doc §1's "distinct
+            // max-hit visual."
+            string tier = roll.MaxHit ? "max" : "normal";
+            state.AppendLog($"{damage}:{tier}", LogEntryKind.HitsplatPlayer);
+            string punishMsg = punished ? " (punish window!)" : "";
+            string maxMsg = roll.MaxHit ? " — MAX HIT!" : "";
+            state.AppendLog($"You hit {npc.Template.Name} for {damage}{punishMsg}{maxMsg}. [{npc.CurrentHp}/{npc.MaxHp} HP]",
+                roll.MaxHit ? LogEntryKind.MaxHit : LogEntryKind.PlayerHit);
+
+            RecordMirrorhideHitAndReflect(state, player, npc, doctrine, damage);
+        }
+
         await _events.PublishAsync(new AttackLanded(player.Id, npc.Template.Id, damage));
+    }
+
+    // M3, Mirrorhide: Echo Offense (her next attack's style = the style you
+    // just hit her with) + Attunement bookkeeping + Reflection's payback,
+    // all keyed off a real landed (non-immune) hit. No-op for any boss
+    // without an Attunement/Reflect def — currently only Mirrorhide sets one.
+    private void RecordMirrorhideHitAndReflect(GameState state, Player player, NpcInstance npc, AttackType doctrine, int damageDealt)
+    {
+        if (npc.Template.Script is null) return; // non-scripted test fixtures (no boss content) never reach here otherwise
+
+        var attunementDef = npc.ActivePhaseDef.Attunement;
+        if (attunementDef is not null || npc.Template.Script?.Reflect is not null)
+        {
+            switch (npc.RecordPlayerHitStyle(doctrine, attunementDef))
+            {
+                case "attune":
+                    state.AppendLog($"{npc.Template.Name}'s scales shimmer {StyleName(doctrine)} — about to become immune!", LogEntryKind.BossSpecial);
+                    break;
+                case "shatter":
+                    npc.StartSlump(attunementDef!.ShatterWindowTicks);
+                    state.AppendLog($"SHATTERED! {npc.Template.Name}'s attunement breaks — punish window! (+25% damage, {attunementDef.ShatterWindowTicks} ticks)", LogEntryKind.BossSpecial);
+                    break;
+            }
+        }
+
+        if (npc.ReflectWindowActive && npc.ReflectStyle == doctrine && damageDealt > 0)
+        {
+            int reflected = (int)Math.Round(damageDealt * npc.Template.Script!.Reflect!.ReflectPercent);
+            if (reflected > 0)
+            {
+                player.TakeDamage(reflected);
+                state.RecordDamageTaken(reflected);
+                state.SetKilledBy("Reflection");
+                state.AppendLog($"{reflected}:normal:{StyleToken(doctrine)}", LogEntryKind.HitsplatNpc);
+                state.AppendLog($"Your own {StyleName(doctrine)} damage reflects back at you for {reflected}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+            }
+        }
     }
 
     private void ExecuteBasicAttackOnAdd(GameState state, Player player, AddInstance add)
@@ -540,6 +602,14 @@ public sealed class GameTickService : IDisposable
     private void ExecuteSpecialHit(GameState state, Player player, NpcInstance npc, Weapon weapon, string name,
         double damageMult = 1.0, int burnTicks = 0, int burnPerTick = 0, Action? onHit = null)
     {
+        state.RecordPlayerSpecial(name); // M3, Mirrorhide's Copycat: last-landed-or-attempted special, named
+
+        if (npc.IsCloaked)
+        {
+            state.AppendLog($"⚡ SPEC! {name} finds nothing — {npc.Template.Name} is cloaked!", LogEntryKind.PlayerMiss);
+            return;
+        }
+
         var attacker = BuildAttackerProfile(player, weapon);
         var roll = _damage.Roll(attacker, new DefenderProfile(0, false, npc.EvasionFor(weapon.AttackType)));
 
@@ -550,15 +620,26 @@ public sealed class GameTickService : IDisposable
             return;
         }
 
+        bool attuneImmune = npc.IsAttuned && npc.AttunedStyle == weapon.AttackType;
         bool punished = npc.InPunishWindow;
-        int damage = (int)Math.Round(roll.Damage * damageMult * (punished ? 1.25 : 1.0));
+        int damage = attuneImmune ? 0 : (int)Math.Round(roll.Damage * damageMult * (punished ? 1.25 : 1.0));
         damage = ApplyBossDamageReduction(npc, weapon.AttackType, damage);
         npc.TakeDamage(damage);
-        state.AppendLog($"⚡ SPEC! {name} hits {npc.Template.Name} for {damage}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.SpecHit);
-        state.AppendLog($"{damage}:spec:{weapon.Id}", LogEntryKind.HitsplatPlayer);
 
-        if (burnTicks > 0) state.ApplyBleed(burnTicks, burnPerTick);
-        onHit?.Invoke();
+        if (attuneImmune)
+        {
+            state.AppendLog("0:blocked", LogEntryKind.HitsplatPlayer);
+            state.AppendLog($"⚡ SPEC! {npc.Template.Name} shrugs off {name} — immune to {StyleName(weapon.AttackType)} right now!", LogEntryKind.PlayerMiss);
+        }
+        else
+        {
+            state.AppendLog($"⚡ SPEC! {name} hits {npc.Template.Name} for {damage}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.SpecHit);
+            state.AppendLog($"{damage}:spec:{weapon.Id}", LogEntryKind.HitsplatPlayer);
+
+            if (burnTicks > 0) state.ApplyBleed(burnTicks, burnPerTick);
+            onHit?.Invoke();
+            RecordMirrorhideHitAndReflect(state, player, npc, weapon.AttackType, damage);
+        }
     }
 
     // ── Boss rotation-script engine (m1-plan Workstream C.1) ────────────
@@ -785,6 +866,34 @@ public sealed class GameTickService : IDisposable
             return;
         }
 
+        // M3, Mirrorhide's Echo Offense (Boss Bible §3, "Core mechanic"): her
+        // attacks always use the style the player last hit her with — a
+        // dynamic BossAttackDef built at cast time rather than a fixed
+        // Attacks-dict entry, defaulting to melee before the player's first
+        // landed hit (nothing to echo yet).
+        if (step.Action == "echo_strike")
+        {
+            if (!state.IsMechanicEnabled(BossMechanic.BossAutos)) return;
+            var echoStyle = npc.LastHitStyle ?? AttackType.Crush;
+            var echoAttack = new BossAttackDef("echo_strike", "Echo Strike", echoStyle, EchoStrikeDamage);
+            if (echoStyle is AttackType.Ranged or AttackType.Magic)
+                SpawnProjectileAttack(state, echoAttack, source: "ResolveRotationStep(EchoStrike)");
+            else
+                ResolveBossAttack(state, player, npc, echoAttack);
+            return;
+        }
+
+        // M3, Mirrorhide's Reflection (signature): starts a channel; the
+        // reflect window itself opens later, from ProcessMirrorhideMechanics,
+        // once TickReflectChannel() reports the channel resolved.
+        if (step.Action == "reflect" && npc.Template.Script?.Reflect is { } reflectDef)
+        {
+            if (!state.IsMechanicEnabled(BossMechanic.BossAutos)) return;
+            npc.StartReflectChannel(reflectDef.ChannelTicks);
+            state.AppendLog($"{npc.Template.Name} begins to shimmer — channeling Reflection!", LogEntryKind.BossSpecial);
+            return;
+        }
+
         var attackId = ResolveAttackId(state, step.Action);
         var attack = npc.Template.Script!.Attacks[attackId];
 
@@ -804,6 +913,12 @@ public sealed class GameTickService : IDisposable
 
         RecordAttackAndMaybeDash(state, npc);
     }
+
+    // PROVISIONAL: Echo Strike's damage — Boss Bible gives only "Medium"
+    // (no exact number for Mirrorhide specifically), consistent with the
+    // established precedent of reusing Maggot King's own Medium value (18)
+    // rather than inventing a new one (see m3-plan.md's item-doc precedent).
+    private const int EchoStrikeDamage = 18;
 
     // M3, Hive Matron's spacing AI: "after every 3rd attack she dashes 3
     // tiles to reset spacing" — a no-op for any boss without SpacingAi.
@@ -1153,6 +1268,82 @@ public sealed class GameTickService : IDisposable
             var newTiles = LineThrough(state, state.NpcTile, state.PlayerTile);
             npc.StartLineCharge(newTiles, 3, chainSecond: true);
             state.AppendLog($"⚠ {npc.Template.Name} re-aims — PIN incoming again!", LogEntryKind.BossSpecial);
+        }
+    }
+
+    // ── M3, Mirrorhide's per-tick mechanics ─────────────────────────────
+    // Gated on Cloak being present — currently only Mirrorhide sets one, so
+    // this whole block is dormant for every other boss.
+
+    private void ProcessMirrorhideMechanics(GameState state, Player player, NpcInstance npc)
+    {
+        var script = npc.Template.Script!;
+
+        if (npc.ActivePhaseDef.Attunement is { } attunement)
+            npc.TickAttunement(attunement.ImmuneTicks);
+
+        if (script.Cloak is { } cloak)
+        {
+            npc.TickCloakCooldown();
+            if (npc.IsCloaked)
+            {
+                if (npc.TickCloak())
+                {
+                    // Reposition behind the player (point-reflected through
+                    // their tile from wherever she currently stands).
+                    var behind = (X: 2 * state.PlayerTile.X - state.NpcTile.X, Z: 2 * state.PlayerTile.Z - state.NpcTile.Z);
+                    if (!state.InArena(behind)) behind = state.PlayerTile;
+                    state.SetNpcTile(behind.X, behind.Z);
+                    state.AppendLog($"{npc.Template.Name} melts back into view behind you!", LogEntryKind.BossSpecial);
+
+                    if (cloak.PounceOnEnd && npc.Phase == 2 && state.IsMechanicEnabled(BossMechanic.BossAutos))
+                    {
+                        state.AddHazardWave(new[] { state.PlayerTile }, warningTicks: 1, poolTicks: 0);
+                        state.AppendLog($"⚠ {npc.Template.Name} pounces — MOVE!", LogEntryKind.BossSpecial);
+                    }
+                }
+            }
+            else if (npc.CloakCooldown <= 0 && state.IsMechanicEnabled(BossMechanic.BossAutos))
+            {
+                npc.StartCloak(cloak.DurationTicks);
+                npc.ResetCloakCooldown(cloak.CadenceTicks);
+                state.AppendLog($"{npc.Template.Name} shimmers and vanishes — cloaked!", LogEntryKind.BossSpecial);
+            }
+        }
+
+        if (script.Reflect is { } reflect)
+        {
+            if (npc.ReflectChannelTicksLeft > 0 && npc.TickReflectChannel())
+            {
+                var style = npc.AttunedStyle ?? npc.LastHitStyle ?? AttackType.Crush;
+                npc.StartReflectWindow(reflect.WindowTicks, style);
+                state.AppendLog($"{npc.Template.Name}'s scales flare — reflecting {StyleName(style)} damage!", LogEntryKind.BossSpecial);
+            }
+            npc.TickReflectWindow();
+        }
+
+        if (script.Copycat is { } copycat && npc.Phase == 2)
+        {
+            npc.TickCopycatCooldown();
+            if (npc.CopycatTelegraphTicksLeft > 0)
+            {
+                if (npc.TickCopycatTelegraph())
+                {
+                    int dmg = ResolveIncomingDamage(state, player, npc, copycat.Damage, style: null, unprayable: true);
+                    player.TakeDamage(dmg);
+                    state.RecordDamageTaken(dmg);
+                    if (dmg > 0) state.SetKilledBy("Copycat");
+                    state.AppendLog($"{dmg}:hazard", LogEntryKind.HitsplatNpc);
+                    string specialName = state.LastPlayerSpecialName ?? "your own special";
+                    state.AppendLog($"{npc.Template.Name} throws {specialName} back at you for {dmg}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.BossSpecial);
+                }
+            }
+            else if (npc.CopycatCooldown <= 0 && state.LastPlayerSpecialName is not null && state.IsMechanicEnabled(BossMechanic.BossAutos))
+            {
+                npc.StartCopycatTelegraph(copycat.TelegraphTicks);
+                npc.ResetCopycatCooldown(copycat.CadenceTicks);
+                state.AppendLog($"⚠ {npc.Template.Name}'s silhouette flickers with your own special — COPYCAT incoming!", LogEntryKind.BossSpecial);
+            }
         }
     }
 

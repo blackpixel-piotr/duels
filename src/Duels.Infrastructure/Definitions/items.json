@@ -327,6 +327,44 @@
       "ExamineText": "Hive Matron's rare (items doc §4): RL 150+ gated, best-in-slot ranged weapon. Data-ingested ahead of its drop source (no Rare loot-table slot until M4's raid level). Every-3rd-hit-crits passive and Sting Volley's special are data-only, not wired — same shape as Carrion Edge (backlog #13).",
       "AttackLevelRequired": 1,
       "Range": 7
+    },
+    {
+      "Id": "wpn_unique_mh",
+      "Name": "Prism Wand",
+      "AttackType": "Magic",
+      "Doc": {
+        "Power": 19,
+        "Precision": 0.04,
+        "DefPoints": 0,
+        "Line": "None",
+        "Tier": 3,
+        "Special": null
+      },
+      "AttackSpeed": 3,
+      "ExamineText": "Mirrorhide's unique (items doc §3, M3): unique quality = boss tier + 1 (T2 -> T3), stats match the ratified batch-1 rule exactly. Passive (special attacks cost -15% energy) is data-only, not wired — same shape as Carrion Edge's Fester (backlog #13's scope now covers this too, see m3-findings.md). 1/20 drop, not OnceOnly.",
+      "AttackLevelRequired": 1,
+      "Range": 7
+    },
+    {
+      "Id": "wpn_rare_mh",
+      "Name": "Mirrorshard Staff",
+      "AttackType": "Magic",
+      "Doc": {
+        "Power": 28,
+        "Precision": 0.06,
+        "DefPoints": 0,
+        "Line": "None",
+        "Tier": 4,
+        "Special": {
+          "Id": "refract",
+          "Cost": 50,
+          "Description": "Hits twice."
+        }
+      },
+      "AttackSpeed": 3,
+      "ExamineText": "Mirrorhide's rare (items doc §4): RL 150+ gated, best-in-slot magic weapon. Data-ingested ahead of its drop source (no Rare loot-table slot until M4's raid level). The 'first hit after swapping to this staff +40% damage' passive and Refract's special are data-only, not wired — same shape as Carrion Edge (backlog #13).",
+      "AttackLevelRequired": 1,
+      "Range": 7
     }
   ],
   "gear": [
@@ -1417,6 +1455,7 @@
     // default 0 (never sellable) -- no override needed for wpn_rare_mk.
     "wpn_unique_mk": 2000,
     "wpn_unique_hm": 2000,
+    "wpn_unique_mh": 2000,
     // Backlog resolution batch 1 (§2): Maggot King's Common-slot materials.
     // Reused for Hive Matron too (M3, PROVISIONAL — see m3-findings.md's
     // loot-content note): no per-boss Common/Uncommon item content is

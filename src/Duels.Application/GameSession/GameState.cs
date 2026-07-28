@@ -374,6 +374,11 @@ public sealed class GameState
 
     public int DamageTakenThisDuel { get; private set; }
 
+    // M3, Mirrorhide's Copycat: the last special the player actually landed
+    // this duel, so her copy can name it in the log. Reset per duel.
+    public string? LastPlayerSpecialName { get; private set; }
+    public void RecordPlayerSpecial(string name) => LastPlayerSpecialName = name;
+
     // Fight stats (m1-plan Workstream C.10 / H)
     public int FightTicks { get; private set; }
     public string? KilledBy { get; private set; }
@@ -406,6 +411,7 @@ public sealed class GameState
         _poolCap = int.MaxValue; // master-script P2 raises this on phase entry
         ProtectionDrainTickCounter = 0;
         BoostDrainTickCounter = 0;
+        LastPlayerSpecialName = null;
 
         var script = npc.Template.Script;
         NpcFootprint = script?.Footprint is { } fp ? (fp.Width, fp.Height) : (1, 1);

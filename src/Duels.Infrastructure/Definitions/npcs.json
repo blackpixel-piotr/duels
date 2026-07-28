@@ -192,5 +192,89 @@
       "DamageReductionWindow": { "CadenceTicks": 25, "DurationTicks": 8, "ReductionPercent": 0.5, "AffectedStyles": ["Ranged", "Magic"] },
       "LineCharge": { "WarningTicks": 2, "Damage": 35, "StunTicks": 2, "MissPunishTicks": 4, "DoubleChainInPhase2": true }
     }
+  },
+  {
+    "Id": "mirrorhide",
+    "Name": "Mirrorhide",
+    "ExamineText": "A panther-like beast with prismatic scales that drink and echo whatever hurts it. Your weapon choice writes its next move.",
+    // PROVISIONAL: no boss HP numbers exist in any design doc (see Maggot
+    // King's own 450 / Hive Matron's 420) -- picked comparable for a Tier-2 boss.
+    "Stats": { "Attack": 1, "Strength": 1, "Defence": 1, "Hitpoints": 480 },
+    "Evasion": { "Melee": 0, "Ranged": 0, "Magic": 0 },
+    // M3, PROVISIONAL (m3-findings.md): no Common/Uncommon item content is
+    // documented for any boss but Maggot King -- reuses his shape/materials,
+    // shifted one tier (Mirrorhide is T2->T3) since her T2 uncommon bridge
+    // should offer T3 gear, not T2. Pending a real content pass.
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 0.65, "MinQty": 70, "MaxQty": 140, "GroupId": "common", "Weight": 40 },
+      { "ItemId": "chitin_fragment", "DropChance": 0.65, "GroupId": "common", "Weight": 35 },
+      { "ItemId": "rot_gland", "DropChance": 0.65, "GroupId": "common", "Weight": 25 },
+
+      { "ItemId": "wpn_melee_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "wpn_ranged_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "wpn_magic_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "arm_warbound_helmet_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_body_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_legs_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_boots_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_gloves_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_cape_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_helmet_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_body_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_legs_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_boots_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_gloves_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_cape_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_helmet_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_body_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_legs_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_boots_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_gloves_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_cape_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+
+      { "ItemId": "wpn_unique_mh", "DropChance": 0.05 }
+    ],
+    "GoldReward": 900,
+    "Script": {
+      "PhaseTwoThresholdPercent": 50,
+      "Attacks": {
+        "prism_sweep": { "Id": "prism_sweep", "Name": "Prism Sweep", "Style": "Slash", "Damage": 35 }
+      },
+      "Phase1": {
+        "LoopLength": 16,
+        "TelegraphLeadTicks": 2,
+        "Rotation": [
+          { "Tick": 0,  "Action": "echo_strike" },
+          { "Tick": 4,  "Action": "echo_strike" },
+          { "Tick": 8,  "Action": "prism_sweep" },
+          { "Tick": 12, "Action": "reflect" }
+        ],
+        "Eruption": { "CooldownTicks": 999999, "WarningTicks": 1, "TilesPerWave": 1, "EruptDamage": 0, "PoolTicks": 0, "PoolDamagePerTick": 0 },
+        "RotBurst": null,
+        "Swarms": null,
+        "Attunement": { "HitsToAttune": 4, "ShimmerTicks": 2, "ImmuneTicks": 8, "ShatterWindowTicks": 4 }
+      },
+      "Phase2": {
+        "LoopLength": 12,
+        "TelegraphLeadTicks": 2,
+        "MasterScript": false,
+        "Rotation": [
+          { "Tick": 0, "Action": "echo_strike" },
+          { "Tick": 3, "Action": "echo_strike" },
+          { "Tick": 6, "Action": "prism_sweep" },
+          { "Tick": 9, "Action": "reflect" }
+        ],
+        "Eruption": { "CooldownTicks": 999999, "WarningTicks": 1, "TilesPerWave": 1, "EruptDamage": 0, "PoolTicks": 0, "PoolDamagePerTick": 0 },
+        "RotBurst": null,
+        "Swarms": null,
+        "Attunement": { "HitsToAttune": 3, "ShimmerTicks": 2, "ImmuneTicks": 10, "ShatterWindowTicks": 4 }
+      },
+      "ArenaRadius": 4,
+      "Footprint": { "Width": 1, "Height": 1 },
+      "Stationary": false,
+      "Cloak": { "CadenceTicks": 20, "DurationTicks": 3, "PounceDamage": 25, "PounceOnEnd": true },
+      "Reflect": { "ChannelTicks": 3, "WindowTicks": 6, "ReflectPercent": 0.5 },
+      "Copycat": { "TelegraphTicks": 2, "Damage": 35, "CadenceTicks": 20 }
+    }
   }
 ]
