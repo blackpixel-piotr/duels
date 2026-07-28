@@ -41,6 +41,9 @@ public sealed class SipFlaskHandler : ICommandHandler<SipFlaskCommand>
 
         effect.Apply(state.Player, state);
         state.AppendLog($"You sip the {effect.Label}. ({slot.SipsRemaining}/{slot.MaxSips} sips left)", LogEntryKind.Info);
+        // Combat-feel pass 1: real item id, not the renderer re-parsing this
+        // log line's prose for a display-name substring.
+        state.AppendVfxEvent("flask_sip", "player", new Dictionary<string, object> { ["itemId"] = flaskId });
 
         // Weapon-speed ratification: sipping always costs tempo, never a full
         // attack slot — it adds exactly +1 tick to whatever's currently on the

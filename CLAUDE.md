@@ -38,6 +38,32 @@ previews, and any future visual surface. No secondary renderers.
   design/plans/vfx-plan.md; see vfx-findings.md for what actually landed,
   including a flagged non-doctrine color usage (dust has no gameplay meaning
   to encode) and a Kenney-texture network blocker now in backlog.md.
+- **CombatLog is UI text only, never a renderer data source.** No animation,
+  splat, camera, or particle decision may be derived from parsing a
+  CombatLog message's text (string-matching a prefix, colon-splitting a
+  "data" line, or reading a boss's cast style off the raw message). Any
+  presentation that needs real data gets a real semantic vfxEvent with typed
+  fields, sourced from the same sim state the log message itself was built
+  from — never the other way around. Established retroactively by "Combat
+  feel pass 1" (design/plans/combat-feel-plan.md/-findings.md), which killed
+  the last five renderer behaviors still coupled to log-message text
+  (flask sip, Perfect Dodge, a boss's cast style, and every hitsplat's
+  damage/tier/style/weapon) — attack_swing/impact/hit_blocked/forced_move/
+  flask_sip/perfect_dodge are the vfxEvents that replaced them. A narrow,
+  explicitly-scoped exception remains: screen shake still reads
+  `LogEntryKind.BossSpecial` (a typed enum, not `.Message` text) for boss-
+  narrative "big moments" that have no semantic event of their own yet —
+  see backlog.md for why migrating that one is a separate content-judgment
+  task, not a mechanical refactor.
+- **Facing** (rotate-to-face-movement/target) and **camera motion**
+  (a spring toward the player-boss midpoint + a distance-band zoom nudge,
+  never yaw/pitch — the tile grid's screen orientation must never change,
+  for dodge muscle memory) are both renderer-only per the locked invariant,
+  reading only interpolation state + target-lock flags already in the
+  snapshot. Camera motion (and VFX quality) are user prefs in one
+  localStorage `clientPrefs` object (`cameraMotion`/`vfxQuality`), named as
+  M6's actual Settings screen's future backend rather than a throwaway dev
+  flag — see combat-feel-plan.md §5.
 
 ## Codebase navigation (knowledge graph)
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

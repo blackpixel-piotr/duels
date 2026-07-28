@@ -227,6 +227,35 @@ not reused.)*
     particles per entity) never gets close to it, so the auto-cull-oldest
     path is untested by real load — revisit once a second VFX effect ships
     and this can actually be exercised. *(VFX layer iteration 1)*
+42. **Screen shake's `LogEntryKind.BossSpecial` trigger was left
+    unmigrated** in Combat feel pass 1's CombatLog-as-UI-text-only sweep
+    (CLAUDE.md). It reads a typed enum, not `.Message` text, so it isn't
+    the string-parsing anti-pattern that pass killed everywhere else, but
+    it's still a CombatLog-derived renderer decision. Migrating it for
+    real means deciding which of ~30 `BossSpecial` log lines *per boss*
+    (phase transitions like "Phase 2 begins" vs. minor telegraph flavor
+    text like "mandibles glow amber") actually deserve a shake — a content
+    judgment across 4 bosses' scripts, not a mechanical refactor, and out
+    of scope for a pass about attack/defend/forced-move presentation.
+    *(Combat feel pass 1, `combat-feel-plan.md`/`-findings.md`)*
+43. **Facing turn-rate (`MAX_TURN_RAD_PER_S` in `toon.js`) and the camera
+    spring's separation-to-zoom band are both PROVISIONAL** — the brief's
+    own stated "~90°/100ms" figure and a hand-picked 4-tile-neutral/±15%
+    band respectively, neither sourced from a design doc, neither tuned
+    against a real device. *(Combat feel pass 1)*
+44. **New VFX effects (slash_arc/impact_burst/blocked_spark/deflect_ward/
+    shield_dome/landing_dust) all inherit the same slight-upward-drift
+    `ForceOverLife` iteration 1's dust puff uses**, whether or not it suits
+    the effect (a "shield dome" floating upward is a minor visual
+    mismatch). No per-effect behavior override exists yet in `vfx.js` —
+    worth adding once there's a second data point beyond "everything
+    drifts a little." *(Combat feel pass 1)*
+45. **No Settings UI exists to read/write `clientPrefs`** (`cameraMotion`/
+    `vfxQuality`, one `duels_client_prefs` localStorage object). Built as
+    M6's future Settings screen's backend per explicit instruction, not a
+    throwaway flag — `api.getClientPrefs`/`setCameraMotion`/`setVfxQuality`
+    are the entry points a real screen would call; nothing calls them
+    outside a console/dev context yet. *(Combat feel pass 1)*
 
 ---
 

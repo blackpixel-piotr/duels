@@ -91,7 +91,7 @@ public sealed class GameTickService : IDisposable
             bool blocked = step == state.PlayerTile;
             state.SetPlayerTile(step.X, step.Z);
             if (!blocked)
-                state.AppendVfxEvent("entity_moved", "player", new Dictionary<string, double>
+                state.AppendVfxEvent("entity_moved", "player", new Dictionary<string, object>
                 {
                     ["dx"] = step.X - prevTile.X,
                     ["dz"] = step.Z - prevTile.Z,
@@ -141,7 +141,7 @@ public sealed class GameTickService : IDisposable
             // playerMovedThisTick is already false for anything a teleport
             // (Lunge, knockback) would cause, since those run later in this
             // same tick, after this line.
-            state.AppendVfxEvent("entity_moved", "player", new Dictionary<string, double>
+            state.AppendVfxEvent("entity_moved", "player", new Dictionary<string, object>
             {
                 ["dx"] = state.PlayerTile.X - preTickPlayerTile.X,
                 ["dz"] = state.PlayerTile.Z - preTickPlayerTile.Z,
@@ -469,7 +469,7 @@ public sealed class GameTickService : IDisposable
 
         if (!roll.Hit)
         {
-            state.AppendLog("0:miss", LogEntryKind.HitsplatPlayer);
+            state.AppendHitsplat(onEnemy: true, 0, "miss", style: StyleToken(doctrine));
             await _events.PublishAsync(new AttackMissed(player.Id, npc.Template.Id));
             return;
         }
@@ -495,7 +495,7 @@ public sealed class GameTickService : IDisposable
 
         if (attuneImmune)
         {
-            state.AppendLog($"0:blocked", LogEntryKind.HitsplatPlayer);
+            state.AppendHitsplat(onEnemy: true, 0, "blocked", style: StyleToken(doctrine));
             state.AppendLog($"{npc.Template.Name} shrugs it off — immune to {StyleName(doctrine)} right now!", LogEntryKind.PlayerMiss);
         }
         else
@@ -505,7 +505,7 @@ public sealed class GameTickService : IDisposable
             // reads distinctly from an ordinary hit — items doc §1's "distinct
             // max-hit visual."
             string tier = roll.MaxHit ? "max" : "normal";
-            state.AppendLog($"{damage}:{tier}", LogEntryKind.HitsplatPlayer);
+            state.AppendHitsplat(onEnemy: true, damage, tier, style: StyleToken(doctrine));
             string punishMsg = punished ? " (punish window!)" : "";
             string maxMsg = roll.MaxHit ? " — MAX HIT!" : "";
             state.AppendLog($"You hit {npc.Template.Name} for {damage}{punishMsg}{maxMsg}. [{npc.CurrentHp}/{npc.MaxHp} HP]",
@@ -548,7 +548,7 @@ public sealed class GameTickService : IDisposable
                 player.TakeDamage(reflected);
                 state.RecordDamageTaken(reflected);
                 state.SetKilledBy("Reflection");
-                state.AppendLog($"{reflected}:normal:{StyleToken(doctrine)}", LogEntryKind.HitsplatNpc);
+                state.AppendHitsplat(onEnemy: false, reflected, "normal", StyleToken(doctrine));
                 state.AppendLog($"Your own {StyleName(doctrine)} damage reflects back at you for {reflected}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
             }
         }
@@ -563,13 +563,14 @@ public sealed class GameTickService : IDisposable
             var weapon = GetPlayerWeapon(player);
             var attacker = BuildAttackerProfile(player, weapon);
             var roll = _damage.Roll(attacker, new DefenderProfile(0, false, 0));
+            var droneStyle = StyleToken(weapon?.AttackType ?? AttackType.Crush);
             if (!roll.Hit)
             {
-                state.AppendLog("0:miss", LogEntryKind.HitsplatPlayer);
+                state.AppendHitsplat(onEnemy: true, 0, "miss", style: droneStyle);
                 return;
             }
             add.TakeDamage(roll.Damage);
-            state.AppendLog($"{roll.Damage}:normal", LogEntryKind.HitsplatPlayer);
+            state.AppendHitsplat(onEnemy: true, roll.Damage, "normal", style: droneStyle);
             state.AppendLog($"You strike the drone for {roll.Damage}.", LogEntryKind.PlayerHit);
             if (!add.IsAlive)
             {
@@ -582,7 +583,7 @@ public sealed class GameTickService : IDisposable
         // Swarms are fodder (Boss Bible: "any hit kills") — every landed hit
         // does at least 1 damage regardless of weapon roll.
         add.TakeDamage(1);
-        state.AppendLog("1:normal", LogEntryKind.HitsplatPlayer);
+        state.AppendHitsplat(onEnemy: true, 1, "normal", style: StyleToken(GetPlayerWeapon(player)?.AttackType ?? AttackType.Crush));
         state.AppendLog("You strike the maggot swarm.", LogEntryKind.PlayerHit);
         if (!add.IsAlive)
         {
@@ -626,11 +627,17 @@ public sealed class GameTickService : IDisposable
     {
         var nearest = state.NpcFootprintTiles().OrderBy(t => Chebyshev(state.PlayerTile, t)).First();
         var adjacent = ApproachSlot(state.PlayerTile, nearest);
+        var fromTile = state.PlayerTile;
         state.SetPlayerTile(adjacent.X, adjacent.Z);
         // Renderer interpolation layer: this is a genuine teleport (closes
         // the gap instantly, not a walked step) — mark it so the on-screen
         // position snaps instead of smoothly lerping across the gap.
         state.AppendLog("lunge", LogEntryKind.PlayerTeleport);
+        state.AppendVfxEvent("forced_move", "player", new Dictionary<string, object>
+        {
+            ["fromX"] = (double)fromTile.X, ["fromZ"] = (double)fromTile.Z,
+            ["toX"] = (double)adjacent.X, ["toZ"] = (double)adjacent.Z,
+        });
         ExecuteSpecialHit(state, player, npc, weapon, "Lunge");
     }
 
@@ -651,7 +658,7 @@ public sealed class GameTickService : IDisposable
         if (!roll.Hit)
         {
             state.AppendLog($"⚡ SPEC! You miss {npc.Template.Name} with {name}.", LogEntryKind.PlayerMiss);
-            state.AppendLog("0:miss", LogEntryKind.HitsplatPlayer);
+            state.AppendHitsplat(onEnemy: true, 0, "miss", style: StyleToken(weapon.AttackType));
             return;
         }
 
@@ -673,13 +680,13 @@ public sealed class GameTickService : IDisposable
 
         if (attuneImmune)
         {
-            state.AppendLog("0:blocked", LogEntryKind.HitsplatPlayer);
+            state.AppendHitsplat(onEnemy: true, 0, "blocked", style: StyleToken(weapon.AttackType));
             state.AppendLog($"⚡ SPEC! {npc.Template.Name} shrugs off {name} — immune to {StyleName(weapon.AttackType)} right now!", LogEntryKind.PlayerMiss);
         }
         else
         {
             state.AppendLog($"⚡ SPEC! {name} hits {npc.Template.Name} for {damage}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.SpecHit);
-            state.AppendLog($"{damage}:spec:{weapon.Id}", LogEntryKind.HitsplatPlayer);
+            state.AppendHitsplat(onEnemy: true, damage, "spec", style: StyleToken(weapon.AttackType), weapon: weapon.Id);
 
             if (burnTicks > 0) state.ApplyBleed(burnTicks, burnPerTick);
             onHit?.Invoke();
@@ -1030,7 +1037,17 @@ public sealed class GameTickService : IDisposable
 #if DEBUG
         Console.WriteLine($"[PROJ][spawn-source] path={source} tick={state.FightTicks}");
 #endif
-        state.AppendLog(StyleToken(attack.Style), LogEntryKind.BossCast);
+        var style = StyleToken(attack.Style);
+        state.AppendLog(style, LogEntryKind.BossCast);
+        // The windup/swing itself — this cast's later impact (ResolveBossAttack,
+        // via AppendHitsplat) suppresses its own attack_swing for ranged/magic
+        // since it already played here.
+        state.AppendVfxEvent("attack_swing", "enemy", new Dictionary<string, object>
+        {
+            ["targetId"] = "player",
+            ["style"] = style,
+            ["tier"] = "normal",
+        });
     }
 
     private static string ResolveAttackId(GameState state, string action)
@@ -1104,7 +1121,7 @@ public sealed class GameTickService : IDisposable
         // instead of showing what would otherwise read as a weak 0 hit.
         bool blockedByPrayer = damage == 0 && prayerReduction >= 1.0;
         string tier = blockedByPrayer ? "blocked" : "normal";
-        state.AppendLog($"{damage}:{tier}:{StyleToken(attack.Style)}", LogEntryKind.HitsplatNpc);
+        state.AppendHitsplat(onEnemy: false, damage, tier, StyleToken(attack.Style));
         string prayedMsg = prayerReduction > 0 ? " (prayed)" : "";
         state.AppendLog($"{npc.Template.Name} uses {attack.Name} for {damage}{prayedMsg}. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
 
@@ -1193,7 +1210,7 @@ public sealed class GameTickService : IDisposable
             player.TakeDamage(dmg);
             state.RecordDamageTaken(dmg);
             state.SetKilledBy("Eruption (unprayable)");
-            state.AppendLog($"{dmg}:hazard", LogEntryKind.HitsplatNpc);
+            state.AppendHitsplat(onEnemy: false, dmg, "hazard");
             state.AppendLog($"The ground ERUPTS beneath you for {dmg}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
             if (!state.PlayerPoisoned && state.PoisonImmuneTicksLeft <= 0)
             {
@@ -1211,7 +1228,7 @@ public sealed class GameTickService : IDisposable
             player.TakeDamage(dmg);
             state.RecordDamageTaken(dmg);
             if (dmg > 0) state.SetKilledBy("Poison pool (unprayable)");
-            state.AppendLog($"{dmg}:poison", LogEntryKind.HitsplatNpc);
+            state.AppendHitsplat(onEnemy: false, dmg, "poison");
             state.AppendLog($"Acrid slime burns at your feet. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
         }
 
@@ -1234,6 +1251,7 @@ public sealed class GameTickService : IDisposable
         if (!wasOnDangerTile || stillOnDangerTile) return;
         player.RechargeSpecial(15, MaxSpecialEnergy(player));
         state.AppendLog("✦ PERFECT DODGE! +15 special energy.", LogEntryKind.System);
+        state.AppendVfxEvent("perfect_dodge", "player");
     }
 
     // ── M3, Hive Matron's per-tick mechanics ────────────────────────────
@@ -1261,7 +1279,7 @@ public sealed class GameTickService : IDisposable
                 state.RecordDamageTaken(dmg);
                 string name = tailStab.Name ?? "Tail Stab";
                 if (dmg > 0) state.SetKilledBy(name);
-                state.AppendLog($"{dmg}:normal:melee", LogEntryKind.HitsplatNpc);
+                state.AppendHitsplat(onEnemy: false, dmg, "normal", "melee");
                 state.AppendLog($"{npc.Template.Name} answers your closeness with {name} for {dmg}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
                 Knockback(state, tailStab.KnockbackTiles);
                 // Boss Bible: "Tail Stab — Heavy melee + 2-tile knockback +
@@ -1324,7 +1342,7 @@ public sealed class GameTickService : IDisposable
             player.TakeDamage(dmg);
             state.RecordDamageTaken(dmg);
             if (dmg > 0) state.SetKilledBy("Pin");
-            state.AppendLog($"{dmg}:normal:melee", LogEntryKind.HitsplatNpc);
+            state.AppendHitsplat(onEnemy: false, dmg, "normal", "melee");
             state.AppendLog($"Pin slams into you for {dmg} — pinned! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
             // Boss Bible: "pinned/stunned 2 ticks against the wall." No full
             // movement-lock exists in the engine yet (PROVISIONAL scoping,
@@ -1413,7 +1431,7 @@ public sealed class GameTickService : IDisposable
                     player.TakeDamage(dmg);
                     state.RecordDamageTaken(dmg);
                     if (dmg > 0) state.SetKilledBy("Copycat");
-                    state.AppendLog($"{dmg}:hazard", LogEntryKind.HitsplatNpc);
+                    state.AppendHitsplat(onEnemy: false, dmg, "hazard");
                     string specialName = state.LastPlayerSpecialName ?? "your own special";
                     state.AppendLog($"{npc.Template.Name} throws {specialName} back at you for {dmg}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.BossSpecial);
                 }
@@ -1469,7 +1487,7 @@ public sealed class GameTickService : IDisposable
             player.TakeDamage(drain);
             state.RecordDamageTaken(drain);
             npc.Heal(drain);
-            state.AppendLog($"{drain}:normal", LogEntryKind.HitsplatNpc);
+            state.AppendHitsplat(onEnemy: false, drain, "normal");
             state.AppendLog($"Bloodtithe's tithe aura drains {drain} from you. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
         }
 
@@ -1539,7 +1557,7 @@ public sealed class GameTickService : IDisposable
                             player.TakeDamage(dmg);
                             state.RecordDamageTaken(dmg);
                             state.SetKilledBy("Harvest");
-                            state.AppendLog($"{dmg}:hazard", LogEntryKind.HitsplatNpc);
+                            state.AppendHitsplat(onEnemy: false, dmg, "hazard");
                         }
                         state.AppendLog($"Bloodtithe harvests {stacks} bleed stack{(stacks == 1 ? "" : "s")} for {dmg} damage! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.BossSpecial);
                     }
@@ -1567,7 +1585,7 @@ public sealed class GameTickService : IDisposable
             player.TakeDamage(dmg);
             state.RecordDamageTaken(dmg);
             state.SetKilledBy("Rot Burst (unprayable)");
-            state.AppendLog($"{dmg}:hazard", LogEntryKind.HitsplatNpc);
+            state.AppendHitsplat(onEnemy: false, dmg, "hazard");
             state.AppendLog($"★ ROT BURST detonates for {dmg}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.BossSpecial);
         }
         else
@@ -1612,7 +1630,7 @@ public sealed class GameTickService : IDisposable
             player.TakeDamage(state.BleedPerTick);
             state.RecordDamageTaken(state.BleedPerTick);
             if (state.BleedPerTick > 0) state.SetKilledBy("Bleed");
-            state.AppendLog($"{state.BleedPerTick}:poison", LogEntryKind.HitsplatNpc);
+            state.AppendHitsplat(onEnemy: false, state.BleedPerTick, "poison");
             state.AppendLog($"You bleed for {state.BleedPerTick} damage. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
             state.TickBleed();
         }
@@ -1622,7 +1640,7 @@ public sealed class GameTickService : IDisposable
             player.TakeDamage(3);
             state.RecordDamageTaken(3);
             state.SetKilledBy("Poison");
-            state.AppendLog("3:poison", LogEntryKind.HitsplatNpc);
+            state.AppendHitsplat(onEnemy: false, 3, "poison");
             state.AppendLog($"The poison courses through you. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
         }
 
@@ -1639,7 +1657,7 @@ public sealed class GameTickService : IDisposable
                 player.TakeDamage(dmg);
                 state.RecordDamageTaken(dmg);
                 if (dmg > 0) state.SetKilledBy("Bleed");
-                state.AppendLog($"{dmg}:poison", LogEntryKind.HitsplatNpc);
+                    state.AppendHitsplat(onEnemy: false, dmg, "poison");
                 state.AppendLog($"You bleed for {dmg} damage ({stacksThisTick} stacks). [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
             }
         }
@@ -1653,7 +1671,7 @@ public sealed class GameTickService : IDisposable
         int dmg = npc.PoisonDamagePerTick;
         if (!npc.TickPoison()) return;
         npc.TakeDamage(dmg);
-        state.AppendLog($"{dmg}:poison", LogEntryKind.HitsplatPlayer);
+        state.AppendHitsplat(onEnemy: true, dmg, "poison");
         state.AppendLog($"Rotfang's venom festers in {npc.Template.Name} for {dmg}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.PlayerHit);
     }
 
@@ -2001,8 +2019,14 @@ public sealed class GameTickService : IDisposable
         }
         if (target != state.PlayerTile)
         {
+            var from = state.PlayerTile;
             state.SetPlayerTile(target.X, target.Z);
             state.AppendLog("knockback", LogEntryKind.PlayerTeleport); // renderer: snap, not lerp
+            state.AppendVfxEvent("forced_move", "player", new Dictionary<string, object>
+            {
+                ["fromX"] = (double)from.X, ["fromZ"] = (double)from.Z,
+                ["toX"] = (double)target.X, ["toZ"] = (double)target.Z,
+            });
         }
     }
 

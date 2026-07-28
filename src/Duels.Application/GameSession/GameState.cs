@@ -21,9 +21,56 @@ public sealed class GameState
     // — never an effect id, color, or particle count.
     private readonly List<VfxEvent> _vfxEvents = new();
     public IReadOnlyList<VfxEvent> VfxEvents => _vfxEvents;
-    public void AppendVfxEvent(string type, string entityId, IReadOnlyDictionary<string, double>? data = null) =>
+    public void AppendVfxEvent(string type, string entityId, IReadOnlyDictionary<string, object>? data = null) =>
         _vfxEvents.Add(new VfxEvent(type, entityId, data));
     public void ClearVfxEvents() => _vfxEvents.Clear();
+
+    // Combat-feel pass 1 (combat-feel-plan.md): CombatLog is UI text only —
+    // no renderer behavior may be derived from parsing its message strings
+    // (the anti-pattern this pass killed). Every hitsplat call site routes
+    // through here so the AppendLog message (kept byte-identical — several
+    // tests assert its exact text) and the typed AppendVfxEvent payloads
+    // come from the same values instead of the renderer re-parsing the log.
+    // onEnemy: true = HitsplatPlayer (damage dealt BY the player, victim is
+    // the NPC), false = HitsplatNpc (damage dealt BY the NPC, victim is the
+    // player) — same convention BattleScene.razor used before this pass.
+    // style is the attacker's doctrine token (melee/ranged/magic) — always
+    // known by the caller now (previously the renderer re-derived the
+    // player's own style from the equipped weapon id instead of the sim
+    // just saying so). weapon is ONLY the player's spec-revert-race case
+    // (a dds spec that reverts to the main-hand this same tick — the
+    // hitsplat needs the weapon it was thrown with, not the reverted one).
+    // The log message's 3rd field keeps its pre-migration meaning exactly
+    // (weapon for a player spec, style token for an NPC hit) — several
+    // tests assert its exact text.
+    public void AppendHitsplat(bool onEnemy, int dmg, string tier, string? style = null, string? weapon = null)
+    {
+        var logExtra = onEnemy ? weapon : style;
+        AppendLog(logExtra is null ? $"{dmg}:{tier}" : $"{dmg}:{tier}:{logExtra}",
+            onEnemy ? LogEntryKind.HitsplatPlayer : LogEntryKind.HitsplatNpc);
+
+        var victim = onEnemy ? "enemy" : "player";
+        var attacker = onEnemy ? "player" : "enemy";
+        var data = new Dictionary<string, object> { ["dmg"] = (double)dmg, ["tier"] = tier };
+        if (style is not null) data["style"] = style;
+        if (weapon is not null) data["weapon"] = weapon;
+        AppendVfxEvent(tier == "blocked" ? "hit_blocked" : "impact", victim, data);
+
+        // Attack-swing companion, for the attacker: skipped for DoT/hazard
+        // ticks (never an attack) and for an NPC ranged/magic hit's IMPACT
+        // (its swing already played at the earlier BossCast — see
+        // GameTickService's BossCast site, which fires attack_swing itself
+        // for exactly this case). Melee never has a cast phase (impact
+        // tick == cast tick), so it still fires here as its only trigger.
+        bool alreadyAnimatedAtCast = !onEnemy && style is "ranged" or "magic";
+        if (tier is not ("poison" or "hazard") && !alreadyAnimatedAtCast)
+            AppendVfxEvent("attack_swing", attacker, new Dictionary<string, object>
+            {
+                ["targetId"] = victim,
+                ["style"] = style ?? "melee",
+                ["tier"] = tier,
+            });
+    }
 
     // Tick engine
     public int PlayerCooldown { get; private set; }
@@ -592,7 +639,7 @@ public sealed record CombatLogEntry(string Message, LogEntryKind Kind, DateTimeO
 /// never how it looks — Data is a small numeric payload (e.g. movement
 /// direction), resolved to an actual effect only by the renderer's
 /// vfx-manifest.json.</summary>
-public sealed record VfxEvent(string Type, string EntityId, IReadOnlyDictionary<string, double>? Data = null);
+public sealed record VfxEvent(string Type, string EntityId, IReadOnlyDictionary<string, object>? Data = null);
 
 public enum HazardState { Warning, Pool, Scorch }
 

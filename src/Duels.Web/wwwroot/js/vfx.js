@@ -214,7 +214,19 @@ export function createVfxSystem(scene) {
                 const pos = positions?.[ev.entityId];
                 if (!list || !pos) continue;
                 const dx = ev.data?.dx ?? 0, dz = ev.data?.dz ?? 0;
-                for (const pool of list) spawnBurst(pool, pos.wx, pos.wz, dx, dz);
+                for (const pool of list) {
+                    // combat-feel pass 1: several event types (attack_swing,
+                    // impact, hit_blocked) carry a doctrine style and want a
+                    // DIFFERENT effect per style (a slash trail's color, or
+                    // which of blocked_spark/shield_dome/deflect_ward plays)
+                    // rather than one fixed effect for the whole event type
+                    // — multiple manifest rows share the same `event` with
+                    // different `style` filters; a row with no style always
+                    // fires (iteration 1's dust_puff, entity_moved has no
+                    // style at all).
+                    if (pool.row.style && pool.row.style !== ev.data?.style) continue;
+                    spawnBurst(pool, pos.wx, pos.wz, dx, dz);
+                }
             }
         },
         update(dt) {

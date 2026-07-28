@@ -1,9 +1,7 @@
 @using Duels.Application.GameSession
-@using Duels.Application.Abstractions
 @using Duels.Application.Commands
 @using Duels.Domain.ValueObjects
 @inject IJSRuntime JS
-@inject IItemRepository ItemRepo
 @inject Duels.Web.Services.GameService GameSvc
 @inject Duels.Application.Services.GameTickService TickService
 @implements IAsyncDisposable
@@ -482,83 +480,30 @@
                 new { player = PlayerOverhead, enemy = NpcOverhead });
         }
 
-        foreach (var e in newEntries)
-        {
-            // Flask sip: raise-to-mouth animation (UI bible §3.2 flask belt).
-            if (e.Kind == LogEntryKind.Info && e.Message.StartsWith("You sip the "))
-            {
-                var rest = e.Message["You sip the ".Length..];
-                var dot = rest.IndexOf('.');
-                var item = dot > 0 ? rest[..dot] : rest;
-                await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
-                    new { type = "playerSip", item });
-                continue;
-            }
-            if (e.Kind == LogEntryKind.System && e.Message.StartsWith("✦ PERFECT DODGE"))
-            {
-                await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas", new { type = "perfectDodge" });
-                continue;
-            }
-            // Impact-resolution prayer (Global Combat Grammar): a ranged/magic
-            // attack's cast tick fires this — just the windup animation now;
-            // the projectile itself is driven by the sim-authoritative
-            // entity sync (setBattleProjectiles), not this event. Reuses the
-            // same 'enemyAttack' JS handler a melee hit uses for its
-            // (instant, same-tick) swing — toon.js tells them apart by style.
-            if (e.Kind == LogEntryKind.BossCast)
-            {
-                await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
-                    new { type = "enemyAttack", style = e.Message, tier = "normal", weapon = (string?)null });
-                continue;
-            }
-            if (e.Kind is not (LogEntryKind.HitsplatPlayer or LogEntryKind.HitsplatNpc)) continue;
-            var parts = e.Message.Split(':');
-            int dmg = int.TryParse(parts[0], out var d) ? d : 0;
-            string tier = parts.Length > 1 ? parts[1] : "normal";
+        // Combat-feel pass 1 (combat-feel-plan.md): attack/hit/block/sip/
+        // dodge presentation used to live here, parsed out of CombatLog
+        // message TEXT (a sip's item name string-sliced out of prose, a
+        // hitsplat's damage/tier/style colon-split out of a log line, a
+        // boss's cast style literally read from e.Message). That's exactly
+        // the fragile coupling the vfxEvents architecture exists to kill —
+        // one log-wording change and the animation silently breaks. All of
+        // it is now GameState.VfxEvents (attack_swing/impact/hit_blocked/
+        // flask_sip/perfect_dodge/forced_move — sent above, in the
+        // VfxEvents block), sourced from the same typed sim data the log
+        // message itself is built from, not read back out of it. No
+        // parallel path was kept — CombatLog is UI text only from here on.
 
-            // HitsplatPlayer = damage dealt BY the player → lands on the enemy;
-            // HitsplatNpc = damage dealt BY the NPC → lands on the player.
-            // (The splat itself is drawn in-canvas by battleEvent's impact.)
-            bool onEnemy = e.Kind == LogEntryKind.HitsplatPlayer;
-
-            // parts[2]'s meaning depends on who's hitting: a player spec
-            // hitsplat carries the weapon it was thrown with (e.g. a dds spec
-            // that reverts to the main-hand this same tick — show that weapon
-            // + its animation, not the reverted equipped weapon); a boss
-            // hitsplat instead carries its real attack style (melee/ranged/
-            // magic), so its impact animation matches what actually hit
-            // rather than always defaulting to a melee swing.
-            string? specWeapon = onEnemy && parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
-            string? npcStyle = !onEnemy && parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
-
-            // A ranged/magic NPC hitsplat is this attack's IMPACT — its swing
-            // already played back at the earlier BossCast event (however
-            // many ticks of flight ago the projectile actually took), so
-            // re-firing 'enemyAttack' here would double the animation.
-            // Melee never has a cast phase (impact tick == cast tick), so it
-            // still fires here as its only trigger, unchanged.
-            bool alreadyAnimatedAtCast = !onEnemy && npcStyle is "ranged" or "magic";
-
-            // DoT ticks and ground hazards aren't attacks — no swing, just
-            // the victim's flash (the eruption burst is drawn tile-side).
-            if (tier is not ("poison" or "hazard") && !alreadyAnimatedAtCast)
-                await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
-                    new
-                    {
-                        type = onEnemy ? "playerAttack" : "enemyAttack",
-                        style = onEnemy ? PlayerStyle() : npcStyle,
-                        kind = onEnemy ? PlayerKind() : null,
-                        tier,   // 'spec' selects the weapon's special-attack flourish
-                        weapon = onEnemy ? (specWeapon ?? WeaponId) : null, // spec weapon wins the revert race
-                    });
-            // style rides along so a "blocked" splat (a prayer-negated hit)
-            // can render in the doctrine color that blocked it — confirms
-            // which prayer worked, not just that something was prevented.
-            await JS.InvokeVoidAsync("voxel.battleEvent", "battle-canvas",
-                new { type = onEnemy ? "enemyHit" : "playerHit", tier, dmg, style = onEnemy ? PlayerStyle() : npcStyle });
-        }
-
-        if (newEntries.Any(e => e.Kind is LogEntryKind.MaxHit or LogEntryKind.SpecHit or LogEntryKind.BossSpecial))
+        // Screen shake: kept as a narrow, explicit exception — this reads
+        // LogEntryKind (a typed enum), never e.Message, so it isn't the
+        // text-parsing anti-pattern above. BossSpecial covers boss-
+        // narrative "big moments" (phase transitions, ROT BURST, etc.)
+        // that have no other semantic event of their own yet — migrating
+        // those properly means deciding which of ~30 BossSpecial log
+        // lines per boss actually deserve a shake, a content judgment out
+        // of scope for this pass (backlog). MaxHit/SpecHit's shake moved
+        // to toon.js's "impact" handler, driven by that event's own tier
+        // field — already-typed data, no reason to also re-read it here.
+        if (newEntries.Any(e => e.Kind == LogEntryKind.BossSpecial))
             await JS.InvokeVoidAsync("triggerShake", "battle-scene", 180);
 
         // StyleTelegraphSystem: rim glow + windup pose, fired on the rising
@@ -680,16 +625,6 @@
             .ToArray() ?? [];
 
     private string EquipmentKey() => string.Join(",", EquippedGearIds());
-
-    // The player's projectile/effect style comes from the equipped weapon.
-    private string PlayerStyle() =>
-        WeaponId is { } id && ItemRepo.GetWeapon(id) is { } w ? StyleClass(w.AttackType) : "melee";
-
-    // Swing choreography kind: the weapon's AttackType (stab/slash/crush);
-    // bare fists punch like a crush. voxel.js applies per-weapon overrides.
-    private string PlayerKind() =>
-        WeaponId is { } id && ItemRepo.GetWeapon(id) is { } w
-            ? w.AttackType.ToString().ToLowerInvariant() : "crush";
 
     private static string StyleClass(AttackType t) => t switch
     {

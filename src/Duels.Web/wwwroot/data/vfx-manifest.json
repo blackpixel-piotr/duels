@@ -9,6 +9,115 @@
       "lifetime": 0.4,
       "colorToken": "--border",
       "blend": "normal"
+    },
+    {
+      "event": "attack_swing",
+      "effectId": "slash_arc_melee",
+      "style": "melee",
+      "texture": "procedural:radial_soft",
+      "count": 6,
+      "size": 0.4,
+      "lifetime": 0.25,
+      "colorToken": "--doctrine-melee",
+      "blend": "additive"
+    },
+    {
+      "event": "attack_swing",
+      "effectId": "slash_arc_ranged",
+      "style": "ranged",
+      "texture": "procedural:radial_soft",
+      "count": 6,
+      "size": 0.4,
+      "lifetime": 0.25,
+      "colorToken": "--doctrine-ranged",
+      "blend": "additive"
+    },
+    {
+      "event": "attack_swing",
+      "effectId": "slash_arc_magic",
+      "style": "magic",
+      "texture": "procedural:radial_soft",
+      "count": 6,
+      "size": 0.4,
+      "lifetime": 0.25,
+      "colorToken": "--doctrine-magic",
+      "blend": "additive"
+    },
+    {
+      "event": "impact",
+      "effectId": "impact_burst_melee",
+      "style": "melee",
+      "texture": "procedural:radial_soft",
+      "count": 8,
+      "size": 0.3,
+      "lifetime": 0.3,
+      "colorToken": "--doctrine-melee",
+      "blend": "additive"
+    },
+    {
+      "event": "impact",
+      "effectId": "impact_burst_ranged",
+      "style": "ranged",
+      "texture": "procedural:radial_soft",
+      "count": 8,
+      "size": 0.3,
+      "lifetime": 0.3,
+      "colorToken": "--doctrine-ranged",
+      "blend": "additive"
+    },
+    {
+      "event": "impact",
+      "effectId": "impact_burst_magic",
+      "style": "magic",
+      "texture": "procedural:radial_soft",
+      "count": 8,
+      "size": 0.3,
+      "lifetime": 0.3,
+      "colorToken": "--doctrine-magic",
+      "blend": "additive"
+    },
+    {
+      "event": "hit_blocked",
+      "effectId": "blocked_spark",
+      "style": "melee",
+      "texture": "procedural:radial_soft",
+      "count": 6,
+      "size": 0.25,
+      "lifetime": 0.3,
+      "colorToken": "--doctrine-melee",
+      "blend": "additive"
+    },
+    {
+      "event": "hit_blocked",
+      "effectId": "deflect_ward",
+      "style": "ranged",
+      "texture": "procedural:radial_soft",
+      "count": 6,
+      "size": 0.35,
+      "lifetime": 0.25,
+      "colorToken": "--doctrine-ranged",
+      "blend": "additive"
+    },
+    {
+      "event": "hit_blocked",
+      "effectId": "shield_dome",
+      "style": "magic",
+      "texture": "procedural:radial_soft",
+      "count": 10,
+      "size": 0.5,
+      "lifetime": 0.3,
+      "colorToken": "--doctrine-magic",
+      "blend": "additive"
+    },
+    {
+      "event": "forced_move",
+      "effectId": "landing_dust",
+      "texture": "procedural:radial_soft",
+      "count": 10,
+      "size": 0.45,
+      "lifetime": 0.5,
+      "colorToken": "--border",
+      "blend": "normal"
     }
   ]
 }
