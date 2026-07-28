@@ -1,0 +1,65 @@
+@using Duels.Application.GameSession
+@using Duels.Domain.Entities
+@inject Duels.Application.Abstractions.INpcRepository Npcs
+
+@* Boss roster (UI bible §6.1). Card states: New/In Progress/Cleared for the
+   4 real bosses; "coming soon" for the 4 not yet built (M5+) — read as "not
+   built yet," not a real gameplay gate (design-decisions.md: no killcount
+   gates in this game). "Hard Unlocked" and the rare-drop silhouette fade-in
+   are invocation/raid-level-dependent (M4) — omitted here, matching the
+   brief's "pre-fight screen (without invocations panel)" scoping for M3. *@
+<div class="shop-overlay" @onclick="OnClose">
+    <div class="shop-panel roster-panel" @onclick:stopPropagation>
+        <div class="shop-header">
+            <span class="shop-title">Boss Roster</span>
+            <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
+        </div>
+
+        <div class="roster-grid">
+            @foreach (var entry in RosterEntries)
+            {
+                var template = Npcs.GetTemplate(entry.Id);
+                bool locked = template is null;
+                BossRecord? record = State?.Player?.BossRecords.GetValueOrDefault(entry.Id);
+                <button class="roster-card @(locked ? "roster-card-locked" : "")"
+                        disabled="@locked"
+                        @onclick="() => OnSelectBoss.InvokeAsync(entry.Id)">
+                    <span class="roster-card-tier">T@(entry.Tier)</span>
+                    <span class="roster-card-name">@(template?.Name ?? entry.DisplayName)</span>
+                    <span class="roster-card-status">@Status(locked, record)</span>
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<string> OnSelectBoss { get; set; }
+
+    // Roster Overview (Boss Bible) — the 4 not-yet-built bosses (M5+) render
+    // as locked posters; Npcs.GetTemplate returns null for them today, which
+    // is what actually drives the locked state (not this list).
+    private static readonly (string Id, string DisplayName, int Tier)[] RosterEntries =
+    {
+        ("maggot_king", "The Maggot King", 1),
+        ("hive_matron", "The Hive Matron", 1),
+        ("mirrorhide", "Mirrorhide", 2),
+        ("bloodtithe", "Bloodtithe", 2),
+        ("gale_roc", "The Gale Roc", 3),
+        ("unblinking", "The Unblinking", 3),
+        ("millstone_golem", "The Millstone Golem", 3),
+        ("grand_duelist", "The Grand Duelist", 4),
+    };
+
+    // Card states (UI bible §6.1): New/In Progress/Cleared. "Hard Unlocked"
+    // is raid-level-dependent (M4) — not reachable yet, so never shown.
+    private static string Status(bool locked, BossRecord? record) => locked switch
+    {
+        true => "Coming soon",
+        _ when record is null || (record.Kills == 0 && record.Deaths == 0) => "New",
+        _ when record.Kills == 0 => "In Progress",
+        _ => $"Cleared ×{record.Kills}",
+    };
+}

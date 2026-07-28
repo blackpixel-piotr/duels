@@ -12,7 +12,7 @@ namespace Duels.Web.Services;
 public sealed class GameService
 {
     private const string SaveKey = "duels_save";
-    private const int CurrentSchemaVersion = 3;
+    private const int CurrentSchemaVersion = 4;
 
     private readonly ICommandDispatcher _dispatcher;
     private readonly IGameStateRepository _stateRepo;
@@ -110,6 +110,15 @@ public sealed class GameService
                 data.BankedItems);
             player.Loadout.RestoreFromSave(data.LoadoutWeaponSlots ?? [], data.LoadoutFlaskSlots ?? []);
 
+            // v3 -> v4 migration: fold the old Maggot-King-implicit best time
+            // into the new per-boss map, so it isn't silently lost.
+            var bossRecords = data.BossRecords is { Count: > 0 } br
+                ? new Dictionary<string, BossRecord>(br)
+                : new Dictionary<string, BossRecord>();
+            if (data.PersonalBestKillTicks is { } legacyBest && !bossRecords.ContainsKey("maggot_king"))
+                bossRecords["maggot_king"] = new BossRecord(Kills: 1, Deaths: 0, BestTimeTicks: legacyBest);
+            player.RestoreBossRecords(bossRecords);
+
             var state = new GameState(data.PlayerId, player);
 
             await _playerRepo.SaveAsync(player);
@@ -169,7 +178,8 @@ public sealed class GameService
                 PersonalBestKillTicks: p.PersonalBestKillTicks,
                 LoadoutWeaponSlots: p.Loadout.WeaponSlots.ToList(),
                 LoadoutFlaskSlots: p.Loadout.FlaskSlots.ToList(),
-                BankedItems: p.BankedItems.ToList()
+                BankedItems: p.BankedItems.ToList(),
+                BossRecords: p.BossRecords.ToDictionary(kv => kv.Key, kv => kv.Value)
             );
 
             var json = JsonSerializer.Serialize(new SaveEnvelope(CurrentSchemaVersion, data));

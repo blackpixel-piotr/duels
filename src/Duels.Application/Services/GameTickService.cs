@@ -1803,6 +1803,7 @@ public sealed class GameTickService : IDisposable
 
         bool personalBest = player.PersonalBestKillTicks is null || state.FightTicks < player.PersonalBestKillTicks;
         if (personalBest) player.RecordKillTime(state.FightTicks);
+        player.RecordBossKill(npc.Template.Id, state.FightTicks); // M3: per-boss roster stats
 
         state.SetDuelSummary(new DuelSummary(
             Won: true,
@@ -1914,6 +1915,7 @@ public sealed class GameTickService : IDisposable
 
     private async Task HandleDefeat(GameState state, Player player, NpcInstance npc)
     {
+        player.RecordBossDeath(npc.Template.Id); // M3: per-boss roster stats
         state.AppendLog($"You have been defeated by {npc.Template.Name}!", LogEntryKind.System);
         // Damage-source death logging: name the mechanic that actually landed
         // the killing blow (every player-damage source now sets KilledBy), so a

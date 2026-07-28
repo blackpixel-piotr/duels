@@ -1,10 +1,15 @@
+using Duels.Domain.Entities;
+
 namespace Duels.Web.Models;
 
-/// <summary>Schema v3 (M2 Workstream G.1): adds bank storage back (retired
-/// as a ladder-era field in v2, now a real UI bible §7 bank distinct from
-/// the old one). v1/v2 saves migrate automatically: System.Text.Json
-/// ignores unknown old properties and leaves new ones at their defaults
-/// (empty bank).</summary>
+/// <summary>Schema v4 (M3 Workstream F): adds per-boss BossRecords (kc/
+/// deaths/best-time — UI bible §6's roster/pre-fight screens), replacing
+/// the single Maggot-King-implicit PersonalBestKillTicks. v3 saves migrate
+/// automatically in GameService.RestoreSaveAsync: PersonalBestKillTicks (if
+/// set and no "maggot_king" entry already exists) becomes that boss's
+/// BestTimeTicks — the field itself stays on the record so its data isn't
+/// silently dropped on the (unlikely) chance BossRecords is somehow already
+/// populated from a v4 save with no maggot_king entry yet.</summary>
 public sealed record SaveData(
     string PlayerId,
     string PlayerName,
@@ -17,5 +22,6 @@ public sealed record SaveData(
     int? PersonalBestKillTicks = null,
     List<string?>? LoadoutWeaponSlots = null,
     List<string?>? LoadoutFlaskSlots = null,
-    List<string>? BankedItems = null
+    List<string>? BankedItems = null,
+    Dictionary<string, BossRecord>? BossRecords = null
 );

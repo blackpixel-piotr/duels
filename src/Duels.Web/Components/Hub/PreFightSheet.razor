@@ -1,0 +1,54 @@
+@using Duels.Application.GameSession
+@using Duels.Domain.Entities
+@inject Duels.Application.Abstractions.INpcRepository Npcs
+
+@* Boss Detail / pre-fight screen (UI bible §6.2), scoped per the brief's
+   "pre-fight screen (without invocations panel)" — the invocation panel,
+   Raid Level stamp, and loot-preview-by-RL row are all M4 (raid level
+   doesn't exist yet) and are not stubbed here, just omitted entirely. The
+   loadout chip shows the single active bar rather than named per-boss
+   presets (backlog #9, still M1-deferred) — a scoping choice, not an
+   oversight; see m3-plan.md Workstream G. *@
+<div class="shop-overlay" @onclick="OnClose">
+    <div class="shop-panel prefight-panel" @onclick:stopPropagation>
+        <div class="shop-header">
+            <span class="shop-title">@(Template?.Name ?? BossId)</span>
+            <button class="shop-close" @onclick="OnClose" title="Close">✕</button>
+        </div>
+
+        <div class="prefight-body">
+            <div class="prefight-left">
+                <p class="prefight-flavor">@Template?.ExamineText</p>
+                <div class="prefight-stats">
+                    <div class="prefight-stat"><span>Kills</span><span>@(_record?.Kills ?? 0)</span></div>
+                    <div class="prefight-stat"><span>Deaths</span><span>@(_record?.Deaths ?? 0)</span></div>
+                    <div class="prefight-stat"><span>Best time</span><span>@BestTimeLabel()</span></div>
+                </div>
+            </div>
+            <div class="prefight-right">
+                <div class="prefight-loadout-chip">Using: your active bar</div>
+                <button class="prefight-fight-btn" disabled="@(!HasLoadout)" @onclick="() => OnFight.InvokeAsync()">
+                    FIGHT
+                </button>
+                @if (!HasLoadout)
+                {
+                    <span class="prefight-hint">Grab a loadout first</span>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public GameState? State { get; set; }
+    [Parameter] public string BossId { get; set; } = "";
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnFight { get; set; }
+
+    private NpcTemplate? Template => Npcs.GetTemplate(BossId);
+    private BossRecord? _record => State?.Player?.BossRecords.GetValueOrDefault(BossId);
+    private bool HasLoadout => State?.Player?.Loadout.WeaponSlots.Any(w => w is not null) == true;
+
+    private string BestTimeLabel() =>
+        _record?.BestTimeTicks is { } ticks ? $"{ticks * 0.6:0.0}s" : "—";
+}

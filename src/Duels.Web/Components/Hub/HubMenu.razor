@@ -1,11 +1,11 @@
 @using Duels.Application.GameSession
 
 <div class="hub-menu">
-    <button class="hub-card hub-card-fight" disabled="@(Processing || !HasLoadout)" @onclick="() => OnFight.InvokeAsync()">
-        <span class="hub-card-icon">🐛</span>
+    <button class="hub-card hub-card-fight" disabled="@Processing" @onclick="() => OnOpenRoster.InvokeAsync()">
+        <span class="hub-card-icon">🏆</span>
         <span class="hub-card-body">
-            <span class="hub-card-title">FIGHT THE MAGGOT KING</span>
-            <span class="hub-card-sub">@(HasLoadout ? "9×9 arena — prayer flicks and ground hazards" : "Grab a dev loadout first")</span>
+            <span class="hub-card-title">BOSS ROSTER</span>
+            <span class="hub-card-sub">Pick a fight — Maggot King, Hive Matron, Mirrorhide, Bloodtithe</span>
         </span>
     </button>
 
@@ -83,12 +83,10 @@
 @code {
     [Parameter] public GameState? State { get; set; }
     [Parameter] public bool Processing { get; set; }
-    [Parameter] public EventCallback OnFight { get; set; }
+    [Parameter] public EventCallback OnOpenRoster { get; set; }
     [Parameter] public EventCallback OnRetry { get; set; }
     [Parameter] public EventCallback OnOpenLoadout { get; set; }
     [Parameter] public EventCallback OnOpenBank { get; set; }
     [Parameter] public EventCallback OnOpenShop { get; set; }
     [Parameter] public EventCallback<int> OnGrantDevLoadout { get; set; }
-
-    private bool HasLoadout => State?.Player?.Loadout.WeaponSlots.Any(w => w is not null) == true;
 }

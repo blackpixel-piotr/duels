@@ -28,12 +28,39 @@ public sealed class Player
     public Loadout Loadout { get; } = new();
     public FlaskBelt FlaskBelt { get; } = new();
 
-    /// <summary>Best kill time recorded against the Maggot King, in ticks
-    /// (M1's only boss — per-boss records return in a later milestone).</summary>
+    /// <summary>Best kill time recorded against the Maggot King specifically,
+    /// in ticks — M1's only boss at the time this shipped. M3 adds the real
+    /// per-boss <see cref="BossRecords"/> map alongside it (this field stays,
+    /// unmigrated, purely so old saves' data isn't silently dropped — see
+    /// SaveData v4's migration in GameService).</summary>
     public int? PersonalBestKillTicks { get; private set; }
     public void RecordKillTime(int ticks)
     {
         if (PersonalBestKillTicks is null || ticks < PersonalBestKillTicks) PersonalBestKillTicks = ticks;
+    }
+
+    // M3 Workstream F: per-boss kc/deaths/best-time (UI bible §6's roster
+    // and pre-fight screens). Keyed by NpcTemplate.Id.
+    private readonly Dictionary<string, BossRecord> _bossRecords = new();
+    public IReadOnlyDictionary<string, BossRecord> BossRecords => _bossRecords;
+
+    public void RecordBossKill(string bossId, int ticks)
+    {
+        var existing = _bossRecords.GetValueOrDefault(bossId, new BossRecord(0, 0, null));
+        int? best = existing.BestTimeTicks is null || ticks < existing.BestTimeTicks ? ticks : existing.BestTimeTicks;
+        _bossRecords[bossId] = existing with { Kills = existing.Kills + 1, BestTimeTicks = best };
+    }
+
+    public void RecordBossDeath(string bossId)
+    {
+        var existing = _bossRecords.GetValueOrDefault(bossId, new BossRecord(0, 0, null));
+        _bossRecords[bossId] = existing with { Deaths = existing.Deaths + 1 };
+    }
+
+    public void RestoreBossRecords(IEnumerable<KeyValuePair<string, BossRecord>> records)
+    {
+        _bossRecords.Clear();
+        foreach (var kv in records) _bossRecords[kv.Key] = kv.Value;
     }
 
     private readonly Dictionary<EquipmentSlot, string> _equipped = new();
@@ -179,3 +206,8 @@ public sealed class Player
         PersonalBestKillTicks = personalBestKillTicks;
     }
 }
+
+/// <summary>Per-boss stats for the roster/pre-fight screens (UI bible §6):
+/// kill count, death count, and best kill time in ticks. Not "highest raid
+/// level cleared" — that's M4 (raid level doesn't exist yet).</summary>
+public sealed record BossRecord(int Kills, int Deaths, int? BestTimeTicks);

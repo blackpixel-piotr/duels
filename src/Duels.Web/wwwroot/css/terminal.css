@@ -1380,6 +1380,58 @@ html, body {
     }
 }
 
+/* ─── Boss roster + pre-fight (M3, UI bible §6) ─── */
+.roster-panel { width: min(560px, 96vw); }
+.roster-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: 6px; padding: 10px;
+    overflow-y: auto;
+}
+.roster-card {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font);
+    cursor: pointer; padding: 8px 10px;
+    touch-action: manipulation;
+    transition: border-color 0.1s;
+}
+.roster-card:hover:not(:disabled) { border-color: var(--amber); }
+.roster-card:disabled { opacity: 0.5; cursor: default; }
+.roster-card-locked { border-style: dashed; }
+.roster-card-tier { font-size: 9px; color: var(--yellow); }
+.roster-card-name { font-size: 12px; color: var(--amber); }
+.roster-card-status { font-size: 9px; color: var(--text-dim); }
+
+.prefight-panel { width: min(520px, 96vw); }
+.prefight-body {
+    display: flex; flex-direction: row; gap: 10px;
+    padding: 12px; overflow-y: auto;
+}
+.prefight-left { flex: 2; display: flex; flex-direction: column; gap: 10px; }
+.prefight-flavor { font-size: 11px; color: var(--text-dim); line-height: 1.4; margin: 0; }
+.prefight-stats { display: flex; flex-direction: column; gap: 4px; }
+.prefight-stat { display: flex; justify-content: space-between; font-size: 11px; color: var(--text); }
+.prefight-stat span:first-child { color: var(--text-dim); }
+.prefight-right {
+    flex: 1; display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+    justify-content: flex-end;
+}
+.prefight-loadout-chip {
+    font-size: 10px; color: var(--text-dim);
+    border: 1px solid var(--border); padding: 4px 8px; text-align: center;
+}
+.prefight-fight-btn {
+    background: linear-gradient(160deg, #3a2410, #1e130a);
+    border: 1px solid var(--amber); color: var(--amber);
+    font-family: var(--font); font-size: 14px; letter-spacing: 1px;
+    padding: 10px 0; cursor: pointer;
+    touch-action: manipulation;
+}
+.prefight-fight-btn:hover:not(:disabled) { border-color: var(--yellow); color: var(--yellow); }
+.prefight-fight-btn:disabled { opacity: 0.5; cursor: default; }
+.prefight-hint { font-size: 9px; color: var(--text-dim); text-align: center; }
+
 /* ─── Bank modal ─── */
 .bank-panel { width: min(560px, 96vw); }
 .bank-body {
