@@ -202,6 +202,7 @@ const LIB_ROLES = {
     punchA: 'Punch_Jab', punchB: 'Punch_Cross',
     swordA: 'Sword_Regular_A', swordB: 'Sword_Regular_B',
     spec: 'Sword_Attack', throw: 'OverhandThrow', cast: 'Spell_Simple_Shoot',
+    spellIdle: 'Spell_Simple_Idle_Loop',
     hitA: 'Hit_Chest', hitB: 'Hit_Head', hitBig: 'Hit_Knockback',
     eat: 'Consume', death: 'Death01', swordIdle: 'Sword_Idle',
     // Combat-feel pass 1: melee block reaction — the clip was already
@@ -870,12 +871,22 @@ function setActorTelegraphGlow(actor, rgb, alpha) {
     });
 }
 
-// Idle stance: a modeled weapon swaps the resting loop for the library's
-// sword-ready pose. Only the blend-space's anchor-0 node changes — walk/jog/
-// sprint and every one-shot stay shared, and the node keeps its current
-// weight so the swap never pops the locomotion blend.
-function setActorStance(actor, armed) {
-    const want = armed && actor.clips.swordIdle ? 'swordIdle' : 'idle';
+// Idle stance: a modeled weapon swaps the resting loop for a style-
+// appropriate ready pose — the spell-ready stance (Spell_Simple_Idle_Loop,
+// wired alongside its Shoot one-shot) for magic, sword-ready for anything
+// else armed (ranged has no bow-ready pose asset — see asset-map.md's M1
+// placeholder note that every weapon, bow included, currently renders as
+// the sword.glb placeholder mesh — so the sword-ready stance at least
+// stays internally consistent with the prop actually in hand; unchanged
+// from before this pass). Only the blend-space's anchor-0 node changes —
+// walk/jog/sprint and every one-shot stay shared, and the node keeps its
+// current weight so the swap never pops the locomotion blend.
+function setActorStance(actor, armed, style) {
+    let want = 'idle';
+    if (armed) {
+        want = style === 'magic' && actor.clips.spellIdle ? 'spellIdle'
+             : actor.clips.swordIdle ? 'swordIdle' : 'idle';
+    }
     const n0 = actor.loco[0];
     if (!n0 || n0.anchor !== 0 || n0.role === want) return;
     const a = actor.mixer.clipAction(actor.clips[want]);
@@ -885,9 +896,9 @@ function setActorStance(actor, armed) {
 }
 
 // Put a modeled weapon in (or clear it from) the actor's right hand.
-async function setActorWeapon(actor, weaponId) {
+async function setActorWeapon(actor, weaponId, style) {
     const def = weaponId ? WEAPON_ASSETS[weaponId] : null;
-    setActorStance(actor, !!def);
+    setActorStance(actor, !!def, style);
     const socket = actor.ch.weaponSocket;
     if (!socket) return;
     const token = ++actor.weaponToken; // supersedes any in-flight load
@@ -1362,19 +1373,30 @@ async function initBattle(canvasId, opts) {
                     const sp = MOVE_SPEED.player * 1000; // wu/s
                     const step = Math.min(rem, sp * dt);
                     actor.pos.wx += rx / rem * step; actor.pos.wz += rz / rem * step;
-                    destFacing = Math.atan2(rx, rz);
                     instSpeed = step / dt;
-                } else if (!st.flags.holdPosition) {
-                    // Face the target while actively engaging it. The player
-                    // only reaches this stationary branch already attacking
-                    // or about to (holdPosition false means Engage() has run —
-                    // see GameState's targeting model), so this doubles as
-                    // "queued or attacking" without a separate flag.
+                }
+                // Engagement (target lock) beats movement for facing:
+                // strafing/repositioning/chasing while locked onto the
+                // enemy should still watch the enemy, not the direction of
+                // the current step — combat-feel-plan.md's original
+                // "moving -> face movement direction" always lost to this
+                // the instant the player was also engaged (i.e. almost
+                // always mid-fight), which read as "never actually facing
+                // the target while running." Only unengaged movement
+                // (walking to a spot, not currently locked on) faces the
+                // direction of travel.
+                if (!st.flags.holdPosition) {
+                    // Face the target — whether stationary-and-attacking or
+                    // mid-run. holdPosition false means Engage() has run
+                    // (see GameState's targeting model).
                     destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
+                } else if (rem > 0.03) {
+                    destFacing = Math.atan2(rx, rz);
                 } else {
-                    // Holding position (walked away, not re-engaged): keep
-                    // whatever facing the walk left the player with instead
-                    // of snapping back to stare at the still-targeted enemy.
+                    // Holding position (walked away, not re-engaged) and
+                    // stationary: keep whatever facing the walk left the
+                    // player with instead of snapping back to stare at the
+                    // still-targeted enemy.
                     destFacing = actor.facing;
                 }
                 let da = destFacing - actor.facing;
@@ -1873,13 +1895,14 @@ const api = {
         updateActorHealthBar(st.player, v.player);
         updateActorHealthBar(st.enemy, v.enemy);
     },
-    setBattleWeapon(canvasId, weaponId) {
+    setBattleWeapon(canvasId, weaponId, style) {
         // The id picks the swing clip family; ids in WEAPON_ASSETS also get
-        // their mesh socketed into the player's right hand + a sword stance.
+        // their mesh socketed into the player's right hand + a style-ready
+        // idle stance (sword-ready, or spell-ready for magic).
         const st = battles.get(canvasId);
         if (!st) return;
         st.weaponId = weaponId;
-        setActorWeapon(st.player, weaponId);
+        setActorWeapon(st.player, weaponId, style);
     },
     setBattleEquipment(canvasId, itemIds) {
         // Armor item ids (non-weapon slots). Ids in ARMOR_ASSETS render as
