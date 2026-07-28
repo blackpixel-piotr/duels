@@ -278,6 +278,22 @@ not reused.)*
     the magic-cast animation report, not a new finding, just re-surfaced
     with the exact file inventory checked. *(Combat feel pass 1, round-3
     follow-up)*
+48. **Player facing during movement can't track the target without a
+    forward-run/target-facing mismatch — needs assets or rigging this
+    project doesn't have.** Round 3 made an engaged player always face the
+    boss, including while moving; round 4 reverted it after live feedback
+    ("moving sideways i'm facing the boss and player is using run forward
+    animation, that's just bad") — with only one forward-locomotion clip
+    family and no strafe/backpedal variant in either vendored animation
+    library (checked directly), facing away from the movement direction
+    while running has no clip that can honestly depict it. A real fix
+    needs either dedicated strafe/backpedal locomotion clips (none exist)
+    or a bone-masked upper-body aim layer (torso twists toward the target
+    independent of the legs' run direction — a standard technique for this
+    exact problem, but a genuine animation-rigging investment, not
+    achievable by reordering existing facing logic). Currently: moving
+    always faces the direction of travel; facing the target only happens
+    once stationary. *(Combat feel pass 1, round 4)*
 
 ---
 

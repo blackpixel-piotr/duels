@@ -1375,23 +1375,26 @@ async function initBattle(canvasId, opts) {
                     actor.pos.wx += rx / rem * step; actor.pos.wz += rz / rem * step;
                     instSpeed = step / dt;
                 }
-                // Engagement (target lock) beats movement for facing:
-                // strafing/repositioning/chasing while locked onto the
-                // enemy should still watch the enemy, not the direction of
-                // the current step — combat-feel-plan.md's original
-                // "moving -> face movement direction" always lost to this
-                // the instant the player was also engaged (i.e. almost
-                // always mid-fight), which read as "never actually facing
-                // the target while running." Only unengaged movement
-                // (walking to a spot, not currently locked on) faces the
-                // direction of travel.
-                if (!st.flags.holdPosition) {
-                    // Face the target — whether stationary-and-attacking or
-                    // mid-run. holdPosition false means Engage() has run
-                    // (see GameState's targeting model).
-                    destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
-                } else if (rem > 0.03) {
+                // Movement direction wins over the target while actually
+                // moving — REVERTED (see combat-feel-findings.md round 4):
+                // a prior pass made engagement win instead, so a player
+                // strafing/backing away from the boss would face it while
+                // the forward-run gait kept animating as if moving straight
+                // ahead — legs running one way, body sliding another, with
+                // no strafe/backpedal clip in the library to match (checked
+                // directly: neither UAL1 nor UAL2 has one). Facing the
+                // target only wins once the player is actually stationary;
+                // moving always faces the way the feet are actually going,
+                // which is what the one locomotion clip we have can
+                // honestly depict.
+                if (rem > 0.03) {
                     destFacing = Math.atan2(rx, rz);
+                } else if (!st.flags.holdPosition) {
+                    // Face the target while stationary and engaged (about
+                    // to attack or holding ground). holdPosition false
+                    // means Engage() has run (see GameState's targeting
+                    // model).
+                    destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
                 } else {
                     // Holding position (walked away, not re-engaged) and
                     // stationary: keep whatever facing the walk left the

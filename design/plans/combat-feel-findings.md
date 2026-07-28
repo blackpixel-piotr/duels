@@ -7,6 +7,48 @@ flagged rather than invented.
 
 ---
 
+## Post-merge, round 4 (user-reported): round 3's facing fix reverted
+
+Round 3 made engagement beat movement for the player's facing (an engaged
+player always faces the enemy, even mid-run). User correction: "if moving
+sideways i'm facing the boss and player is using run forward animation.
+that's just bad." Correct — this codebase has exactly one locomotion clip
+family (`Walk_Loop`/`Jog_Fwd_Loop`/`Sprint_Loop`, all forward-only; no
+strafe or backpedal variant exists in either `UAL1_Standard.glb` or
+`UAL2_Standard.glb` — checked their full clip lists directly, not just
+`LIB_ROLES`'s curated subset, while investigating round 3's staff
+question). Facing the boss while running sideways/backward means the legs
+animate a forward gait while the body translates in an unrelated
+direction — there is no clip that could make that read as correct motion,
+independent of the facing-priority logic itself.
+
+**Reverted round 3's priority change.** Movement direction wins again
+whenever the player is actually moving (`rem > 0.03`); facing the enemy
+only wins once fully stationary (matches the animation asset we actually
+have — a moving character always faces the direction its one locomotion
+clip is honestly depicting). Verified directly: ordered a sideways move
+while engaged, sampled both "facing error to movement direction" and
+"facing error to the enemy" across 15 frames while moving — the former
+converges to 0°, the latter stays large (100–174°, as expected for a
+sideways/behind target point) — then let it settle to a stop and confirmed
+facing snaps to the enemy (0° error) once stationary.
+
+**What round 3 was actually reacting to, and isn't fixed**: the user's
+round-3 report ("when running, we're still not facing the target") is a
+real complaint that a proper fix — facing the target during movement
+*without* the forward-gait mismatch — needs assets or rigging this project
+doesn't have: either dedicated strafe/backpedal locomotion clips, or a
+bone-masked upper-body aim layer (torso twists toward the target
+independent of the legs' run direction, a real and common technique for
+exactly this problem, but a genuine rigging/animation-layer investment,
+not a same-session fix). Logged to backlog.md rather than attempting a
+half-measure (e.g. capping the facing-target cone to some angle short of
+90°) without being asked — a partial cap still shows the same mismatch
+inside its cone, just less severely, and picking that angle would be
+inventing a number with no basis.
+
+---
+
 ## Post-merge, round 3 (user-reported): facing-while-engaged + magic cast asset audit
 
 ### "When running, we're still not facing the target"
