@@ -379,6 +379,53 @@ public sealed class GameState
     public string? LastPlayerSpecialName { get; private set; }
     public void RecordPlayerSpecial(string name) => LastPlayerSpecialName = name;
 
+    // M3, Bloodtithe's stacking bleed (Boss Bible §4): distinct from the
+    // existing flat BleedTicksLeft/BleedPerTick (Rend/Scorch/swarm-bite,
+    // "a second application refreshes rather than stacks" per M1's own
+    // design) — a real stack count, mirroring NpcInstance.PoisonStacks'
+    // shape (Rotfang) but on the player side. Each stack refreshes the
+    // shared duration; capped by whatever MaxStacks the active phase allows.
+    public int PlayerBleedStacks { get; private set; }
+    public int PlayerBleedDurationTicksLeft { get; private set; }
+    public int PlayerBleedDamagePerTick { get; private set; } // set by whichever source applied the current stacks
+    public void ApplyBleedStack(int maxStacks, int durationTicks, int damagePerStackPerTick)
+    {
+        PlayerBleedStacks = Math.Min(maxStacks, PlayerBleedStacks + 1);
+        PlayerBleedDurationTicksLeft = durationTicks;
+        PlayerBleedDamagePerTick = damagePerStackPerTick;
+    }
+    public bool TickPlayerBleedStacks()
+    {
+        if (PlayerBleedDurationTicksLeft <= 0) return false;
+        PlayerBleedDurationTicksLeft--;
+        if (PlayerBleedDurationTicksLeft <= 0) { PlayerBleedStacks = 0; return true; } // last tick still hits
+        return true;
+    }
+    public int ConsumeAllPlayerBleedStacks()
+    {
+        int stacks = PlayerBleedStacks;
+        PlayerBleedStacks = 0;
+        PlayerBleedDurationTicksLeft = 0;
+        return stacks;
+    }
+
+    // M3, Bloodtithe's Font tiles: fixed positions (from the boss's own
+    // data), each with an independent purge cooldown.
+    private readonly Dictionary<(int X, int Z), int> _fontCooldowns = new();
+    public void InitFonts(IEnumerable<(int X, int Z)> tiles) { _fontCooldowns.Clear(); foreach (var t in tiles) _fontCooldowns[t] = 0; }
+    public IReadOnlyDictionary<(int X, int Z), int> FontCooldowns => _fontCooldowns;
+    public void TickFontCooldowns()
+    {
+        foreach (var t in _fontCooldowns.Keys.ToList())
+            if (_fontCooldowns[t] > 0) _fontCooldowns[t]--;
+    }
+    public bool TryUseFontAt((int X, int Z) tile, int cooldownTicks)
+    {
+        if (!_fontCooldowns.TryGetValue(tile, out var cd) || cd > 0) return false;
+        _fontCooldowns[tile] = cooldownTicks;
+        return true;
+    }
+
     // Fight stats (m1-plan Workstream C.10 / H)
     public int FightTicks { get; private set; }
     public string? KilledBy { get; private set; }
@@ -417,6 +464,7 @@ public sealed class GameState
         NpcFootprint = script?.Footprint is { } fp ? (fp.Width, fp.Height) : (1, 1);
         NpcStationary = script?.Stationary ?? false;
         ArenaRadius = script?.ArenaRadius ?? 4;
+        InitFonts(script?.Fonts?.Select(f => (f.X, f.Z)) ?? Enumerable.Empty<(int, int)>());
 
         // Opposite ends of the arena; the boss anchors center-north on its mound.
         // Scales with ArenaRadius (was hardcoded to radius-4's 3/-3 before M3;
@@ -463,6 +511,8 @@ public sealed class GameState
         PlayerPoisoned = false;
         PoisonTickCounter = 0;
         PoisonImmuneTicksLeft = 0;
+        PlayerBleedStacks = 0;
+        PlayerBleedDurationTicksLeft = 0;
     }
 
     public void InitDuelCooldowns()

@@ -15,7 +15,7 @@ public class DefinitionNpcRepositoryTests
         var items = new DefinitionItemRepository();
         var repo = new DefinitionNpcRepository(items);
 
-        Assert.Equal(3, repo.GetAll().Count);
+        Assert.Equal(4, repo.GetAll().Count);
 
         var maggotKing = repo.GetTemplate("maggot_king");
         Assert.NotNull(maggotKing);
@@ -76,6 +76,21 @@ public class DefinitionNpcRepositoryTests
         Assert.NotNull(mirrorhide.Script.Reflect);
         Assert.Equal(0.5, mirrorhide.Script.Reflect!.ReflectPercent);
         Assert.NotNull(mirrorhide.Script.Copycat);
+
+        // M3: Bloodtithe — movement throttle, facing aura, fonts, per-phase bleed cap.
+        var bloodtithe = repo.GetTemplate("bloodtithe");
+        Assert.NotNull(bloodtithe);
+        var btScript = bloodtithe!.Script!;
+        Assert.Equal(2, btScript.MovementTicksPerStep);
+        Assert.NotNull(btScript.FacingAura);
+        Assert.Equal(0.30, btScript.FacingAura!.BackDamageBonus);
+        Assert.NotNull(btScript.Fonts);
+        Assert.Equal(2, btScript.Fonts!.Count);
+        Assert.NotNull(btScript.Transfusion);
+        Assert.NotNull(btScript.CrimsonPact);
+        Assert.NotNull(btScript.Harvest);
+        Assert.Equal(5, btScript.Phase1.BleedOnHit!.MaxStacks);
+        Assert.Equal(8, btScript.Phase2.BleedOnHit!.MaxStacks);
     }
 
     [Fact]

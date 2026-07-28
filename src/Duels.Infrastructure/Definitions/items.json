@@ -365,6 +365,23 @@
       "ExamineText": "Mirrorhide's rare (items doc §4): RL 150+ gated, best-in-slot magic weapon. Data-ingested ahead of its drop source (no Rare loot-table slot until M4's raid level). The 'first hit after swapping to this staff +40% damage' passive and Refract's special are data-only, not wired — same shape as Carrion Edge (backlog #13).",
       "AttackLevelRequired": 1,
       "Range": 7
+    },
+    {
+      "Id": "wpn_unique_bt",
+      "Name": "Leech Blade",
+      "AttackType": "Slash",
+      "Doc": {
+        "Power": 19,
+        "Precision": 0.04,
+        "DefPoints": 0,
+        "Line": "None",
+        "Tier": 3,
+        "Special": null
+      },
+      "AttackSpeed": 3,
+      "ExamineText": "Bloodtithe's unique (items doc §3, M3): unique quality = boss tier + 1 (T2 -> T3), stats match the ratified batch-1 rule exactly. Passive (8% lifesteal on melee hits) is data-only, not wired — same shape as Carrion Edge's Fester (backlog #13's scope now covers this too, see m3-findings.md). 1/20 drop, not OnceOnly.",
+      "AttackLevelRequired": 1,
+      "Range": 1
     }
   ],
   "gear": [
@@ -1375,6 +1392,20 @@
         "Special": null
       },
       "ExamineText": "Occult-line cape armor, tier 4."
+    },
+    {
+      "Id": "arm_rare_bt",
+      "Name": "Tithebound Cuirass",
+      "Slot": "Body",
+      "Doc": {
+        "Power": 0,
+        "Precision": 0,
+        "DefPoints": 16,
+        "Line": "None",
+        "Tier": 4,
+        "Special": null
+      },
+      "ExamineText": "Bloodtithe's rare (items doc §4): RL 150+ gated, best-in-slot body armour. Data-ingested ahead of its drop source (no Rare loot-table slot until M4's raid level). Passive (flask sips also cleanse 1 DoT stack) is data-only, not wired — same shape as Carrion Edge (backlog #13)."
     }
   ],
   "consumables": [
@@ -1456,6 +1487,7 @@
     "wpn_unique_mk": 2000,
     "wpn_unique_hm": 2000,
     "wpn_unique_mh": 2000,
+    "wpn_unique_bt": 2000,
     // Backlog resolution batch 1 (§2): Maggot King's Common-slot materials.
     // Reused for Hive Matron too (M3, PROVISIONAL — see m3-findings.md's
     // loot-content note): no per-boss Common/Uncommon item content is

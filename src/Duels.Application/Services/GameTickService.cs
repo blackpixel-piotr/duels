@@ -210,6 +210,8 @@ public sealed class GameTickService : IDisposable
                 ProcessSpacingAiMechanics(state, player, npc, preTickPlayerTile);
             if (npc.Template.Script?.Cloak is not null)
                 ProcessMirrorhideMechanics(state, player, npc);
+            if (npc.Template.Script?.FacingAura is not null)
+                ProcessBloodtitheMechanics(state, player, npc);
         }
 
         // Prayer drain at tick end (D7: 2 pts per drain event for a
@@ -319,6 +321,18 @@ public sealed class GameTickService : IDisposable
 
         int npcRange = npc.Template.DummyStyle is { } st ? AttackRange.ForStyle(st) : AttackRange.Melee;
         if (state.InAttackRange(npcRange)) return;
+
+        // M3, Bloodtithe: relentless approach throttled to 1 tile per
+        // MovementTicksPerStep ticks (Crimson Pact's SpeedBoosted overrides
+        // to full speed) — every other scripted boss keeps MovementTicksPerStep's
+        // default of 1 (a step every tick, unchanged from before M3).
+        int ticksPerStep = npc.Template.Script?.MovementTicksPerStep ?? 1;
+        if (ticksPerStep > 1 && !npc.SpeedBoosted)
+        {
+            npc.TickMovementCounter();
+            if (npc.MovementTickCounter < ticksPerStep) return;
+            npc.ResetMovementCounter();
+        }
 
         var step = NextStepToward(state, state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
         state.SetNpcTile(step.X, step.Z);
@@ -448,6 +462,7 @@ public sealed class GameTickService : IDisposable
         bool punished = npc.InPunishWindow;
         int damage = attuneImmune ? 0 : (punished ? (int)Math.Round(roll.Damage * 1.25) : roll.Damage);
         damage = ApplyBossDamageReduction(npc, doctrine, damage);
+        damage = ApplyBloodtitheBackBonus(npc, state, damage);
         npc.TakeDamage(damage);
 
         // Rotfang (items doc §3, backlog resolution batch 1): on-hit poison,
@@ -624,7 +639,17 @@ public sealed class GameTickService : IDisposable
         bool punished = npc.InPunishWindow;
         int damage = attuneImmune ? 0 : (int)Math.Round(roll.Damage * damageMult * (punished ? 1.25 : 1.0));
         damage = ApplyBossDamageReduction(npc, weapon.AttackType, damage);
+        damage = ApplyBloodtitheBackBonus(npc, state, damage);
         npc.TakeDamage(damage);
+
+        // M3, Bloodtithe's Transfusion: "interrupted only by hitting him
+        // with a special attack." Any landed special (this call only runs
+        // once roll.Hit is true, above) ends the channel immediately.
+        if (npc.TransfusionActive)
+        {
+            npc.InterruptTransfusion();
+            state.AppendLog("Your special interrupts Bloodtithe's Transfusion!", LogEntryKind.BossSpecial);
+        }
 
         if (attuneImmune)
         {
@@ -894,12 +919,37 @@ public sealed class GameTickService : IDisposable
             return;
         }
 
+        // M3, Bloodtithe's Transfusion (signature): starts a self-heal
+        // channel, ticked/interrupted from ProcessBloodtitheMechanics and
+        // PerformSpecialAttack respectively.
+        if (step.Action == "transfusion" && npc.Template.Script?.Transfusion is { } transfusionDef)
+        {
+            if (!state.IsMechanicEnabled(BossMechanic.BossAutos)) return;
+            npc.StartTransfusion(transfusionDef.ChannelTicks);
+            state.AppendLog("⚠ Bloodtithe reaches out, draining your vitality into himself — TRANSFUSION! Interrupt with a special!", LogEntryKind.BossSpecial);
+            return;
+        }
+
         var attackId = ResolveAttackId(state, step.Action);
         var attack = npc.Template.Script!.Attacks[attackId];
 
         // Dev toggle (M1 playtest tooling): boss autos off → the King telegraphs
         // but lands no direct attack, so a hazard interaction can be isolated.
         if (!state.IsMechanicEnabled(BossMechanic.BossAutos)) return;
+
+        // M3, Bloodtithe's Scythe Arc: a 2-tick windup, THEN the player's
+        // position is re-checked at resolution (ProcessBloodtitheMechanics) —
+        // "the cue to slip behind. Missing it gives a 3-tick punish window."
+        // Chosen here (not always cast) exactly like Maggot King's
+        // "lash/grub_volley" range-dependent pick — Blood Lance is the
+        // ranged alternative when the player's kited out of melee.
+        if (attackId == "scythe_arc")
+        {
+            npc.StartScytheArcWindup(2);
+            state.AppendLog("⚠ Bloodtithe raises his scythe for a wide arc!", LogEntryKind.BossSpecial);
+            RecordAttackAndMaybeDash(state, npc);
+            return;
+        }
 
         // Global Combat Grammar "impact-resolution prayer": ranged/magic
         // attacks travel as a homing doctrine-colored projectile — damage
@@ -1037,6 +1087,16 @@ public sealed class GameTickService : IDisposable
         state.AppendLog($"{damage}:{tier}:{StyleToken(attack.Style)}", LogEntryKind.HitsplatNpc);
         string prayedMsg = prayerReduction > 0 ? " (prayed)" : "";
         state.AppendLog($"{npc.Template.Name} uses {attack.Name} for {damage}{prayedMsg}. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+
+        // M3, Bloodtithe's bleed-on-hit (Boss Bible §4): "every hit he lands
+        // applies a bleed stack... correctly prayed hits apply no stack" —
+        // generic on ResolveBossAttack so it covers Scythe Arc AND Blood
+        // Lance for free, rather than special-casing each attack.
+        if (npc.ActivePhaseDef.BleedOnHit is { } bleedOnHit && !blockedByPrayer)
+        {
+            state.ApplyBleedStack(bleedOnHit.MaxStacks, bleedOnHit.DurationTicks, bleedOnHit.DamagePerTick);
+            state.AppendLog($"You're bleeding! ({state.PlayerBleedStacks} stack{(state.PlayerBleedStacks == 1 ? "" : "s")})", LogEntryKind.Info);
+        }
 #if DEBUG
         Console.WriteLine($"[PROJ][impact] tick={state.FightTicks} style={attack.Style} attackId={attack.Id} band={band} prayerReduction={prayerReduction:F2} damage={damage} blocked={blockedByPrayer}");
 #endif
@@ -1347,6 +1407,133 @@ public sealed class GameTickService : IDisposable
         }
     }
 
+    // ── M3, Bloodtithe's per-tick mechanics ─────────────────────────────
+    // Gated on FacingAura being present — currently only Bloodtithe sets one.
+
+    // 0=North(+Z), 1=East(+X), 2=South(-Z), 3=West(-X) — his turn rate is
+    // always exactly one quarter-turn per tick (Boss Bible: "90° per tick"),
+    // so an int index avoids float drift entirely.
+    private static readonly (int X, int Z)[] FacingOffsets = { (0, 1), (1, 0), (0, -1), (-1, 0) };
+
+    private static int FacingIndexToward((int X, int Z) from, (int X, int Z) to)
+    {
+        int dx = to.X - from.X, dz = to.Z - from.Z;
+        if (dx == 0 && dz == 0) return 0;
+        return Math.Abs(dx) > Math.Abs(dz) ? (dx > 0 ? 1 : 3) : (dz > 0 ? 0 : 2);
+    }
+
+    private void ProcessBloodtitheMechanics(GameState state, Player player, NpcInstance npc)
+    {
+        var script = npc.Template.Script!;
+        var aura = script.FacingAura!;
+
+        int currentFacing = (int)Math.Round(npc.FacingAngleDeg / 90.0) % 4;
+        int idealFacing = FacingIndexToward(state.NpcTile, state.PlayerTile);
+        if (currentFacing != idealFacing)
+        {
+            // Turn exactly one step per tick, shortest direction.
+            int diff = ((idealFacing - currentFacing) % 4 + 4) % 4;
+            int step = diff <= 2 ? 1 : -1;
+            currentFacing = ((currentFacing + step) % 4 + 4) % 4;
+            npc.SetFacing(currentFacing * 90.0);
+        }
+
+        var backOffset = FacingOffsets[(currentFacing + 2) % 4];
+        var backTile = (X: state.NpcTile.X + backOffset.X, Z: state.NpcTile.Z + backOffset.Z);
+        bool onBackTile = state.PlayerTile == backTile;
+        bool inAuraRange = state.DistanceToNpc <= aura.AuraRadius;
+
+        if (inAuraRange && !onBackTile && player.IsAlive)
+        {
+            int drain = Math.Max(1, (int)Math.Round(player.MaxHp * aura.DrainPercent));
+            player.TakeDamage(drain);
+            state.RecordDamageTaken(drain);
+            npc.Heal(drain);
+            state.AppendLog($"{drain}:normal", LogEntryKind.HitsplatNpc);
+            state.AppendLog($"Bloodtithe's tithe aura drains {drain} from you. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+        }
+
+        // Font tiles: standing on one (with something to purge, cooldown
+        // ready) cleanses all current bleed stacks.
+        if (state.PlayerBleedStacks > 0 && script.Fonts is { } fonts)
+        {
+            var font = fonts.FirstOrDefault(f => (f.X, f.Z) == state.PlayerTile);
+            if (font is not null && state.TryUseFontAt(state.PlayerTile, font.CooldownTicks))
+            {
+                state.ConsumeAllPlayerBleedStacks();
+                state.AppendLog("You purge your bleed at the Font!", LogEntryKind.System);
+            }
+        }
+        state.TickFontCooldowns();
+
+        // Scythe Arc resolution: range re-checked at the windup's end.
+        if (npc.ScytheArcTicksLeft > 0 && npc.TickScytheArcWindup())
+        {
+            if (state.InAttackRange(AttackRange.Melee) && player.IsAlive)
+                ResolveBossAttack(state, player, npc, npc.Template.Script!.Attacks["scythe_arc"]);
+            else
+            {
+                state.AppendLog("Bloodtithe's scythe arcs through empty air!", LogEntryKind.BossSpecial);
+                npc.StartSlump(3); // Boss Bible: "Missing it gives a 3-tick punish window"
+            }
+        }
+
+        // Transfusion: heals him each tick; interrupt (a player special
+        // landing during the channel) is handled at the special-attack call
+        // site (see PerformSpecialAttack), not here.
+        if (npc.TransfusionActive)
+        {
+            npc.Heal((int)Math.Round(npc.MaxHp * script.Transfusion!.HealPercentPerTick));
+            npc.TickTransfusion();
+        }
+
+        // Phase 2: Crimson Pact (periodic HP-for-speed trade) + Harvest
+        // (telegraph then consumes all bleed stacks for damage).
+        if (npc.Phase == 2)
+        {
+            if (script.CrimsonPact is { } pact)
+            {
+                npc.TickCrimsonPactCooldown();
+                npc.TickSpeedBoost();
+                if (npc.CrimsonPactCooldown <= 0 && !npc.SpeedBoosted && state.IsMechanicEnabled(BossMechanic.BossAutos))
+                {
+                    int sacrifice = (int)Math.Round(npc.CurrentHp * pact.SacrificePercent);
+                    npc.TakeDamage(sacrifice);
+                    npc.StartSpeedBoost(pact.SpeedTicks);
+                    npc.ResetCrimsonPactCooldown(pact.CadenceTicks);
+                    state.AppendLog($"Bloodtithe tears at his own flesh — Crimson Pact! (-{sacrifice} HP, full speed for {pact.SpeedTicks} ticks)", LogEntryKind.BossSpecial);
+                }
+            }
+
+            if (script.Harvest is { } harvest)
+            {
+                npc.TickHarvestCooldown();
+                if (npc.HarvestTelegraphTicksLeft > 0)
+                {
+                    if (npc.TickHarvestTelegraph())
+                    {
+                        int stacks = state.ConsumeAllPlayerBleedStacks();
+                        int dmg = stacks * harvest.DamagePerStack;
+                        if (dmg > 0 && player.IsAlive)
+                        {
+                            player.TakeDamage(dmg);
+                            state.RecordDamageTaken(dmg);
+                            state.SetKilledBy("Harvest");
+                            state.AppendLog($"{dmg}:hazard", LogEntryKind.HitsplatNpc);
+                        }
+                        state.AppendLog($"Bloodtithe harvests {stacks} bleed stack{(stacks == 1 ? "" : "s")} for {dmg} damage! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.BossSpecial);
+                    }
+                }
+                else if (npc.HarvestCooldown <= 0 && state.IsMechanicEnabled(BossMechanic.BossAutos))
+                {
+                    npc.StartHarvestTelegraph(harvest.TelegraphTicks);
+                    npc.ResetHarvestCooldown(harvest.CadenceTicks);
+                    state.AppendLog("⚠ Bloodtithe reaches out — HARVEST incoming! Purge your bleed now!", LogEntryKind.BossSpecial);
+                }
+            }
+        }
+    }
+
     // ── Rot Burst + swarms ──────────────────────────────────────────────
 
     private void ResolveRotBurst(GameState state, Player player, NpcInstance npc)
@@ -1418,6 +1605,24 @@ public sealed class GameTickService : IDisposable
             state.AppendLog("3:poison", LogEntryKind.HitsplatNpc);
             state.AppendLog($"The poison courses through you. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
         }
+
+        // M3, Bloodtithe's stacking bleed (distinct from the flat Rend/Scorch
+        // bleed above — see GameState.ApplyBleedStack's doc comment). Damage
+        // is captured BEFORE ticking, same reason Rotfang's NPC poison does
+        // (TickPlayerBleedStacks zeroes the stack count on its final tick).
+        if (player.IsAlive && state.PlayerBleedStacks > 0)
+        {
+            int stacksThisTick = state.PlayerBleedStacks;
+            int dmg = stacksThisTick * state.PlayerBleedDamagePerTick;
+            if (state.TickPlayerBleedStacks())
+            {
+                player.TakeDamage(dmg);
+                state.RecordDamageTaken(dmg);
+                if (dmg > 0) state.SetKilledBy("Bleed");
+                state.AppendLog($"{dmg}:poison", LogEntryKind.HitsplatNpc);
+                state.AppendLog($"You bleed for {dmg} damage ({stacksThisTick} stacks). [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+            }
+        }
     }
 
     // Boss-side poison DoT (Rotfang, items doc §3, backlog resolution batch
@@ -1457,6 +1662,19 @@ public sealed class GameTickService : IDisposable
         var def = npc.Template.Script?.DamageReductionWindow;
         if (def is null || !npc.DamageReductionActive || !def.AffectedStyles.Contains(style)) return damage;
         return (int)Math.Round(damage * (1.0 - def.ReductionPercent));
+    }
+
+    /// <summary>Bloodtithe's back-tile bonus (Boss Bible §4): "his back tile
+    /// is exempt [from the Tithe aura] and takes +30% damage." No-op for
+    /// any boss without a FacingAura (currently only Bloodtithe).</summary>
+    private static int ApplyBloodtitheBackBonus(NpcInstance npc, GameState state, int damage)
+    {
+        var aura = npc.Template.Script?.FacingAura;
+        if (aura is null || damage <= 0) return damage;
+        int facing = (int)Math.Round(npc.FacingAngleDeg / 90.0) % 4;
+        var backOffset = FacingOffsets[(facing + 2) % 4];
+        var backTile = (X: state.NpcTile.X + backOffset.X, Z: state.NpcTile.Z + backOffset.Z);
+        return state.PlayerTile == backTile ? (int)Math.Round(damage * (1.0 + aura.BackDamageBonus)) : damage;
     }
 
     private double PlayerDefReductionFraction(Player player)

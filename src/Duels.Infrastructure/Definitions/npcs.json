@@ -276,5 +276,97 @@
       "Reflect": { "ChannelTicks": 3, "WindowTicks": 6, "ReflectPercent": 0.5 },
       "Copycat": { "TelegraphTicks": 2, "Damage": 35, "CadenceTicks": 20 }
     }
+  },
+  {
+    "Id": "bloodtithe",
+    "Name": "Bloodtithe",
+    "ExamineText": "A gaunt vampiric tyrant dragging a scythe. Slow. Inevitable. Stay off his front, purge at the Fonts, and budget your specials for Transfusion.",
+    // PROVISIONAL: no boss HP numbers exist in any design doc -- picked
+    // comparable for a Tier-2 sustain fight (higher than the two faster T1/T2
+    // bosses since attrition, not burst, is his whole identity).
+    "Stats": { "Attack": 1, "Strength": 1, "Defence": 1, "Hitpoints": 520 },
+    "Evasion": { "Melee": 0, "Ranged": 0, "Magic": 0 },
+    // M3, PROVISIONAL (m3-findings.md): no Common/Uncommon item content is
+    // documented for any boss but Maggot King -- reuses his shape/materials,
+    // shifted to the T2->T3 gear bridge like Mirrorhide's. Pending a real
+    // content pass.
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 0.65, "MinQty": 70, "MaxQty": 140, "GroupId": "common", "Weight": 40 },
+      { "ItemId": "chitin_fragment", "DropChance": 0.65, "GroupId": "common", "Weight": 35 },
+      { "ItemId": "rot_gland", "DropChance": 0.65, "GroupId": "common", "Weight": 25 },
+
+      { "ItemId": "wpn_melee_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "wpn_ranged_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "wpn_magic_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "arm_warbound_helmet_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_body_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_legs_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_boots_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_gloves_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_cape_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_helmet_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_body_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_legs_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_boots_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_gloves_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_cape_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_helmet_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_body_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_legs_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_boots_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_gloves_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_cape_t3", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+
+      { "ItemId": "wpn_unique_bt", "DropChance": 0.05 }
+    ],
+    "GoldReward": 900,
+    "Script": {
+      "PhaseTwoThresholdPercent": 50,
+      "Attacks": {
+        "scythe_arc": { "Id": "scythe_arc", "Name": "Scythe Arc", "Style": "Slash", "Damage": 35 },
+        "blood_lance": { "Id": "blood_lance", "Name": "Blood Lance", "Style": "Ranged", "Damage": 18 }
+      },
+      "Phase1": {
+        "LoopLength": 20,
+        "TelegraphLeadTicks": 2,
+        "Rotation": [
+          { "Tick": 0,  "Action": "scythe_arc/blood_lance" },
+          { "Tick": 6,  "Action": "scythe_arc/blood_lance" },
+          { "Tick": 10, "Action": "transfusion" },
+          { "Tick": 16, "Action": "scythe_arc/blood_lance" }
+        ],
+        "Eruption": { "CooldownTicks": 999999, "WarningTicks": 1, "TilesPerWave": 1, "EruptDamage": 0, "PoolTicks": 0, "PoolDamagePerTick": 0 },
+        "RotBurst": null,
+        "Swarms": null,
+        "BleedOnHit": { "DamagePerTick": 3, "DurationTicks": 10, "MaxStacks": 5 }
+      },
+      "Phase2": {
+        "LoopLength": 16,
+        "TelegraphLeadTicks": 2,
+        "MasterScript": false,
+        "Rotation": [
+          { "Tick": 0,  "Action": "scythe_arc/blood_lance" },
+          { "Tick": 5,  "Action": "scythe_arc/blood_lance" },
+          { "Tick": 9,  "Action": "transfusion" },
+          { "Tick": 14, "Action": "scythe_arc/blood_lance" }
+        ],
+        "Eruption": { "CooldownTicks": 999999, "WarningTicks": 1, "TilesPerWave": 1, "EruptDamage": 0, "PoolTicks": 0, "PoolDamagePerTick": 0 },
+        "RotBurst": null,
+        "Swarms": null,
+        "BleedOnHit": { "DamagePerTick": 3, "DurationTicks": 10, "MaxStacks": 8 }
+      },
+      "ArenaRadius": 4,
+      "Footprint": { "Width": 1, "Height": 1 },
+      "Stationary": false,
+      "MovementTicksPerStep": 2,
+      "FacingAura": { "DegreesPerTick": 90, "AuraRadius": 1, "DrainPercent": 0.01, "BackDamageBonus": 0.30 },
+      "Fonts": [
+        { "X": 4, "Z": 4, "CooldownTicks": 8 },
+        { "X": -4, "Z": -4, "CooldownTicks": 8 }
+      ],
+      "Transfusion": { "ChannelTicks": 5, "HealPercentPerTick": 0.02 },
+      "CrimsonPact": { "CadenceTicks": 20, "SacrificePercent": 0.10, "SpeedTicks": 10 },
+      "Harvest": { "TelegraphTicks": 3, "DamagePerStack": 18, "CadenceTicks": 20 }
+    }
   }
 ]

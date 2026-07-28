@@ -76,7 +76,8 @@ public sealed record BossPhaseDef(
     int SwarmMaxAlive = 2,           // cap on concurrent swarms
     int RotBurstEveryNCycles = 3,    // Rot Burst fires on every Nth master cycle
     IReadOnlyList<DroneWaveDef>? Drones = null, // Hive Matron's real-HP orbiting adds
-    AttunementDef? Attunement = null); // Mirrorhide: per-phase (P2 tightens the window)
+    AttunementDef? Attunement = null, // Mirrorhide: per-phase (P2 tightens the window)
+    BleedOnHitDef? BleedOnHit = null); // Bloodtithe: per-phase (P2 raises the stack cap)
 
 /// <summary>Boss footprint in tiles (plain record, not a ValueTuple — System.Text.Json
 /// has no built-in ValueTuple converter).</summary>
@@ -143,6 +144,39 @@ public sealed record ReflectDef(int ChannelTicks, int WindowTicks, double Reflec
 /// — see m3-findings.md's scoping note.</summary>
 public sealed record CopycatDef(int TelegraphTicks, int Damage, int CadenceTicks);
 
+/// <summary>Bloodtithe's facing + Tithe aura (Boss Bible §4): turns
+/// DegreesPerTick toward the player (90 = a quarter-turn/tick); ending a
+/// tick within AuraRadius of his front/sides drains DrainPercent of the
+/// player's max HP as self-heal. His back tile is exempt from the aura and
+/// takes BackDamageBonus extra player damage instead.</summary>
+public sealed record FacingAuraDef(int DegreesPerTick, int AuraRadius, double DrainPercent, double BackDamageBonus);
+
+/// <summary>One Font tile (Bloodtithe): standing on it purges all the
+/// player's bleed stacks, then it's on CooldownTicks before it can be used
+/// again (per-tile, independent cooldowns).</summary>
+public sealed record FontTileDef(int X, int Z, int CooldownTicks);
+
+/// <summary>Bleed-on-hit (Bloodtithe): every landed hit applies a stack
+/// (Global Combat Grammar: "correctly prayed hits apply no stack"), each
+/// stack dealing DamagePerTick for DurationTicks, capped at MaxStacks
+/// (raised in Phase 2 — hence living on BossPhaseDef, not BossScript).</summary>
+public sealed record BleedOnHitDef(int DamagePerTick, int DurationTicks, int MaxStacks);
+
+/// <summary>Transfusion (Bloodtithe signature): a HealPercentPerTick-of-
+/// max-HP channel for ChannelTicks, interrupted only by a player special
+/// attack landing during it.</summary>
+public sealed record TransfusionDef(int ChannelTicks, double HealPercentPerTick);
+
+/// <summary>Crimson Pact (Bloodtithe, Phase 2): periodically sacrifices
+/// SacrificePercent of his CURRENT HP for SpeedTicks of full (1-tile/tick)
+/// movement speed, overriding BossScript.MovementTicksPerStep.</summary>
+public sealed record CrimsonPactDef(int CadenceTicks, double SacrificePercent, int SpeedTicks);
+
+/// <summary>Harvest (Bloodtithe, Phase 2 signature): TelegraphTicks warning,
+/// then consumes every one of the player's current bleed stacks for
+/// DamagePerStack each — countered by purging bleed at a Font first.</summary>
+public sealed record HarvestDef(int TelegraphTicks, int DamagePerStack, int CadenceTicks);
+
 /// <summary>Full boss-fight definition consumed by the shared boss engine
 /// (m1-plan Workstream C) — the rotation script, hazards, swarms and Rot
 /// Burst are all data here; GameTickService/BossEngine contain no
@@ -162,7 +196,13 @@ public sealed record BossScript(
     LineChargeDef? LineCharge = null,
     CloakDef? Cloak = null,
     ReflectDef? Reflect = null,
-    CopycatDef? Copycat = null);
+    CopycatDef? Copycat = null,
+    int MovementTicksPerStep = 1, // Bloodtithe: 2 = "1 tile per 2 ticks"
+    FacingAuraDef? FacingAura = null,
+    IReadOnlyList<FontTileDef>? Fonts = null,
+    TransfusionDef? Transfusion = null,
+    CrimsonPactDef? CrimsonPact = null,
+    HarvestDef? Harvest = null);
 
 // DummyStyle: approach style for a non-scripted (Script=null) NPC's generic
 // chase-to-range movement — the shared mover, not boss-specific code. Real M1
@@ -502,6 +542,66 @@ public sealed class NpcInstance
         return CopycatTelegraphTicksLeft <= 0;
     }
 
+    // ── M3, Bloodtithe (Boss Bible §4) ───────────────────────────────────
+
+    // Facing: degrees, 0 = facing +Z, turns toward the player each tick,
+    // clamped to the def's own DegreesPerTick turn rate.
+    public double FacingAngleDeg { get; private set; }
+    public void SetFacing(double deg) => FacingAngleDeg = deg;
+
+    // Relentless-walk throttle: counts ticks until the next 1-tile step.
+    public int MovementTickCounter { get; private set; }
+    public void TickMovementCounter() => MovementTickCounter++;
+    public void ResetMovementCounter() => MovementTickCounter = 0;
+
+    // Bleed-stack cap tracking (per-hit application lives in GameTickService;
+    // this just exposes whether he's currently allowed to reapply — always
+    // true, the cap is enforced on the PLAYER's stack count in GameState).
+
+    // Transfusion: healing channel, interruptible by a player special.
+    public int TransfusionTicksLeft { get; private set; }
+    public bool TransfusionActive => TransfusionTicksLeft > 0;
+    public void StartTransfusion(int ticks) => TransfusionTicksLeft = ticks;
+    public bool TickTransfusion() // true the tick it would resolve/expire naturally
+    {
+        if (TransfusionTicksLeft <= 0) return false;
+        TransfusionTicksLeft--;
+        return true;
+    }
+    public void InterruptTransfusion() => TransfusionTicksLeft = 0;
+
+    // Crimson Pact: cooldown + temporary full-speed window.
+    public int CrimsonPactCooldown { get; private set; }
+    public int SpeedBoostTicksLeft { get; private set; }
+    public bool SpeedBoosted => SpeedBoostTicksLeft > 0;
+    public void ResetCrimsonPactCooldown(int ticks) => CrimsonPactCooldown = ticks;
+    public void TickCrimsonPactCooldown() { if (CrimsonPactCooldown > 0) CrimsonPactCooldown--; }
+    public void StartSpeedBoost(int ticks) => SpeedBoostTicksLeft = ticks;
+    public void TickSpeedBoost() { if (SpeedBoostTicksLeft > 0) SpeedBoostTicksLeft--; }
+
+    // Scythe Arc: 2-tick windup, resolved (range re-checked) when it expires.
+    public int ScytheArcTicksLeft { get; private set; }
+    public void StartScytheArcWindup(int ticks) => ScytheArcTicksLeft = ticks;
+    public bool TickScytheArcWindup()
+    {
+        if (ScytheArcTicksLeft <= 0) return false;
+        ScytheArcTicksLeft--;
+        return ScytheArcTicksLeft <= 0;
+    }
+
+    // Harvest: telegraph + cooldown.
+    public int HarvestTelegraphTicksLeft { get; private set; }
+    public int HarvestCooldown { get; private set; }
+    public void ResetHarvestCooldown(int ticks) => HarvestCooldown = ticks;
+    public void TickHarvestCooldown() { if (HarvestCooldown > 0) HarvestCooldown--; }
+    public void StartHarvestTelegraph(int ticks) => HarvestTelegraphTicksLeft = ticks;
+    public bool TickHarvestTelegraph()
+    {
+        if (HarvestTelegraphTicksLeft <= 0) return false;
+        HarvestTelegraphTicksLeft--;
+        return HarvestTelegraphTicksLeft <= 0;
+    }
+
     // Rotfang on-hit poison (items doc §3, backlog resolution batch 1):
     // 5-tick duration, 2 dmg/stack/tick, max 3 stacks; any landed hit while
     // wielded adds a stack (capped at 3) AND refreshes the duration to 5 --
@@ -540,6 +640,8 @@ public sealed class NpcInstance
             DamageReductionCooldown = s.DamageReductionWindow?.CadenceTicks ?? 0;
             CloakCooldown = s.Cloak?.CadenceTicks ?? 0;
             CopycatCooldown = s.Copycat?.CadenceTicks ?? 0;
+            CrimsonPactCooldown = s.CrimsonPact?.CadenceTicks ?? 0;
+            HarvestCooldown = s.Harvest?.CadenceTicks ?? 0;
 
             // Seed the forecast with the fight's opening move. The rotation's
             // own style-shift telegraphs only fire mid-loop (T8/T16) — without
@@ -554,6 +656,10 @@ public sealed class NpcInstance
     }
 
     public void TakeDamage(int amount) => CurrentHp = Math.Max(0, CurrentHp - amount);
+
+    // M3, Bloodtithe: Tithe aura self-heal + Transfusion. Capped at MaxHp
+    // (Transfusion doesn't overheal past full).
+    public void Heal(int amount) => CurrentHp = Math.Min(MaxHp, CurrentHp + amount);
 
     public int HpPercent => MaxHp == 0 ? 0 : CurrentHp * 100 / MaxHp;
 
