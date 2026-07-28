@@ -213,9 +213,9 @@ public sealed class RangeAndMovementTests
 
         state.OrderMove(99, -99);
         var t = state.PlayerMoveTarget!.Value;
-        Assert.True(Math.Abs(t.X) <= GameState.ArenaRadius);
-        Assert.True(Math.Abs(t.Z) <= GameState.ArenaRadius);
-        Assert.True(GameState.InArena(t));
+        Assert.True(Math.Abs(t.X) <= state.ArenaRadius);
+        Assert.True(Math.Abs(t.Z) <= state.ArenaRadius);
+        Assert.True(state.InArena(t));
     }
 
     // ── Pathfinding (straight line unless blocked, around solid obstacles) ──
@@ -300,16 +300,16 @@ public sealed class RangeAndMovementTests
                 {
                     if (dx == 0 && dz == 0) continue;
                     var n = (c.X + dx, c.Z + dz);
-                    if (seen.Contains(n) || !GameState.InArena(n) || state.IsObstacle(n)) continue;
+                    if (seen.Contains(n) || !state.InArena(n) || state.IsObstacle(n)) continue;
                     seen.Add(n);
                     q.Enqueue(n);
                 }
         }
-        for (int x = -GameState.ArenaRadius; x <= GameState.ArenaRadius; x++)
-            for (int z = -GameState.ArenaRadius; z <= GameState.ArenaRadius; z++)
+        for (int x = -state.ArenaRadius; x <= state.ArenaRadius; x++)
+            for (int z = -state.ArenaRadius; z <= state.ArenaRadius; z++)
             {
                 var t = (x, z);
-                if (GameState.InArena(t) && !state.IsObstacle(t))
+                if (state.InArena(t) && !state.IsObstacle(t))
                     Assert.Contains(t, seen);
             }
     }

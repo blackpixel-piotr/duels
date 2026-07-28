@@ -74,11 +74,47 @@ public sealed record BossPhaseDef(
     int ScorchTicks = -1,            // scorch lifetime before reverting to clean floor (<0 = permanent)
     int SwarmHp = 2,                 // per-swarm HP (P2 master script: 1)
     int SwarmMaxAlive = 2,           // cap on concurrent swarms
-    int RotBurstEveryNCycles = 3);   // Rot Burst fires on every Nth master cycle
+    int RotBurstEveryNCycles = 3,    // Rot Burst fires on every Nth master cycle
+    IReadOnlyList<DroneWaveDef>? Drones = null); // Hive Matron's real-HP orbiting adds
 
 /// <summary>Boss footprint in tiles (plain record, not a ValueTuple — System.Text.Json
 /// has no built-in ValueTuple converter).</summary>
 public sealed record FootprintDef(int Width, int Height);
+
+// ── M3 Workstream A: shared systems generalized beyond Maggot King ────────
+// These are additive, optional fields on BossScript/BossPhaseDef (all default
+// null/off) rather than a rewrite of the M1 rotation-script shape — Maggot
+// King's own script is untouched by any of them.
+
+/// <summary>Boss movement AI beyond stationary/chase-to-melee (Hive Matron,
+/// Boss Bible §2 "Core movement AI"): holds a preferred range band, dashing
+/// DashDistanceTiles every DashEveryNAttacks landed attacks to reset spacing
+/// against a player who's closed in.</summary>
+public sealed record SpacingAiDef(int PreferredRangeMin, int PreferredRangeMax, int DashEveryNAttacks, int DashDistanceTiles);
+
+/// <summary>Adjacency punish (Hive Matron's Tail Stab): staying within
+/// Chebyshev 1 of the boss for AdjacencyTicks consecutive ticks answers with
+/// an instant fixed-damage hit, knockback, and (optionally) a poison
+/// application — the "melee must be danced, not held" teaching tool. Written
+/// generically enough for any future boss's own face-tank punish.</summary>
+public sealed record AdjacencyPunishDef(int AdjacencyTicks, int Damage, int KnockbackTiles, string? Name = null);
+
+/// <summary>Periodic self-buff reducing incoming damage from the listed
+/// styles by ReductionPercent for DurationTicks, every CadenceTicks (Hive
+/// Matron's Chitin Guard: −50% ranged/magic for 8 ticks every ~25 ticks).</summary>
+public sealed record DamageReductionWindowDef(int CadenceTicks, int DurationTicks, double ReductionPercent, IReadOnlyList<AttackType> AffectedStyles);
+
+/// <summary>A wave of non-swarm adds (Hive Matron's drones): real HP (unlike
+/// SwarmWaveDef's 1-HP fodder), station-keeping at OrbitRadius around the
+/// boss rather than crawling toward the player.</summary>
+public sealed record DroneWaveDef(int ThresholdPercent, int Count, int Hp, int OrbitRadius);
+
+/// <summary>Pin's line-charge (Hive Matron, signature attack): marks a line
+/// of tiles through the player's tile-at-cast, charges after WarningTicks —
+/// a hit on the line is Damage + StunTicks pinned; a miss that reaches the
+/// arena edge is a "hit the wall" punish window (MissPunishTicks). Perfect-
+/// Dodge eligible (sidestep the line on its final warning tick).</summary>
+public sealed record LineChargeDef(int WarningTicks, int Damage, int StunTicks, int MissPunishTicks, bool DoubleChainInPhase2 = false);
 
 /// <summary>Full boss-fight definition consumed by the shared boss engine
 /// (m1-plan Workstream C) — the rotation script, hazards, swarms and Rot
@@ -92,7 +128,11 @@ public sealed record BossScript(
     BossPhaseDef Phase2,
     int ArenaRadius,
     FootprintDef Footprint,
-    bool Stationary);
+    bool Stationary,
+    SpacingAiDef? SpacingAi = null,
+    AdjacencyPunishDef? AdjacencyPunish = null,
+    DamageReductionWindowDef? DamageReductionWindow = null,
+    LineChargeDef? LineCharge = null);
 
 // DummyStyle: approach style for a non-scripted (Script=null) NPC's generic
 // chase-to-range movement — the shared mover, not boss-specific code. Real M1
@@ -124,9 +164,15 @@ public sealed record NpcTemplate(
 public sealed record LootEntry(string ItemId, double DropChance, int MinQty = 1, int MaxQty = 1,
     bool OnceOnly = false, string? GroupId = null, double Weight = 1.0);
 
-/// <summary>One spawned swarm add (m1-plan Workstream C.7): crawls 1 tile/tick
-/// toward the player; contact applies a bleed stack; dies in 2 hits (fixed
-/// low HP — see SwarmWaveDef.Hp).</summary>
+/// <summary>Distinguishes a swarm add's behavior (crawl straight at the
+/// player, 1 HP, dies in one hit) from a drone's (M3, Hive Matron: real HP,
+/// station-keeps at an orbit radius around the boss instead of closing).</summary>
+public enum AddKind { Swarm, Drone }
+
+/// <summary>One spawned add. Swarms (m1-plan Workstream C.7) crawl 1 tile/tick
+/// toward the player; contact applies a bleed stack; dies in 1 hit (fixed low
+/// HP — see SwarmWaveDef.Hp). Drones (M3, DroneWaveDef) instead orbit the
+/// boss and take real weapon damage per hit.</summary>
 public sealed class AddInstance
 {
     public string Id { get; }
@@ -134,6 +180,8 @@ public sealed class AddInstance
     public int MaxHp { get; }
     public int CurrentHp { get; private set; }
     public bool IsAlive => CurrentHp > 0;
+    public AddKind Kind { get; }
+    public int OrbitRadius { get; }
 
     // Contact bleed is edge-triggered (bible: "contact applies 1 bleed
     // stack" — one stack per contact, not a continuous refresh): HasBitten
@@ -143,12 +191,14 @@ public sealed class AddInstance
     public void MarkBitten() => HasBitten = true;
     public void ResetBite() => HasBitten = false;
 
-    public AddInstance(string id, (int X, int Z) tile, int hp)
+    public AddInstance(string id, (int X, int Z) tile, int hp, AddKind kind = AddKind.Swarm, int orbitRadius = 0)
     {
         Id = id;
         Tile = tile;
         MaxHp = hp;
         CurrentHp = hp;
+        Kind = kind;
+        OrbitRadius = orbitRadius;
     }
 
     public void MoveTo((int X, int Z) tile) => Tile = tile;
@@ -249,9 +299,13 @@ public sealed class NpcInstance
     public void TickSlump() { if (SlumpTicksLeft > 0) SlumpTicksLeft--; }
     public bool InPunishWindow => SlumpTicksLeft > 0;
 
-    // Swarm wave thresholds already triggered this fight (never re-fire)
-    private readonly HashSet<int> _swarmThresholdsFired = new();
-    public bool TrySpawnSwarmThreshold(int thresholdPercent) => _swarmThresholdsFired.Add(thresholdPercent);
+    // HP-threshold-triggered spawns already fired this fight (never re-fire) —
+    // shared by swarm waves (Maggot King) and drone waves (M3, Hive Matron):
+    // both are "once, the first tick HP crosses X%" events, just spawning a
+    // different AddKind.
+    private readonly HashSet<int> _thresholdsFired = new();
+    public bool TrySpawnSwarmThreshold(int thresholdPercent) => _thresholdsFired.Add(thresholdPercent);
+    public bool TryFireDroneThreshold(int thresholdPercent) => _thresholdsFired.Add(thresholdPercent);
 
     // Sap special debuff: boss damage output -10% while active (player weapon special)
     public int SapTicksLeft { get; private set; }
@@ -262,6 +316,50 @@ public sealed class NpcInstance
     // Pin Shot special: delays the boss's next rotation advance by N ticks
     public int PinDelayTicks { get; private set; }
     public void ApplyPinDelay(int ticks) => PinDelayTicks += ticks;
+
+    // ── M3, Hive Matron (Boss Bible §2) ─────────────────────────────────
+
+    // Adjacency punish (Tail Stab): consecutive ticks the player has stood
+    // within melee range, reset to 0 the tick the boss actually answers.
+    public int AdjacentTicksCount { get; private set; }
+    public void TickAdjacency(bool playerAdjacent)
+    {
+        AdjacentTicksCount = playerAdjacent ? AdjacentTicksCount + 1 : 0;
+    }
+    public void ResetAdjacency() => AdjacentTicksCount = 0;
+
+    // Spacing AI: attacks landed since the last dash-reset.
+    public int AttacksSinceDash { get; private set; }
+    public void RecordAttackForDash() => AttacksSinceDash++;
+    public void ResetDashCounter() => AttacksSinceDash = 0;
+
+    // Chitin Guard: a periodic self-buff window (−N% incoming ranged/magic).
+    public int DamageReductionCooldown { get; private set; }
+    public int DamageReductionTicksLeft { get; private set; }
+    public bool DamageReductionActive => DamageReductionTicksLeft > 0;
+    public void ResetDamageReductionCooldown(int ticks) => DamageReductionCooldown = ticks;
+    public void TickDamageReductionCooldown() { if (DamageReductionCooldown > 0) DamageReductionCooldown--; }
+    public void StartDamageReductionWindow(int ticks) => DamageReductionTicksLeft = ticks;
+    public void TickDamageReductionWindow() { if (DamageReductionTicksLeft > 0) DamageReductionTicksLeft--; }
+
+    // Pin's line-charge: marked tiles + warning countdown. Cleared once resolved.
+    public IReadOnlyList<(int X, int Z)>? LineChargeTiles { get; private set; }
+    public int LineChargeTicksLeft { get; private set; }
+    public bool LineChargePendingSecondChain { get; private set; } // P2: re-aim + fire again
+    public void StartLineCharge(IReadOnlyList<(int X, int Z)> tiles, int warningTicks, bool chainSecond = false)
+    {
+        LineChargeTiles = tiles;
+        LineChargeTicksLeft = warningTicks;
+        LineChargePendingSecondChain = chainSecond;
+    }
+    public bool TickLineCharge()
+    {
+        if (LineChargeTiles is null) return false;
+        LineChargeTicksLeft--;
+        if (LineChargeTicksLeft > 0) return false;
+        return true; // resolves this tick
+    }
+    public void ClearLineCharge() { LineChargeTiles = null; LineChargeTicksLeft = 0; }
 
     // Rotfang on-hit poison (items doc §3, backlog resolution batch 1):
     // 5-tick duration, 2 dmg/stack/tick, max 3 stacks; any landed hit while
@@ -295,6 +393,9 @@ public sealed class NpcInstance
         {
             EruptionCooldown = s.Phase1.Eruption.CooldownTicks;
             RotBurstCooldown = s.Phase1.RotBurst?.CadenceTicks ?? 0;
+            // M3: Chitin Guard's own cadence, same "seed the cooldown so it
+            // doesn't fire on tick 0" pattern as Eruption/RotBurst above.
+            DamageReductionCooldown = s.DamageReductionWindow?.CadenceTicks ?? 0;
 
             // Seed the forecast with the fight's opening move. The rotation's
             // own style-shift telegraphs only fire mid-loop (T8/T16) — without

@@ -289,6 +289,44 @@
       "ExamineText": "Maggot King's rare (items doc §4): RL 150+ gated, best-in-slot melee weapon. Data-ingested ahead of its drop source — no Rare loot-table slot exists until M4 adds raid level, so this cannot drop yet. The boss-side poison-stack mechanism now exists (NpcInstance.PoisonStacks, built for Rotfang, backlog resolution batch 1) but Carrion Edge's own passive (20% of hits apply poison) and Fester's detonation are still NOT wired to it — out of this batch's scope since the item can't drop yet to test against.",
       "AttackLevelRequired": 1,
       "Range": 1
+    },
+    {
+      "Id": "wpn_unique_hm",
+      "Name": "Chitin Recurve",
+      "AttackType": "Ranged",
+      "Doc": {
+        "Power": 14,
+        "Precision": 0.02,
+        "DefPoints": 0,
+        "Line": "None",
+        "Tier": 2,
+        "Special": null
+      },
+      "AttackSpeed": 3,
+      "ExamineText": "Hive Matron's unique (items doc §3, M3): unique quality = boss tier + 1 (T1 -> T2), stats match the ratified batch-1 rule exactly. Passive (+10% damage vs moving/airborne targets) is data-only, not wired — same shape as Carrion Edge's Fester (backlog #13's scope now covers this too, see m3-findings.md). 1/20 drop, not OnceOnly.",
+      "AttackLevelRequired": 1,
+      "Range": 7
+    },
+    {
+      "Id": "wpn_rare_hm",
+      "Name": "Hivepiercer",
+      "AttackType": "Ranged",
+      "Doc": {
+        "Power": 28,
+        "Precision": 0.06,
+        "DefPoints": 0,
+        "Line": "None",
+        "Tier": 4,
+        "Special": {
+          "Id": "sting_volley",
+          "Cost": 60,
+          "Description": "3 rapid shots."
+        }
+      },
+      "AttackSpeed": 3,
+      "ExamineText": "Hive Matron's rare (items doc §4): RL 150+ gated, best-in-slot ranged weapon. Data-ingested ahead of its drop source (no Rare loot-table slot until M4's raid level). Every-3rd-hit-crits passive and Sting Volley's special are data-only, not wired — same shape as Carrion Edge (backlog #13).",
+      "AttackLevelRequired": 1,
+      "Range": 7
     }
   ],
   "gear": [
@@ -1378,7 +1416,12 @@
     // replacing the earlier "15% of a T4 piece" formula. Rares stay at the
     // default 0 (never sellable) -- no override needed for wpn_rare_mk.
     "wpn_unique_mk": 2000,
+    "wpn_unique_hm": 2000,
     // Backlog resolution batch 1 (§2): Maggot King's Common-slot materials.
+    // Reused for Hive Matron too (M3, PROVISIONAL — see m3-findings.md's
+    // loot-content note): no per-boss Common/Uncommon item content is
+    // documented for any boss beyond Maggot King, so her table reuses these
+    // same generic materials rather than inventing new boss-flavored names.
     "chitin_fragment": 25,
     "rot_gland": 35
   }

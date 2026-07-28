@@ -204,7 +204,11 @@ public sealed class GameTickService : IDisposable
         }
 
         if (!state.EnemyFrozen)
+        {
             ProcessHazardResolution(state, player, preTickPlayerTile, erupting);
+            if (npc.Template.Script?.SpacingAi is not null)
+                ProcessSpacingAiMechanics(state, player, npc, preTickPlayerTile);
+        }
 
         // Prayer drain at tick end (D7: 2 pts per drain event for a
         // protection, 1 pt for boost — playtest revision, twice now: cut to
@@ -298,11 +302,19 @@ public sealed class GameTickService : IDisposable
 
     // Generic mover for a non-stationary NPC (m1-plan Workstream C.9): closes
     // to its style's range and stops. The King (M1's only content) is always
-    // Stationary=true, so this is dormant in practice today — kept for
-    // future non-stationary bosses/mobs and exercised by the movement tests.
+    // Stationary=true, so this path is dormant for him — kept for the
+    // movement tests. M3, Hive Matron: a boss with SpacingAi routes to its
+    // own preferred-range mover instead (see ProcessSpacingAiMovement).
     private static void ProcessNpcMovement(GameState state, NpcInstance npc)
     {
         if (state.EnemyFrozen || state.NpcStationary) return;
+
+        if (npc.Template.Script?.SpacingAi is { } spacingAi)
+        {
+            ProcessSpacingAiMovement(state, npc, spacingAi);
+            return;
+        }
+
         int npcRange = npc.Template.DummyStyle is { } st ? AttackRange.ForStyle(st) : AttackRange.Melee;
         if (state.InAttackRange(npcRange)) return;
 
@@ -310,11 +322,52 @@ public sealed class GameTickService : IDisposable
         state.SetNpcTile(step.X, step.Z);
     }
 
+    // Hive Matron's movement AI (Boss Bible §2 "Core movement AI"): holds a
+    // preferred range band, stepping directly away if the player closes past
+    // the band's minimum and back in if they retreat past its maximum.
+    // Adjacency itself is never blocked by movement — Tail Stab (see
+    // ProcessSpacingAiMechanics) is what makes holding melee costly, not a
+    // flee reflex, matching the bible's "melee is possible but must be
+    // danced, not held."
+    private static void ProcessSpacingAiMovement(GameState state, NpcInstance npc, SpacingAiDef ai)
+    {
+        int dist = state.DistanceToNpc;
+        if (dist < ai.PreferredRangeMin)
+        {
+            var away = StepAwayFrom(state, state.NpcTile, state.PlayerTile);
+            if (state.InArena(away) && !state.IsBlocked(away, state.PlayerTile))
+                state.SetNpcTile(away.X, away.Z);
+        }
+        else if (dist > ai.PreferredRangeMax)
+        {
+            var step = NextStepToward(state, state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
+            state.SetNpcTile(step.X, step.Z);
+        }
+    }
+
     private void ProcessAdds(GameState state)
     {
         foreach (var add in state.Adds)
         {
             if (!add.IsAlive) continue;
+
+            if (add.Kind == AddKind.Drone)
+            {
+                // Station-keep at OrbitRadius around the boss rather than
+                // closing on the player — Hive Matron's drones "orbit her...
+                // body-blocking melee approach lanes." Simplified station-
+                // keep, not full lane-blocking collision (flagged in
+                // m3-findings.md as a scoping simplification).
+                int distFromBoss = Chebyshev(add.Tile, state.NpcTile);
+                if (distFromBoss != add.OrbitRadius)
+                {
+                    var step = distFromBoss > add.OrbitRadius
+                        ? StepToward(add.Tile, state.NpcTile)
+                        : StepAwayFrom(state, add.Tile, state.NpcTile);
+                    add.MoveTo(step);
+                }
+                continue;
+            }
 
             // Stop at adjacency — the add only needs Chebyshev<=1 for contact,
             // walking onto the player's exact tile was a real bug (playtest
@@ -353,7 +406,7 @@ public sealed class GameTickService : IDisposable
         }
         else if (state.CurrentTargetAdd is { } add)
         {
-            ExecuteBasicAttackOnAdd(state, add);
+            ExecuteBasicAttackOnAdd(state, player, add);
         }
         else
         {
@@ -380,6 +433,7 @@ public sealed class GameTickService : IDisposable
 
         bool punished = npc.InPunishWindow;
         int damage = punished ? (int)Math.Round(roll.Damage * 1.25) : roll.Damage;
+        damage = ApplyBossDamageReduction(npc, doctrine, damage);
         npc.TakeDamage(damage);
 
         // Rotfang (items doc §3, backlog resolution batch 1): on-hit poison,
@@ -403,9 +457,32 @@ public sealed class GameTickService : IDisposable
         await _events.PublishAsync(new AttackLanded(player.Id, npc.Template.Id, damage));
     }
 
-    private static void ExecuteBasicAttackOnAdd(GameState state, AddInstance add)
+    private void ExecuteBasicAttackOnAdd(GameState state, Player player, AddInstance add)
     {
-        // Adds are fodder (Boss Bible: "dies to 2 hits") — every landed hit
+        if (add.Kind == AddKind.Drone)
+        {
+            // Drones (M3, Hive Matron) have real HP — a normal accuracy roll
+            // and weapon damage, unlike swarm fodder below.
+            var weapon = GetPlayerWeapon(player);
+            var attacker = BuildAttackerProfile(player, weapon);
+            var roll = _damage.Roll(attacker, new DefenderProfile(0, false, 0));
+            if (!roll.Hit)
+            {
+                state.AppendLog("0:miss", LogEntryKind.HitsplatPlayer);
+                return;
+            }
+            add.TakeDamage(roll.Damage);
+            state.AppendLog($"{roll.Damage}:normal", LogEntryKind.HitsplatPlayer);
+            state.AppendLog($"You strike the drone for {roll.Damage}.", LogEntryKind.PlayerHit);
+            if (!add.IsAlive)
+            {
+                state.AppendLog("The drone dies.", LogEntryKind.System);
+                if (state.TargetId == add.Id) state.SetTarget(null);
+            }
+            return;
+        }
+
+        // Swarms are fodder (Boss Bible: "any hit kills") — every landed hit
         // does at least 1 damage regardless of weapon roll.
         add.TakeDamage(1);
         state.AppendLog("1:normal", LogEntryKind.HitsplatPlayer);
@@ -475,6 +552,7 @@ public sealed class GameTickService : IDisposable
 
         bool punished = npc.InPunishWindow;
         int damage = (int)Math.Round(roll.Damage * damageMult * (punished ? 1.25 : 1.0));
+        damage = ApplyBossDamageReduction(npc, weapon.AttackType, damage);
         npc.TakeDamage(damage);
         state.AppendLog($"⚡ SPEC! {name} hits {npc.Template.Name} for {damage}. [{npc.CurrentHp}/{npc.MaxHp} HP]", LogEntryKind.SpecHit);
         state.AppendLog($"{damage}:spec:{weapon.Id}", LogEntryKind.HitsplatPlayer);
@@ -645,18 +723,21 @@ public sealed class GameTickService : IDisposable
     }
 
     // Top up to `target` live swarms (never exceeds the cap), 1 HP each in P2.
-    private static readonly (int X, int Z)[] _swarmCorners =
+    // Corners scale with the duel's own ArenaRadius (was a static array keyed
+    // off the old compile-time constant before M3's per-duel arena size).
+    private static (int X, int Z)[] SwarmCorners(GameState state) => new[]
     {
-        (-GameState.ArenaRadius, GameState.ArenaRadius),
-        (GameState.ArenaRadius, GameState.ArenaRadius),
+        (-state.ArenaRadius, state.ArenaRadius),
+        (state.ArenaRadius, state.ArenaRadius),
     };
     private void SpawnSwarmsUpTo(GameState state, BossPhaseDef phase, int target)
     {
         int alive = state.Adds.Count(a => a.IsAlive);
         int toSpawn = target - alive;
         if (toSpawn <= 0) return;
+        var corners = SwarmCorners(state);
         for (int i = 0; i < toSpawn; i++)
-            state.SpawnAdd(new AddInstance($"swarm_{state.FightTicks}_{alive + i}", _swarmCorners[(alive + i) % _swarmCorners.Length], phase.SwarmHp));
+            state.SpawnAdd(new AddInstance($"swarm_{state.FightTicks}_{alive + i}", corners[(alive + i) % corners.Length], phase.SwarmHp));
         state.AppendLog($"⚠ Maggot swarms surge from the corners! ({toSpawn})", LogEntryKind.BossSpecial);
     }
 
@@ -670,6 +751,37 @@ public sealed class GameTickService : IDisposable
             if (nextAction is null) return;
             npc.SetForecast(nextAction, npc.ActivePhaseDef.TelegraphLeadTicks);
             state.AppendLog($"⚠ {ForecastMessage(npc, nextAction)}", LogEntryKind.BossSpecial);
+            return;
+        }
+
+        // M3, Hive Matron's Pin (signature): marks a line through the
+        // player's current tile instead of resolving a normal Attacks-dict
+        // entry — LineChargeDef.WarningTicks later, ResolveLineCharge (called
+        // from ProcessSpacingAiMechanics) lands it.
+        if (step.Action == "pin" && npc.Template.Script?.LineCharge is { } lineCharge)
+        {
+            if (!state.IsMechanicEnabled(BossMechanic.BossAutos)) return;
+            var tiles = LineThrough(state, state.NpcTile, state.PlayerTile);
+            npc.StartLineCharge(tiles, lineCharge.WarningTicks);
+            state.AppendLog($"⚠ {npc.Template.Name} marks a line through you — PIN incoming!", LogEntryKind.BossSpecial);
+            RecordAttackAndMaybeDash(state, npc);
+            return;
+        }
+
+        // M3, Hive Matron's Sting Lob: an arcing attack that marks the
+        // player's cast-tile (not a homing projectile), landing after a
+        // 2-tick fuse and leaving a venom pool — reuses the existing
+        // hazard-tile state machine (ProcessHazardResolution resolves the
+        // damage generically off this boss's own Eruption slot, which for
+        // Hive Matron holds Sting Lob's numbers rather than an eruption's;
+        // her Eruption never auto-fires on a timer — see npcs.json).
+        if (step.Action == "sting_lob")
+        {
+            if (!state.IsMechanicEnabled(BossMechanic.BossAutos)) return;
+            var e = npc.ActivePhaseDef.Eruption;
+            state.AddHazardWave(new[] { state.PlayerTile }, warningTicks: e.WarningTicks, poolTicks: e.PoolTicks);
+            state.AppendLog($"⚠ {npc.Template.Name} lobs a venomous glob — MOVE!", LogEntryKind.BossSpecial);
+            RecordAttackAndMaybeDash(state, npc);
             return;
         }
 
@@ -689,6 +801,32 @@ public sealed class GameTickService : IDisposable
             SpawnProjectileAttack(state, attack, source: "ResolveRotationStep(P1)");
         else
             ResolveBossAttack(state, player, npc, attack);
+
+        RecordAttackAndMaybeDash(state, npc);
+    }
+
+    // M3, Hive Matron's spacing AI: "after every 3rd attack she dashes 3
+    // tiles to reset spacing" — a no-op for any boss without SpacingAi.
+    private void RecordAttackAndMaybeDash(GameState state, NpcInstance npc)
+    {
+        var ai = npc.Template.Script?.SpacingAi;
+        if (ai is null) return;
+        npc.RecordAttackForDash();
+        if (npc.AttacksSinceDash < ai.DashEveryNAttacks) return;
+        npc.ResetDashCounter();
+
+        var dashed = state.NpcTile;
+        for (int i = 0; i < ai.DashDistanceTiles; i++)
+        {
+            var next = StepAwayFrom(state, dashed, state.PlayerTile);
+            if (!state.InArena(next) || state.IsBlocked(next, state.PlayerTile)) break;
+            dashed = next;
+        }
+        if (dashed != state.NpcTile)
+        {
+            state.SetNpcTile(dashed.X, dashed.Z);
+            state.AppendLog($"{npc.Template.Name} dashes back to reset the distance!", LogEntryKind.BossSpecial);
+        }
     }
 
     // Boss Bible: "Ranged/magic attacks travel as simulated doctrine-colored
@@ -725,12 +863,24 @@ public sealed class GameTickService : IDisposable
         return (next ?? candidates.OrderBy(r => r.Tick).First()).Action;
     }
 
+    // Maggot-King-exact wording is preserved verbatim (a test and this file's
+    // own P1 eruption-stagger detection both substring-match "mandibles
+    // glow" — see ProcessTick's rotationEventThisTick check) — every other
+    // boss gets a generic, name-driven forecast instead of a copy-pasted
+    // flavor string.
     private string ForecastMessage(NpcInstance npc, string action)
     {
+        if (npc.Template.Id == "maggot_king")
+        {
+            if (action.Contains('/'))
+                return "The Maggot King's mandibles glow amber — melee or ranged incoming, mind your spacing!";
+            var mkAtk = npc.Template.Script!.Attacks[action];
+            return $"The Maggot King's mandibles glow — {StyleName(mkAtk.Style)} incoming!";
+        }
         if (action.Contains('/'))
-            return "The Maggot King's mandibles glow amber — melee or ranged incoming, mind your spacing!";
+            return $"{npc.Template.Name} tenses — an attack is coming, mind your positioning!";
         var atk = npc.Template.Script!.Attacks[action];
-        return $"The Maggot King's mandibles glow — {StyleName(atk.Style)} incoming!";
+        return $"{npc.Template.Name} winds up — {StyleName(atk.Style)} incoming!";
     }
 
     // Actually lands the damage — called synchronously for melee (cast tick
@@ -823,7 +973,7 @@ public sealed class GameTickService : IDisposable
             {
                 if (dx == 0 && dz == 0) continue;
                 var t = (X: state.PlayerTile.X + dx, Z: state.PlayerTile.Z + dz);
-                if (GameState.InArena(t) && !state.IsObstacle(t)) candidates.Add(t);
+                if (state.InArena(t) && !state.IsObstacle(t)) candidates.Add(t);
             }
         for (int i = 0; i < count - 1 && candidates.Count > 0; i++)
         {
@@ -870,13 +1020,139 @@ public sealed class GameTickService : IDisposable
             state.AppendLog($"Acrid slime burns at your feet. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
         }
 
-        // Perfect Dodge (m1-plan Workstream C.8): stood on a tile that was
-        // erupting THIS tick at tick-start, vacated it, and wasn't caught by
-        // any other eruption this tick.
-        if (erupting.Contains(preTickPlayerTile) && preTickPlayerTile != state.PlayerTile && !erupted.Contains(state.PlayerTile))
+        // Perfect Dodge (m1-plan Workstream C.8; generalized M3 Workstream
+        // A.2): stood on a tile that was erupting THIS tick at tick-start,
+        // vacated it, and wasn't caught by any other eruption this tick.
+        TryPerfectDodge(state, player, wasOnDangerTile: erupting.Contains(preTickPlayerTile),
+            stillOnDangerTile: preTickPlayerTile == state.PlayerTile || erupted.Contains(state.PlayerTile));
+    }
+
+    /// <summary>Global Combat Grammar's universal reward: "vacating a hazard
+    /// tile on its final fuse tick, or sidestepping a locked projectile on
+    /// its landing tick, grants +15 special energy." One shared check for
+    /// any mechanic that marks a tile/line and resolves it on a fixed tick —
+    /// Maggot King's eruptions (via ProcessHazardResolution above) and Hive
+    /// Matron's Pin line-charge (see ResolveLineCharge) both call this
+    /// instead of re-deriving the reward inline.</summary>
+    private void TryPerfectDodge(GameState state, Player player, bool wasOnDangerTile, bool stillOnDangerTile)
+    {
+        if (!wasOnDangerTile || stillOnDangerTile) return;
+        player.RechargeSpecial(15, MaxSpecialEnergy(player));
+        state.AppendLog("✦ PERFECT DODGE! +15 special energy.", LogEntryKind.System);
+    }
+
+    // ── M3, Hive Matron's per-tick mechanics ────────────────────────────
+    // Everything here is additive and gated on the boss actually declaring
+    // the relevant data (AdjacencyPunish/DamageReductionWindow/Drones/
+    // LineCharge) — currently only Hive Matron sets any of them, so this is
+    // dormant for every other boss, same pattern as ProcessSpacingAiMovement.
+
+    private void ProcessSpacingAiMechanics(GameState state, Player player, NpcInstance npc, (int X, int Z) preTickPlayerTile)
+    {
+        var script = npc.Template.Script!;
+
+        if (script.AdjacencyPunish is { } tailStab)
         {
-            player.RechargeSpecial(15, MaxSpecialEnergy(player));
-            state.AppendLog("✦ PERFECT DODGE! +15 special energy.", LogEntryKind.System);
+            // Chebyshev adjacency (matches how swarm-add contact is judged
+            // elsewhere), not the cardinal-only melee-attack rule — "stands
+            // adjacent" is a positional read, not an attack-landing one.
+            bool adjacent = state.DistanceToNpc <= 1;
+            npc.TickAdjacency(adjacent);
+            if (npc.AdjacentTicksCount >= tailStab.AdjacencyTicks)
+            {
+                npc.ResetAdjacency();
+                int dmg = ResolveIncomingDamage(state, player, npc, tailStab.Damage, style: AttackType.Slash, unprayable: false);
+                player.TakeDamage(dmg);
+                state.RecordDamageTaken(dmg);
+                string name = tailStab.Name ?? "Tail Stab";
+                if (dmg > 0) state.SetKilledBy(name);
+                state.AppendLog($"{dmg}:normal:melee", LogEntryKind.HitsplatNpc);
+                state.AppendLog($"{npc.Template.Name} answers your closeness with {name} for {dmg}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+                Knockback(state, tailStab.KnockbackTiles);
+                // Boss Bible: "Tail Stab — Heavy melee + 2-tile knockback +
+                // poison." Reuses the existing player-side poison track
+                // (same one Maggot King's eruptions apply) rather than a new
+                // mechanism.
+                if (!state.PlayerPoisoned && state.PoisonImmuneTicksLeft <= 0)
+                {
+                    state.ApplyPoison();
+                    state.AppendLog("Her stinger leaves you poisoned!", LogEntryKind.System);
+                }
+            }
+        }
+
+        if (script.DamageReductionWindow is { } guard)
+        {
+            npc.TickDamageReductionCooldown();
+            npc.TickDamageReductionWindow();
+            if (npc.DamageReductionCooldown <= 0 && !npc.DamageReductionActive && state.IsMechanicEnabled(BossMechanic.BossAutos))
+            {
+                npc.StartDamageReductionWindow(guard.DurationTicks);
+                npc.ResetDamageReductionCooldown(guard.CadenceTicks);
+                state.AppendLog($"{npc.Template.Name} raises her wing casings — ranged/magic damage reduced!", LogEntryKind.BossSpecial);
+            }
+        }
+
+        var drones = npc.ActivePhaseDef.Drones;
+        if (drones is not null)
+            foreach (var wave in drones)
+            {
+                if (npc.HpPercent > wave.ThresholdPercent) continue;
+                if (!npc.TryFireDroneThreshold(wave.ThresholdPercent)) continue;
+                for (int i = 0; i < wave.Count; i++)
+                {
+                    double angle = i * (2 * Math.PI / wave.Count);
+                    var tile = (X: state.NpcTile.X + (int)Math.Round(wave.OrbitRadius * Math.Cos(angle)),
+                                Z: state.NpcTile.Z + (int)Math.Round(wave.OrbitRadius * Math.Sin(angle)));
+                    if (!state.InArena(tile)) tile = state.NpcTile;
+                    state.SpawnAdd(new AddInstance($"drone_{wave.ThresholdPercent}_{i}", tile, wave.Hp, AddKind.Drone, wave.OrbitRadius));
+                }
+                state.AppendLog($"⚠ Drones rise to guard {npc.Template.Name}! ({wave.Count})", LogEntryKind.BossSpecial);
+            }
+
+        if (npc.LineChargeTiles is not null && npc.TickLineCharge())
+            ResolveLineCharge(state, player, npc, preTickPlayerTile);
+    }
+
+    private void ResolveLineCharge(GameState state, Player player, NpcInstance npc, (int X, int Z) preTickPlayerTile)
+    {
+        var lc = npc.Template.Script!.LineCharge!;
+        var tiles = npc.LineChargeTiles!;
+        bool wasOnLine = tiles.Contains(preTickPlayerTile);
+        bool stillOnLine = tiles.Contains(state.PlayerTile);
+        bool chainedThisResolve = npc.LineChargePendingSecondChain;
+        npc.ClearLineCharge();
+
+        if (stillOnLine && player.IsAlive)
+        {
+            int dmg = ResolveIncomingDamage(state, player, npc, lc.Damage, style: AttackType.Crush, unprayable: false);
+            player.TakeDamage(dmg);
+            state.RecordDamageTaken(dmg);
+            if (dmg > 0) state.SetKilledBy("Pin");
+            state.AppendLog($"{dmg}:normal:melee", LogEntryKind.HitsplatNpc);
+            state.AppendLog($"Pin slams into you for {dmg} — pinned! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+            // Boss Bible: "pinned/stunned 2 ticks against the wall." No full
+            // movement-lock exists in the engine yet (PROVISIONAL scoping,
+            // see m3-findings.md) — approximated with the existing attack-
+            // delay primitive (DelayPlayerAttack) rather than inventing a new
+            // player-movement-lock system for one boss's one attack.
+            state.DelayPlayerAttack(lc.StunTicks);
+        }
+        else
+        {
+            state.AppendLog($"{npc.Template.Name}'s Pin charges past you and slams into the wall!", LogEntryKind.BossSpecial);
+            npc.StartSlump(lc.MissPunishTicks);
+            TryPerfectDodge(state, player, wasOnDangerTile: wasOnLine, stillOnDangerTile: stillOnLine);
+        }
+
+        // Phase 2 double-chain (Boss Bible: "Pin now chains twice, second
+        // charge 3 ticks after the first, re-aimed") — fires once per
+        // original cast, never off the chained shot itself.
+        if (lc.DoubleChainInPhase2 && npc.Phase == 2 && !chainedThisResolve)
+        {
+            var newTiles = LineThrough(state, state.NpcTile, state.PlayerTile);
+            npc.StartLineCharge(newTiles, 3, chainSecond: true);
+            state.AppendLog($"⚠ {npc.Template.Name} re-aims — PIN incoming again!", LogEntryKind.BossSpecial);
         }
     }
 
@@ -918,11 +1194,7 @@ public sealed class GameTickService : IDisposable
             if (npc.HpPercent > wave.ThresholdPercent) continue;
             if (!npc.TrySpawnSwarmThreshold(wave.ThresholdPercent)) continue;
 
-            var corners = new (int X, int Z)[]
-            {
-                (-GameState.ArenaRadius, GameState.ArenaRadius),
-                (GameState.ArenaRadius, GameState.ArenaRadius),
-            };
+            var corners = SwarmCorners(state);
             for (int i = 0; i < wave.Count; i++)
                 state.SpawnAdd(new AddInstance($"swarm_{wave.ThresholdPercent}_{i}", corners[i % corners.Length], wave.Hp));
 
@@ -982,6 +1254,18 @@ public sealed class GameTickService : IDisposable
             dmg *= 1.0 - GetPrayerReduction(state, s);
         dmg *= 1.0 - PlayerDefReductionFraction(player);
         return Math.Max(0, (int)Math.Round(dmg));
+    }
+
+    /// <summary>Chitin Guard (M3, Hive Matron): a periodic self-buff reducing
+    /// the player's damage output against the boss for the listed styles
+    /// while active — the inverse of Sap (which reduces the boss's OWN
+    /// outgoing damage). Any boss with a <see cref="DamageReductionWindowDef"/>
+    /// gets this for free; only Hive Matron sets one today.</summary>
+    private static int ApplyBossDamageReduction(NpcInstance npc, AttackType style, int damage)
+    {
+        var def = npc.Template.Script?.DamageReductionWindow;
+        if (def is null || !npc.DamageReductionActive || !def.AffectedStyles.Contains(style)) return damage;
+        return (int)Math.Round(damage * (1.0 - def.ReductionPercent));
     }
 
     private double PlayerDefReductionFraction(Player player)
@@ -1259,6 +1543,58 @@ public sealed class GameTickService : IDisposable
     private static (int X, int Z) StepToward((int X, int Z) from, (int X, int Z) to) =>
         (from.X + Math.Sign(to.X - from.X), from.Z + Math.Sign(to.Z - from.Z));
 
+    // M3, Hive Matron: the inverse of StepToward — one tile directly away
+    // from a threat tile, for a boss (or drone) that wants to increase
+    // distance rather than close it.
+    private static (int X, int Z) StepAwayFrom(GameState state, (int X, int Z) from, (int X, int Z) threat)
+    {
+        var away = (X: from.X + Math.Sign(from.X - threat.X), Z: from.Z + Math.Sign(from.Z - threat.Z));
+        if (away == from) away = (from.X + 1, from.Z); // threat exactly on top: arbitrary escape direction
+        return away;
+    }
+
+    // M3: knocks the player `tiles` away from the boss along the boss→player
+    // vector, clamped to the arena and stopping short of any obstacle —
+    // Hive Matron's Tail Stab is the first mechanic to use this.
+    private void Knockback(GameState state, int tiles)
+    {
+        if (tiles <= 0) return;
+        var dir = (X: Math.Sign(state.PlayerTile.X - state.NpcTile.X), Z: Math.Sign(state.PlayerTile.Z - state.NpcTile.Z));
+        if (dir == (0, 0)) dir = (1, 0);
+        var target = state.PlayerTile;
+        for (int i = 0; i < tiles; i++)
+        {
+            var next = (X: target.X + dir.X, Z: target.Z + dir.Z);
+            if (!state.InArena(next) || state.IsBlocked(next, state.NpcTile)) break;
+            target = next;
+        }
+        if (target != state.PlayerTile)
+        {
+            state.SetPlayerTile(target.X, target.Z);
+            state.AppendLog("knockback", LogEntryKind.PlayerTeleport); // renderer: snap, not lerp
+        }
+    }
+
+    // M3, Hive Matron's Pin: the full line of tiles from just past the boss,
+    // through the marked tile, to the arena edge — the bible's own Perfect-
+    // Dodge framing ("sidestepping a locked projectile") treats the whole
+    // line as live, not just the originally-marked tile.
+    private static List<(int X, int Z)> LineThrough(GameState state, (int X, int Z) from, (int X, int Z) through)
+    {
+        var tiles = new List<(int X, int Z)>();
+        double dx = through.X - from.X, dz = through.Z - from.Z;
+        double len = Math.Sqrt(dx * dx + dz * dz);
+        if (len < 0.001) return tiles;
+        dx /= len; dz /= len;
+        for (int i = 0; i <= state.ArenaRadius * 3; i++)
+        {
+            var cur = (X: (int)Math.Round(through.X + dx * i), Z: (int)Math.Round(through.Z + dz * i));
+            if (!state.InArena(cur)) break;
+            if (!tiles.Contains(cur)) tiles.Add(cur);
+        }
+        return tiles;
+    }
+
     private static (int X, int Z) NextStepToward(GameState state, (int X, int Z) from,
                                                  (int X, int Z) goal, (int X, int Z) avoid)
     {
@@ -1296,7 +1632,7 @@ public sealed class GameTickService : IDisposable
     {
         var line = BresenhamLine(from, to);
         for (int i = 1; i < line.Count; i++)
-            if (!GameState.InArena(line[i]) || state.IsBlocked(line[i], avoid))
+            if (!state.InArena(line[i]) || state.IsBlocked(line[i], avoid))
                 return false;
         return true;
     }
@@ -1333,7 +1669,7 @@ public sealed class GameTickService : IDisposable
                     if (dx == 0 && dz == 0) continue;
                     var n = (X: cur.X + dx, Z: cur.Z + dz);
                     if (came.ContainsKey(n)) continue;
-                    if (!GameState.InArena(n) || state.IsBlocked(n, avoid)) continue;
+                    if (!state.InArena(n) || state.IsBlocked(n, avoid)) continue;
                     came[n] = cur;
                     q.Enqueue(n);
                 }

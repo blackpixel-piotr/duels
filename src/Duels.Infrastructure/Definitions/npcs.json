@@ -89,5 +89,108 @@
       "Footprint": { "Width": 2, "Height": 2 },
       "Stationary": true
     }
+  },
+  {
+    "Id": "hive_matron",
+    "Name": "The Hive Matron",
+    "ExamineText": "A wasp queen the size of a horse — glassy wings, needle legs, never still. Keep your distance, or dance in and back out fast.",
+    // PROVISIONAL: Boss Bible gives no boss HP numbers for any of the 8
+    // bosses (Maggot King's own 450 is likewise unsourced) -- picked
+    // comparable to Maggot King's Tier-1 HP, flagged same as his was.
+    "Stats": { "Attack": 1, "Strength": 1, "Defence": 1, "Hitpoints": 420 },
+    "Evasion": { "Melee": 0, "Ranged": 0, "Magic": 0 },
+    // M3, PROVISIONAL (m3-findings.md): no Common/Uncommon item content is
+    // documented for any boss but Maggot King -- reuses his exact shape and
+    // materials (she's the other Tier-1 boss, same T1->T2 gear bridge)
+    // rather than inventing new boss-flavored names. Pending a real content
+    // pass, see backlog.md.
+    "LootTable": [
+      { "ItemId": "gold", "DropChance": 0.65, "MinQty": 40, "MaxQty": 80, "GroupId": "common", "Weight": 40 },
+      { "ItemId": "chitin_fragment", "DropChance": 0.65, "GroupId": "common", "Weight": 35 },
+      { "ItemId": "rot_gland", "DropChance": 0.65, "GroupId": "common", "Weight": 25 },
+
+      { "ItemId": "wpn_melee_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "wpn_ranged_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "wpn_magic_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 30 },
+      { "ItemId": "arm_warbound_helmet_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_body_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_legs_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_boots_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_gloves_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_warbound_cape_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_helmet_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_body_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_legs_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_boots_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_gloves_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_stalker_cape_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_helmet_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_body_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_legs_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_boots_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_gloves_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+      { "ItemId": "arm_occult_cape_t2", "DropChance": 0.25, "GroupId": "uncommon", "Weight": 5 },
+
+      { "ItemId": "wpn_unique_hm", "DropChance": 0.05 }
+    ],
+    "GoldReward": 500,
+    "Script": {
+      "PhaseTwoThresholdPercent": 40,
+      "Attacks": {
+        "dart_volley": { "Id": "dart_volley", "Name": "Dart Volley", "Style": "Ranged", "Damage": 18 }
+      },
+      "Phase1": {
+        "LoopLength": 16,
+        "TelegraphLeadTicks": 2,
+        "Rotation": [
+          { "Tick": 0,  "Action": "dart_volley" },
+          { "Tick": 4,  "Action": "dart_volley" },
+          { "Tick": 8,  "Action": "sting_lob" },
+          { "Tick": 12, "Action": "pin" }
+        ],
+        // Sting Lob's venom-splash profile (Boss Bible §2), NOT an
+        // automatic ground-hazard timer -- CooldownTicks is inert
+        // (ResolveRotationStep's "sting_lob" branch calls AddHazardWave
+        // directly). WarningTicks=2 ("arcs 2 ticks"), PoolTicks=10 ("venom
+        // splash for 10 ticks") are doc-sourced; EruptDamage/PoolDamagePerTick
+        // are PROVISIONAL (band-name-only in the doc, no exact number).
+        "Eruption": {
+          "CooldownTicks": 999999, "WarningTicks": 2, "TilesPerWave": 1,
+          "EruptDamage": 18, "PoolTicks": 10, "PoolDamagePerTick": 4
+        },
+        "RotBurst": null,
+        "Swarms": null,
+        "Drones": [
+          { "ThresholdPercent": 75, "Count": 2, "Hp": 3, "OrbitRadius": 2 },
+          { "ThresholdPercent": 50, "Count": 2, "Hp": 3, "OrbitRadius": 2 },
+          { "ThresholdPercent": 25, "Count": 2, "Hp": 3, "OrbitRadius": 2 }
+        ]
+      },
+      "Phase2": {
+        "LoopLength": 14,
+        "TelegraphLeadTicks": 2,
+        "MasterScript": false,
+        "Rotation": [
+          { "Tick": 0, "Action": "dart_volley" },
+          { "Tick": 1, "Action": "dart_volley" },
+          { "Tick": 2, "Action": "dart_volley" },
+          { "Tick": 6, "Action": "sting_lob" },
+          { "Tick": 10, "Action": "pin" }
+        ],
+        "Eruption": {
+          "CooldownTicks": 999999, "WarningTicks": 2, "TilesPerWave": 1,
+          "EruptDamage": 18, "PoolTicks": 10, "PoolDamagePerTick": 4
+        },
+        "RotBurst": null,
+        "Swarms": null
+      },
+      "ArenaRadius": 5,
+      "Footprint": { "Width": 1, "Height": 1 },
+      "Stationary": false,
+      "SpacingAi": { "PreferredRangeMin": 3, "PreferredRangeMax": 5, "DashEveryNAttacks": 3, "DashDistanceTiles": 3 },
+      "AdjacencyPunish": { "AdjacencyTicks": 2, "Damage": 35, "KnockbackTiles": 2, "Name": "Tail Stab" },
+      "DamageReductionWindow": { "CadenceTicks": 25, "DurationTicks": 8, "ReductionPercent": 0.5, "AffectedStyles": ["Ranged", "Magic"] },
+      "LineCharge": { "WarningTicks": 2, "Damage": 35, "StunTicks": 2, "MissPunishTicks": 4, "DoubleChainInPhase2": true }
+    }
   }
 ]

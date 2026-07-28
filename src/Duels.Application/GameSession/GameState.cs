@@ -47,9 +47,13 @@ public sealed class GameState
         return true;
     }
 
-    // Arena positions (duel-scoped). Fixed 9×9 arena (Boss Bible: Maggot
-    // King) — M1 ships one boss, so the radius isn't per-duel data yet.
-    public const int ArenaRadius = 4;
+    // Arena positions (duel-scoped). M3 Workstream A: radius is now per-duel,
+    // sourced from the boss's own BossScript.ArenaRadius (Hive Matron's 11×11
+    // vs. Maggot King/Mirrorhide/Bloodtithe's 9×9) — set in StartDuel, default
+    // 4 (9×9) for the null-script test fixture. Was a compile-time const
+    // before M3; every prior boss happened to be exactly radius 4, so this is
+    // a widening, not a behavior change, for existing content.
+    public int ArenaRadius { get; private set; } = 4;
     public (int X, int Z) PlayerTile { get; private set; }
     public (int X, int Z) NpcTile { get; private set; }
 
@@ -254,8 +258,10 @@ public sealed class GameState
     public void SetTarget(string? addId) => TargetId = addId;
     public AddInstance? CurrentTargetAdd => TargetId is null ? null : _adds.FirstOrDefault(a => a.Id == TargetId && a.IsAlive);
 
-    /// <summary>True when a tile is inside the walkable arena square.</summary>
-    public static bool InArena((int X, int Z) t) =>
+    /// <summary>True when a tile is inside the walkable arena square. Instance
+    /// method since M3 (arena radius is now per-duel) — was static when every
+    /// boss shared one compile-time radius.</summary>
+    public bool InArena((int X, int Z) t) =>
         Math.Abs(t.X) <= ArenaRadius && Math.Abs(t.Z) <= ArenaRadius;
 
     /// <summary>Chebyshev distance to the NEAREST boss footprint tile.</summary>
@@ -404,10 +410,13 @@ public sealed class GameState
         var script = npc.Template.Script;
         NpcFootprint = script?.Footprint is { } fp ? (fp.Width, fp.Height) : (1, 1);
         NpcStationary = script?.Stationary ?? false;
+        ArenaRadius = script?.ArenaRadius ?? 4;
 
         // Opposite ends of the arena; the boss anchors center-north on its mound.
-        PlayerTile = (0, 3);
-        NpcTile = NpcStationary ? (-(NpcFootprint.Width / 2), -ArenaRadius) : (1, -3);
+        // Scales with ArenaRadius (was hardcoded to radius-4's 3/-3 before M3;
+        // identical placement for every existing radius-4 boss).
+        PlayerTile = (0, ArenaRadius - 1);
+        NpcTile = NpcStationary ? (-(NpcFootprint.Width / 2), -ArenaRadius) : (1, -(ArenaRadius - 1));
 
         _obstacles.Clear();
         foreach (var o in ObstacleLayout)

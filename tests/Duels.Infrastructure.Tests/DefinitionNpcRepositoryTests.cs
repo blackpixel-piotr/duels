@@ -8,14 +8,14 @@ namespace Duels.Infrastructure.Tests;
 public class DefinitionNpcRepositoryTests
 {
     // Loads the real embedded npcs.json against the real items.json — proves
-    // the pipeline end to end for M1's single boss-script-driven boss.
+    // the pipeline end to end. M3 added Hive Matron alongside Maggot King.
     [Fact]
     public void LoadsRealNpcsJson_WithExpectedFidelity()
     {
         var items = new DefinitionItemRepository();
         var repo = new DefinitionNpcRepository(items);
 
-        Assert.Single(repo.GetAll());
+        Assert.Equal(2, repo.GetAll().Count);
 
         var maggotKing = repo.GetTemplate("maggot_king");
         Assert.NotNull(maggotKing);
@@ -46,6 +46,23 @@ public class DefinitionNpcRepositoryTests
 
         Assert.True(script.Attacks.ContainsKey("bile_spit"));
         Assert.Equal(AttackType.Magic, script.Attacks["bile_spit"].Style);
+
+        // M3: Hive Matron — the shared systems' new optional fields round-trip.
+        var hiveMatron = repo.GetTemplate("hive_matron");
+        Assert.NotNull(hiveMatron);
+        Assert.False(hiveMatron!.Script!.Stationary);
+        Assert.Equal(5, hiveMatron.Script!.ArenaRadius);
+        Assert.NotNull(hiveMatron.Script.SpacingAi);
+        Assert.Equal(3, hiveMatron.Script.SpacingAi!.PreferredRangeMin);
+        Assert.Equal(5, hiveMatron.Script.SpacingAi.PreferredRangeMax);
+        Assert.NotNull(hiveMatron.Script.AdjacencyPunish);
+        Assert.Equal(2, hiveMatron.Script.AdjacencyPunish!.AdjacencyTicks);
+        Assert.NotNull(hiveMatron.Script.DamageReductionWindow);
+        Assert.Equal(0.5, hiveMatron.Script.DamageReductionWindow!.ReductionPercent);
+        Assert.NotNull(hiveMatron.Script.LineCharge);
+        Assert.True(hiveMatron.Script.LineCharge!.DoubleChainInPhase2);
+        Assert.NotNull(hiveMatron.Script.Phase1.Drones);
+        Assert.Equal(3, hiveMatron.Script.Phase1.Drones!.Count);
     }
 
     [Fact]
