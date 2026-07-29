@@ -363,3 +363,57 @@ blobs trailing behind. `_debugDustSlots()` is now a permanent Playwright
 probe hook (mirrors `_debugLiveParticles`), kept rather than removed after
 this investigation, for the next time a "looks wrong" report needs
 ground-truth particle positions instead of guessing from a screenshot.
+
+---
+
+## Post-merge, round 3: dust should drag along with the player, not sit fully planted
+
+User report: "the dust is stationary but it should follow the player a
+bit." Consistent with (not a regression from) round 2's fix — `worldSpace:
+true` was a deliberate iteration-1 choice ("particles keep drifting from
+their spawn point in world space once emitted, rather than following the
+[reused, repositioned] emitter object") specifically so a *pooled* emitter
+being repositioned for its *next* burst never warps an *earlier*, still-
+alive one. That reasoning still holds — the fix here doesn't touch
+`worldSpace` or the emitter — it adds a *separate*, additive per-frame drag
+on top.
+
+**Implementation**: `toon.js`'s render loop now calls `st.vfx.update(dt,
+st.player.pos)` (previously just `update(dt)`) with the player's live
+rendered position, already computed earlier in the same loop iteration.
+`vfx.js` tracks the previous frame's player position (`lastPlayerPos`,
+module-private) and, each frame, nudges every currently-alive `entity_moved`
+particle by `(thisFramePlayerDelta) * DUST_FOLLOW_STRENGTH` (`0.35`) —
+directly mutating `particle.position` (already world-space per the above),
+additive on top of whatever three.quarks' own integration did that frame
+inside `renderer.update(dt)`, so it doesn't fight the existing drift/size/
+fade behaviors. Scoped to the `entity_moved` pool specifically (reads
+`poolsByEvent.get('entity_moved')`), not every effect — combat splashes
+(slash/impact/block) aren't emitted from a moving reference point in the
+same way and weren't part of the report.
+
+**Why 0.35 (partial, not full)**: a full 1:1 attach would need the
+particles reparented to the emitter in local space, which is exactly what
+`worldSpace:true` exists to avoid (see above) — and would read as the dust
+rigidly glued to the player, not settling behind them. A partial drag
+keeps the puff visibly lagging/spreading (still reads as dust, still
+settles into place) while no longer being perfectly planted at its exact
+spawn point for its whole ~0.35s life. No design-doc source for this
+exact fraction — a cosmetic tuning constant, same class as the pre-existing
+`driftScale` (`0.9`) it sits next to, not a gameplay number.
+
+**Verified**: `dotnet build`/`test` (69/69 — no C# touched). A live-fight
+Playwright check meant to catch this via real movement kept missing the
+window (same headless rAF-timing unpredictability round 2 already flagged
+— the player's own move order frequently completed *before* the sampling
+loop even started, or the specific dust particle being tracked expired/
+got replaced by a new burst mid-sample), so verified deterministically
+instead: spawned one burst via the real `handleEvents` path, then called
+`st.vfx.update` directly with a known, hand-controlled sequence of player
+positions (10 steps of +0.5 world units, +5 total) with no real rendering
+or timing involved. The particle's average position shifted by `1.749`
+units — matching `5 * 0.35 = 1.75` almost exactly (the `0.001` difference
+is the particles' own small pre-existing drift/spread, not error). This
+is a stronger verification than a lucky screenshot would have been: it
+confirms the *exact* coefficient is applied, not just "some plausible-
+looking movement happened."
