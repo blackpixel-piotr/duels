@@ -1695,7 +1695,7 @@ async function initBattle(canvasId, opts) {
             pr.mesh.position.y += Math.sin(t * Math.PI) * 0.8;
         }
 
-        st.vfx.update(dt);
+        st.vfx.update(dt, st.player.pos);
 
         effect.render(scene, camera);
         st.raf = requestAnimationFrame(loop);

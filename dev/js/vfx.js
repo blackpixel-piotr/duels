@@ -26,6 +26,16 @@ const PARTICLE_BUDGET = 300;
 // this effect," not a separate counter to maintain.
 const DUST_POOL_SIZE = 3; // iteration 1: "capped at 3 concurrent per entity"
 
+// Dust is worldSpace:true (see buildBurstSystem's comment) so a pooled
+// emitter's later reposition never warps an earlier, still-alive burst —
+// but that means a puff is otherwise perfectly stationary once spawned,
+// which playtest feedback called out ("should follow the player a bit").
+// This nudges every currently-alive dust particle by a fraction of the
+// player's own per-frame movement each frame (see update()'s dragDust
+// call) — a partial drag, not a full attach, so it still visibly settles
+// behind the player rather than snapping along 1:1.
+const DUST_FOLLOW_STRENGTH = 0.35;
+
 async function loadVfxManifest() {
     try {
         const res = await fetch('data/vfx-manifest.json');
@@ -194,6 +204,7 @@ export function createVfxSystem(scene) {
     const allSlots = []; // every pooled slot, across every effect — for the global budget
     const poolsByEvent = new Map(); // event type -> [{ row, slots, cursor }]
     let quality = 'full'; // 'off' | 'low' | 'full' — vfx-plan.md §6, UI wiring deferred
+    let lastPlayerPos = null; // previous frame's player.pos, for this frame's drag delta (see dragDust)
 
     const ready = loadVfxManifest().then(rows => {
         for (const row of rows) {
@@ -239,6 +250,29 @@ export function createVfxSystem(scene) {
         slot.lastUsedAt = performance.now();
     }
 
+    // Nudges every currently-alive dust particle by (dx, dz) *
+    // DUST_FOLLOW_STRENGTH — called once per frame from update() with the
+    // player's own per-frame movement delta, so a puff drags partway along
+    // with the player instead of staying perfectly planted at its spawn
+    // point (playtest request: "should follow the player a bit"). Mutates
+    // particle.position directly (world-space, per buildBurstSystem) —
+    // three.quarks' own per-frame integration already ran this frame inside
+    // renderer.update(dt) above, so this is a plain additive offset on top,
+    // not fighting the physics.
+    function dragDust(dx, dz) {
+        const list = poolsByEvent.get('entity_moved');
+        if (!list) return;
+        for (const pool of list) {
+            for (const slot of pool.slots) {
+                const particles = slot.system.particles;
+                for (let i = 0; i < slot.system.particleNum; i++) {
+                    particles[i].position.x += dx;
+                    particles[i].position.z += dz;
+                }
+            }
+        }
+    }
+
     return {
         // positions: { [entityId]: { wx, wz } } — the entity's LIVE rendered
         // position this frame (toon.js's own interpolation/pursuit layer),
@@ -267,9 +301,22 @@ export function createVfxSystem(scene) {
                 }
             }
         },
-        update(dt) {
+        // playerPos: { wx, wz } — the player's LIVE rendered position this
+        // frame (toon.js's own continuous pursuit, already computed earlier
+        // in the same render-loop tick this is called from), used only to
+        // compute this frame's movement delta for dragDust. Optional: vfx.js
+        // still works (dust just stays fully stationary) if the caller ever
+        // omits it.
+        update(dt, playerPos) {
             if (quality === 'off') return;
             renderer.update(dt);
+            if (playerPos) {
+                if (lastPlayerPos) {
+                    const dx = playerPos.wx - lastPlayerPos.wx, dz = playerPos.wz - lastPlayerPos.wz;
+                    if (dx !== 0 || dz !== 0) dragDust(dx * DUST_FOLLOW_STRENGTH, dz * DUST_FOLLOW_STRENGTH);
+                }
+                lastPlayerPos = { wx: playerPos.wx, wz: playerPos.wz };
+            }
         },
         setQuality(q) {
             if (q === 'off' || q === 'low' || q === 'full') quality = q;
