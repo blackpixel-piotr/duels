@@ -34,6 +34,16 @@ const TILE_MS = 600;
 // instead of an ease's long asymptotic tail. PROVISIONAL: "~90°/100ms" is
 // the brief's own stated figure, not a design-doc number or device-tuned.
 const MAX_TURN_RAD_PER_S = (Math.PI / 2) / 0.1;
+// Animation-quality pass: named, tunable crossfade durations, replacing
+// scattered hardcoded fade values at each call site (animation-pass-plan.md
+// §1). Values are the brief's own stated defaults verbatim, not invented.
+const TRANSITION_S = {
+    idleWalk: 0.10,   // documents the locomotion blend's own tau (0.07-0.14s, updateActorAnim) — not a second mechanism
+    walkAttack: 0.12, // one-shot overlay fade-in (attack/cast/block/eat/windup) and the setActorStance crossfade
+    attackIdle: 0.20, // overlay fade-out on finish, back to locomotion (was 0.18, hardcoded)
+    hitReact: 0.08,   // flinch fade-in (was 0.05, hardcoded) — still fast, hits shouldn't feel delayed
+    death: 0.15,      // death fade-in (was 0.06, hardcoded)
+};
 // Off by default — flip to true to trace boss-projectile spawn/despawn
 // events in the console (id, style, speed). Added while diagnosing "phantom
 // projectile at Maggot King style-switch, never deals damage" (an orphan
@@ -709,7 +719,7 @@ async function makeActor(st, key, colors) {
     };
     mixer.addEventListener('finished', e => {
         if (actor.overlay && e.action === actor.overlay.action && !actor.overlay.hold) {
-            e.action.fadeOut(0.18);
+            e.action.fadeOut(TRANSITION_S.attackIdle);
             actor.overlay = null;
         }
     });
@@ -717,12 +727,12 @@ async function makeActor(st, key, colors) {
 }
 
 // One-shot overlay: attacks / hit reactions / eat / death.
-function playOverlay(actor, role, { ts = 1, fade = 0.08, hold = false, force = true } = {}) {
+function playOverlay(actor, role, { ts = 1, fade = TRANSITION_S.walkAttack, hold = false, force = true } = {}) {
     const clip = actor.clips[role];
     if (!clip || actor.crumbled && role !== 'death') return;
     if (actor.overlay) {
         if (!force) return;
-        actor.overlay.action.fadeOut(0.08);
+        actor.overlay.action.fadeOut(TRANSITION_S.walkAttack);
     }
     const a = actor.mixer.clipAction(clip);
     a.reset().setLoop(THREE.LoopOnce, 1);
@@ -784,7 +794,7 @@ function flinch(actor, tier, dmg) {
     if (actor.crumbled || tier === 'miss' || tier === 'poison' || tier === 'blocked') return;
     if (actor.overlay && actor.overlay.role !== 'hitA' && actor.overlay.role !== 'hitB') return;
     const big = tier === 'heavy' || tier === 'spec' || tier === 'boss' || tier === 'max';
-    playOverlay(actor, big ? 'hitB' : 'hitA', { ts: 1.25, fade: 0.05 });
+    playOverlay(actor, big ? 'hitB' : 'hitA', { ts: 1.25, fade: TRANSITION_S.hitReact });
 }
 
 // Damage-number sprite, positioned at the actor's live rendered spot.
@@ -889,9 +899,21 @@ function setActorStance(actor, armed, style) {
     }
     const n0 = actor.loco[0];
     if (!n0 || n0.anchor !== 0 || n0.role === want) return;
+    // Manual crossfade (animation-pass-plan.md §1): can't just fadeOut the
+    // old action / fadeIn the new one — updateActorAnim's per-frame
+    // setEffectiveWeight write on this same node (below) would cancel any
+    // THREE-native fade schedule immediately (setEffectiveWeight calls
+    // stopFading() internally). So the ramp is tracked by hand instead:
+    // keep the outgoing action alive as fadeOutAction, and updateActorAnim
+    // blends both actions' weights over TRANSITION_S.walkAttack. A stance
+    // swap that interrupts an already-in-flight one just snaps the older
+    // fade rather than chaining three actions at once.
+    if (n0.fadeOutAction) { n0.fadeOutAction.stop(); n0.fadeOutAction = null; }
     const a = actor.mixer.clipAction(actor.clips[want]);
-    n0.action.stop();
-    a.reset().setEffectiveWeight(n0.w).play();
+    a.reset().setEffectiveWeight(0).play();
+    n0.fadeOutAction = n0.action;
+    n0.fadeOutFrom = n0.w;
+    n0.fadeOutT = 0;
     n0.action = a; n0.role = want; n0.dur = actor.clips[want].duration;
 }
 
@@ -1088,7 +1110,19 @@ function updateActorAnim(actor, instSpeed, dt) {
     let rate = 0, wsum = 0;
     for (let i = 0; i < L.length; i++) {
         L[i].w += (targets[i] * damp - L[i].w) * k;
-        L[i].action.setEffectiveWeight(L[i].w);
+        if (L[i].fadeOutAction) {
+            // setActorStance manual crossfade (see its comment) — this
+            // node's "logical" weight L[i].w is still the real target from
+            // the blend space above, just split between the outgoing and
+            // incoming actions in proportion to fade progress.
+            L[i].fadeOutT += dt;
+            const t = Math.min(1, L[i].fadeOutT / TRANSITION_S.walkAttack);
+            L[i].fadeOutAction.setEffectiveWeight(L[i].fadeOutFrom * (1 - t));
+            L[i].action.setEffectiveWeight(L[i].w * t);
+            if (t >= 1) { L[i].fadeOutAction.stop(); L[i].fadeOutAction = null; }
+        } else {
+            L[i].action.setEffectiveWeight(L[i].w);
+        }
         if (L[i].anchor > 0) {
             // cadence: this clip's cycles/sec if feet were to track the
             // actual ground speed; the blend averages them by weight
@@ -1855,6 +1889,7 @@ const api = {
             if (a.overlay) { a.overlay.action.stop(); a.overlay = null; }
             a.speedSm = 0; a.gaitPhase = 0;
             for (const n of a.loco) {
+                if (n.fadeOutAction) { n.fadeOutAction.stop(); n.fadeOutAction = null; }
                 n.w = n.anchor === 0 ? 1 : 0;
                 n.action.reset().setEffectiveWeight(n.w).play();
             }
@@ -2132,7 +2167,7 @@ const api = {
             case 'enemyDeath': case 'playerDeath': {
                 const dying = evt.type === 'enemyDeath' ? st.enemy : st.player;
                 dying.crumbled = true;
-                playOverlay(dying, 'death', { ts: 1, fade: 0.06, hold: true });
+                playOverlay(dying, 'death', { ts: 1, fade: TRANSITION_S.death, hold: true });
                 break;
             }
         }
