@@ -189,3 +189,79 @@ brief, flagged here per CLAUDE.md rather than resolved silently)
   `st.player.pos`/`st.enemy.pos` at event-handling time rather than the
   raw sim tile) generalizes to the enemy/NPC side without change — the
   handler already takes a `positions` map keyed by entity id.
+
+---
+
+## Post-merge follow-up: bigger/more-frequent movement dust + a live tuning panel
+
+Playtest request: "make ground particles when player is moving bigger...
+and more often? any way i can tweak these settings live?" plus, separately,
+"add a boss freeze button."
+
+**Bigger/more often**: bumped `dust_puff`'s manifest row (`count` 5→9,
+`size` 0.35→0.55, `lifetime` 0.4→0.45s) and gave it its own pool size
+(`poolSize: 8` in the manifest row, read via `row.poolSize ?? DUST_POOL_SIZE`
+in `vfx.js`'s `makePool` — every other effect keeps the shared default of
+3, unaffected) instead of sharing the flat `DUST_POOL_SIZE = 3` constant
+finding 7 above described. Movement dust is triggered far more often than
+a one-shot combat effect (every tile step, not once per swing), so the old
+shared pool size was capping *concurrent* puffs much more aggressively for
+this effect than for the others — the fix is a bigger pool specifically
+for this row, not a blanket increase everywhere.
+
+**Live tuning**: `createVfxSystem` now exposes `setDustDebug({sizeMult,
+countMult, activeSlots})`/`getDustDebug()`, scoped to the `entity_moved`
+pool(s). Mutates the already-built `ParticleSystem`s' value-generator
+objects in place (`startSize` → a new `IntervalValue`, `emissionBursts[0]
+.count` → a new `ConstantValue`) rather than tearing down/rebuilding
+systems — the same technique `spawnBurst` already used for `drift`, so
+this wasn't a new pattern, just applying the existing one outside the
+per-burst hot path. `activeSlots` dials concurrency *within* the pre-built
+pool (a cursor cap in `spawnBurst`, `Math.min(pool.activeSlots,
+pool.slots.length)`) rather than constructing new `ParticleSystem`s live —
+simpler and avoids any `renderer.addSystem`/`group.add` bookkeeping mid-
+fight. One real correctness catch found while wiring this up: `maxParticle`
+(the `ParticleSystem`'s own hard cap, fixed at construction) was `row.count
+* 2` — a live `countMult` above ~2x would have silently truncated the
+actual spawned particles below what the slider asked for, with no error or
+signal that it happened. Bumped to `row.count * 4` for headroom; the panel
+also reads back the *actual* live emission count for the particle-budget
+check in `spawnBurst` (previously read the static manifest default, which
+would have under-counted budget usage once tuning diverged from it).
+
+A new `VFX ▾` debug panel (`BattleScene.razor`, top row left of `PREFS`,
+same always-visible convention as `MECH`) exposes three sliders (dust size
+×, count ×, concurrency) plus a Reset, seeded from `voxel.getDustDebug` on
+open (same "read, don't assume" reasoning as the `MOVE` panel) rather than
+assuming defaults. Deliberately *not* `clientPrefs`-backed like `PREFS`
+(`cameraMotion`/`vfxQuality`) — this is dev-tuning-in-the-moment, doesn't
+persist across reloads, matching the `TestScene`-only `MOVE`/`CAM` panels'
+convention instead (just without their `TestScene` gate).
+
+**Boss freeze button**: `FREEZE ENEMY`/`UNFREEZE` already existed end-to-end
+(`EnemyFrozen`/`FreezeEnemyCommand`, gates `ProcessBossScript`/
+`ProcessMasterScript` in `GameTickService`) but was gated behind
+`GameState.TestScene`, which nothing in the reachable app ever sets —
+backlog item 25's exact complaint. Moved it to the same always-visible
+convention `MECH`/`PREFS`/the new `VFX` panel already use. `CAM`/`MOVE`
+were left `TestScene`-gated — not requested, and backlog #25 already flags
+the whole family as needing a real dev gate once non-dev fights ship;
+widening only what was asked for keeps that debt from growing further than
+necessary. Updated backlog #25 to record this.
+
+**Verified**: `dotnet build`/`test` (69/69, unaffected — the C# side is
+untouched; this pass is manifest + JS + one `.razor` file). Playwright
+against a live fight: `getDustDebug` read back `{sizeMult:1, countMult:1,
+activeSlots:8, maxSlots:8}` on load (matching the new manifest defaults);
+calling `setDustDebug({sizeMult:2, countMult:2.5, activeSlots:4})` produced
+`{sizeMult:2, countMult:2.556, activeSlots:4}` — the `2.556` isn't drift,
+it's `Math.round(9 * 2.5) / 9` (`23/9`), confirming the rounding math
+matches the implementation exactly, not just landing close. Separately
+confirmed the manifest itself served the new `count:9, size:0.55,
+lifetime:0.45, poolSize:8`. The freeze button: confirmed visible outside
+`TestScene`, and clicking it flipped both its label (`FREEZE ENEMY` →
+`UNFREEZE`) and CSS class (`freeze-btn-on`) — confirms the dispatched
+`FreezeEnemyCommand` actually flipped `GameState.EnemyFrozen`, not just a
+local UI toggle. (Freezing only gates the *boss's* own actions — the
+player's own attacks still land as normal while frozen, which is correct:
+the button's contract is "the enemy stops acting," not "combat pauses.")

@@ -168,7 +168,13 @@ not reused.)*
     onboarding path, not a debug button). Still open post-batch-1: the
     cold-start resolution (#16, now resolved) explicitly kept the dev-loadout
     buttons and only added a `// PROVISIONAL: needs dev gate (backlog #25)`
-    comment — this item is what that comment points at. *(M1)*
+    comment — this item is what that comment points at. **Update (playtest
+    request for a boss freeze button + live VFX dust tuning)**: FREEZE ENEMY
+    moved out of the `TestScene` gate to the same always-visible convention
+    as MECH/PREFS, and the new VFX dust-tuning panel was built the same way
+    from the start — both now share this item's "needs a real dev gate"
+    debt. CAM and MOVE stayed `TestScene`-gated (not requested, no reason to
+    widen their exposure). *(M1; freeze/VFX-panel update this session)*
 28. **`NpcTemplate.DummyStyle` and its non-scripted movement path are now
     provably dead for real content.** Built for "the pathfinding/movement
     test fixtures and any future non-boss mob" — the boss-only ruling

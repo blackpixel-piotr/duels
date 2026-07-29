@@ -87,13 +87,46 @@
             </div>
         </div>
     }
+    @* Movement-dust live tuning (playtest request: bigger/more-often dust,
+       tweakable without a rebuild) — same "reachable every fight, not
+       TestScene-gated" convention as MECH/PREFS above. Dev-tuning-in-the-
+       moment, not a player setting, so unlike PREFS it isn't clientPrefs-
+       persisted (matches the TestScene-only MOVE/CAM panels' convention). *@
+    <button class="cam-toggle-btn vfx-toggle-btn" @onclick="ToggleVfxPanel"
+            title="Movement dust size / count / concurrency">
+        @(_vfxPanelOpen ? "VFX ▲" : "VFX ▼")
+    </button>
+    @if (_vfxPanelOpen)
+    {
+        <div class="cam-debug-panel vfx-debug-panel">
+            <div class="cam-debug-row">
+                <label>Dust size × <span>@_dustSizeMult.ToString("0.00")</span></label>
+                <input type="range" min="0.5" max="3" step="0.05"
+                       value="@_dustSizeMult" @oninput="@(e => OnDustInput(e, v => _dustSizeMult = v))" />
+            </div>
+            <div class="cam-debug-row">
+                <label>Dust count × <span>@_dustCountMult.ToString("0.00")</span></label>
+                <input type="range" min="0.5" max="3" step="0.05"
+                       value="@_dustCountMult" @oninput="@(e => OnDustInput(e, v => _dustCountMult = v))" />
+            </div>
+            <div class="cam-debug-row">
+                <label>Dust concurrency <span>@_dustActiveSlots.ToString("0")/@_dustMaxSlots</span></label>
+                <input type="range" min="1" max="@_dustMaxSlots" step="1"
+                       value="@_dustActiveSlots" @oninput="@(e => OnDustInput(e, v => _dustActiveSlots = v))" />
+            </div>
+            <button class="cam-debug-reset" @onclick="ResetDustDebug">Reset</button>
+        </div>
+    }
+    @* Boss freeze (dev tool) — same "reachable every fight" convention;
+       previously TestScene-only. Useful on its own (stop the boss to
+       inspect VFX/animations without dying) as well as alongside the panels
+       above. *@
+    <button class="freeze-btn @(EnemyFrozen ? "freeze-btn-on" : "")"
+            @onclick="ToggleFreezeEnemy">
+        @(EnemyFrozen ? "UNFREEZE" : "FREEZE ENEMY")
+    </button>
     @if (State?.TestScene == true)
     {
-        <button class="freeze-btn @(EnemyFrozen ? "freeze-btn-on" : "")"
-                @onclick="ToggleFreezeEnemy">
-            @(EnemyFrozen ? "UNFREEZE" : "FREEZE ENEMY")
-        </button>
-
         <button class="cam-toggle-btn" @onclick="() => _camPanelOpen = !_camPanelOpen">
             @(_camPanelOpen ? "CAM ▲" : "CAM ▼")
         </button>
@@ -232,6 +265,48 @@
             _vfxQuality = prefs.VfxQuality;
         }
         StateHasChanged();
+    }
+
+    // Movement-dust live tuning (playtest request). Unlike PREFS, seeded
+    // from voxel.getDustDebug (in-memory, not localStorage) — same "read,
+    // don't assume" reasoning as MOVE below, since it reflects whatever the
+    // manifest/pool actually built, not a value this component invented.
+    private bool _vfxPanelOpen;
+    private double _dustSizeMult = 1.0;
+    private double _dustCountMult = 1.0;
+    private double _dustActiveSlots = 8;
+    private int _dustMaxSlots = 8;
+
+    private sealed record DustDebug(double SizeMult, double CountMult, double ActiveSlots, int MaxSlots);
+
+    private async Task ToggleVfxPanel()
+    {
+        _vfxPanelOpen = !_vfxPanelOpen;
+        if (_vfxPanelOpen)
+        {
+            var d = await JS.InvokeAsync<DustDebug>("voxel.getDustDebug", "battle-canvas");
+            _dustSizeMult = d.SizeMult; _dustCountMult = d.CountMult;
+            _dustActiveSlots = d.ActiveSlots; _dustMaxSlots = d.MaxSlots;
+        }
+        StateHasChanged();
+    }
+
+    private Task OnDustInput(ChangeEventArgs e, Action<double> assign)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var v)) assign(v);
+        return PushDustDebug();
+    }
+
+    private Task PushDustDebug() =>
+        JS.InvokeVoidAsync("voxel.setDustDebug", "battle-canvas", new
+        {
+            sizeMult = _dustSizeMult, countMult = _dustCountMult, activeSlots = _dustActiveSlots,
+        }).AsTask();
+
+    private Task ResetDustDebug()
+    {
+        _dustSizeMult = 1.0; _dustCountMult = 1.0; _dustActiveSlots = _dustMaxSlots;
+        return PushDustDebug();
     }
 
     private Task CycleCameraMotion()

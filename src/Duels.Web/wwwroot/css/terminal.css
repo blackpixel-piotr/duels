@@ -620,6 +620,11 @@ html, body {
 .prefs-toggle-btn { top: 6px; right: 66px; bottom: auto; color: var(--blue); }
 .prefs-debug-panel { top: 26px; right: 66px; bottom: auto; width: 130px; }
 
+/* Movement-dust live tuning (playtest request) — top row, left of PREFS,
+   same "always visible, no TestScene gate" convention. */
+.vfx-toggle-btn { top: 6px; right: 126px; bottom: auto; color: var(--purple); }
+.vfx-debug-panel { top: 26px; right: 126px; bottom: auto; width: 140px; }
+
 /* Telegraphed special — wanted-poster warning banner above the enemy */
 .telegraph-bubble {
     position: absolute;
