@@ -294,6 +294,29 @@ not reused.)*
     achievable by reordering existing facing logic). Currently: moving
     always faces the direction of travel; facing the target only happens
     once stationary. *(Combat feel pass 1, round 4)*
+49. **Upper/lower body bone-mask layering (attack/cast plays over a
+    locomotion cycle without fighting the legs) was scoped out of the
+    animation-quality pass, not built.** Two independent findings argued
+    against it: (1) parsed every extracted clip's animation channels
+    directly (all 22, not a sample) — every attack/cast/block clip carries
+    its own authored leg-bone rotation tracks (weight shifts, stance
+    changes), so a naive lower-body-locomotion + upper-body-overlay bone
+    mask would discard that authored motion and substitute an unrelated
+    walk cycle, which could read as *more* disconnected, not less; fixing
+    this needs real animation-editing work (re-authoring or trimming clips
+    to neutral legs), not a rendering code change. (2) the scenario item 2
+    exists to solve — a cast overlapping a run cycle — doesn't occur for
+    the player: `GameTickService.ProcessTick`'s attack gate requires
+    `!playerMovedThisTick`, so the player's attack/cast/block overlay only
+    ever plays while fully stationary, by sim design. The rig itself
+    *does* cleanly support the split (`spine_01` is a clean single joint
+    dividing upper/lower, verified via direct `superhero.gltf` node-tree
+    parsing) — the blocker is clip content and the current combat model,
+    not the skeleton. Revisit only alongside real animation-authoring
+    capacity, and re-check whether boss scripts (unlike the player) ever
+    genuinely move and attack in the same tick before assuming this is
+    dead entirely. *(Animation quality pass, see
+    design/plans/animation-pass-plan.md/-findings.md)*
 
 ---
 
