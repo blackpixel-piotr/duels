@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard search || true"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/graphify-nudge-once.sh search || true"
           }
         ]
       },
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard read || true"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/graphify-nudge-once.sh read || true"
           }
         ]
       }
