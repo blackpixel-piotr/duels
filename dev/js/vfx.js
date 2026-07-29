@@ -12,7 +12,7 @@ import * as THREE from '../lib/three.module.min.js';
 import {
     BatchedRenderer, ParticleSystem, ConstantValue, IntervalValue, ConstantColor,
     ColorOverLife, SizeOverLife, ForceOverLife, Gradient, PiecewiseBezier, Bezier,
-    PointEmitter,
+    PointEmitter, CircleEmitter,
 } from '../lib/three.quarks.esm.js';
 
 // Global live-particle budget (renderer-only cosmetic rail, vfx-plan.md §6).
@@ -106,7 +106,19 @@ function buildBurstSystem(row, color) {
         maxParticle: row.count * 4,
         emissionOverTime: new ConstantValue(0),
         emissionBursts: [{ time: 0, count: new ConstantValue(row.count), cycle: 1, interval: 0, probability: 1 }],
-        shape: new PointEmitter(),
+        // PointEmitter (the default, unchanged for every combat-effect row)
+        // gives every particle in a burst the exact same spawn POSITION —
+        // only their random outward velocity separates them over the
+        // burst's lifetime. For dust that read as "one big ball" at higher
+        // size/count (playtest report): overlapping same-origin circles
+        // just blur into a bigger circle, no amount of count makes it look
+        // like scattered dirt. row.spreadRadius opts a row into a
+        // CircleEmitter instead — a filled disc (thickness:1) that gives
+        // each particle its own spawn position across a small ground-plane
+        // area from frame zero, independent of how far it later drifts.
+        shape: row.spreadRadius
+            ? new CircleEmitter({ radius: row.spreadRadius, thickness: 1 })
+            : new PointEmitter(),
         material: new THREE.MeshBasicMaterial({
             map: texture,
             blending: row.blend === 'additive' ? THREE.AdditiveBlending : THREE.NormalBlending,
@@ -114,6 +126,14 @@ function buildBurstSystem(row, color) {
             depthWrite: false,
         }),
     });
+    // CircleEmitter's disc lies in its own local XY plane (see the vendored
+    // source: position.x=cos, position.y=sin, z=0) — the same -90°-about-X
+    // rotation the ground plane itself uses (`ground.rotation.x =
+    // -Math.PI/2`) reorients that to lie flat on the world XZ ground plane
+    // instead of standing upright facing the camera. One-time, at
+    // construction — spawnBurst only ever updates the emitter's *position*
+    // per burst, never its rotation.
+    if (row.spreadRadius) system.emitter.rotation.x = -Math.PI / 2;
     // Fade out over the full lifetime; color stays constant (no doctrine
     // meaning to encode — see vfx-plan.md's note on --border here). Alpha
     // defaults to an instant pop to alphaPeak then a linear fade (every
@@ -330,7 +350,7 @@ export function createVfxSystem(scene) {
         // ParticleSystems in place (replacing their value-generator objects,
         // same technique spawnBurst already uses for drift) rather than
         // rebuilding pools, so a slider drag applies with no visible pop.
-        setDustDebug({ sizeMult, countMult, activeSlots } = {}) {
+        setDustDebug({ sizeMult, countMult, activeSlots, spreadMult } = {}) {
             const list = poolsByEvent.get('entity_moved');
             if (!list) return;
             for (const pool of list) {
@@ -343,6 +363,13 @@ export function createVfxSystem(scene) {
                     if (typeof countMult === 'number')
                         slot.system.emissionBursts[0].count =
                             new ConstantValue(Math.max(1, Math.round(pool.row.count * countMult)));
+                    // Scatter radius (CircleEmitter.radius is a plain mutable
+                    // field, no value-generator wrapper needed) — how far
+                    // apart particles start, independent of how big each one
+                    // is. Only meaningful for a row with spreadRadius set
+                    // (dust_puff); a PointEmitter row has no .radius to tune.
+                    if (typeof spreadMult === 'number' && pool.row.spreadRadius)
+                        slot.system.emitterShape.radius = pool.row.spreadRadius * spreadMult;
                 }
             }
         },
@@ -358,6 +385,9 @@ export function createVfxSystem(scene) {
                 countMult: Number((s.emissionBursts[0].count.value / pool.row.count).toFixed(3)),
                 activeSlots: pool.activeSlots,
                 maxSlots: pool.slots.length,
+                spreadMult: pool.row.spreadRadius
+                    ? Number((s.emitterShape.radius / pool.row.spreadRadius).toFixed(3))
+                    : null,
             };
         },
         dispose() {
