@@ -493,6 +493,11 @@
             {
                 player = new { x = s.PlayerTile.X, z = s.PlayerTile.Z, discontinuous = playerTeleported },
                 enemy = new { x = s.NpcTile.X, z = s.NpcTile.Z, discontinuous = npcTeleported },
+                // The add (if any) the player is currently attacking — lets the
+                // renderer face/lunge/splat against the real target instead of
+                // always defaulting to the boss (bug report: attacking a swarm
+                // add visually read as attacking the boss while the add died).
+                playerTargetAddId = s.TargetId,
             });
             // Tile hazards v2 (boss mechanic): warning fuse -> pool -> scorch
             // (permanent, safe). JS diffs pending→gone itself to fire the

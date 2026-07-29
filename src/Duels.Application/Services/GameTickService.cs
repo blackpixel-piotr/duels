@@ -566,11 +566,11 @@ public sealed class GameTickService : IDisposable
             var droneStyle = StyleToken(weapon?.AttackType ?? AttackType.Crush);
             if (!roll.Hit)
             {
-                state.AppendHitsplat(onEnemy: true, 0, "miss", style: droneStyle);
+                state.AppendHitsplat(onEnemy: true, 0, "miss", style: droneStyle, targetEntityId: add.Id);
                 return;
             }
             add.TakeDamage(roll.Damage);
-            state.AppendHitsplat(onEnemy: true, roll.Damage, "normal", style: droneStyle);
+            state.AppendHitsplat(onEnemy: true, roll.Damage, "normal", style: droneStyle, targetEntityId: add.Id);
             state.AppendLog($"You strike the drone for {roll.Damage}.", LogEntryKind.PlayerHit);
             if (!add.IsAlive)
             {
@@ -583,7 +583,7 @@ public sealed class GameTickService : IDisposable
         // Swarms are fodder (Boss Bible: "any hit kills") — every landed hit
         // does at least 1 damage regardless of weapon roll.
         add.TakeDamage(1);
-        state.AppendHitsplat(onEnemy: true, 1, "normal", style: StyleToken(GetPlayerWeapon(player)?.AttackType ?? AttackType.Crush));
+        state.AppendHitsplat(onEnemy: true, 1, "normal", style: StyleToken(GetPlayerWeapon(player)?.AttackType ?? AttackType.Crush), targetEntityId: add.Id);
         state.AppendLog("You strike the maggot swarm.", LogEntryKind.PlayerHit);
         if (!add.IsAlive)
         {

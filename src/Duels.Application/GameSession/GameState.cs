@@ -43,13 +43,19 @@ public sealed class GameState
     // The log message's 3rd field keeps its pre-migration meaning exactly
     // (weapon for a player spec, style token for an NPC hit) — several
     // tests assert its exact text.
-    public void AppendHitsplat(bool onEnemy, int dmg, string tier, string? style = null, string? weapon = null)
+    // targetEntityId overrides the default "enemy" victim id — the boss's
+    // adds (swarm/drone) are real, independently-targetable entities in the
+    // renderer, not the boss itself; a hit on one must carry the add's own
+    // id so the vfx/animation layer can present the attack against it
+    // (facing, lunge, splat position) instead of defaulting to the boss.
+    // Never used for !onEnemy (an NPC's victim is always literally "player").
+    public void AppendHitsplat(bool onEnemy, int dmg, string tier, string? style = null, string? weapon = null, string? targetEntityId = null)
     {
         var logExtra = onEnemy ? weapon : style;
         AppendLog(logExtra is null ? $"{dmg}:{tier}" : $"{dmg}:{tier}:{logExtra}",
             onEnemy ? LogEntryKind.HitsplatPlayer : LogEntryKind.HitsplatNpc);
 
-        var victim = onEnemy ? "enemy" : "player";
+        var victim = targetEntityId ?? (onEnemy ? "enemy" : "player");
         var attacker = onEnemy ? "player" : "enemy";
         var data = new Dictionary<string, object> { ["dmg"] = (double)dmg, ["tier"] = tier };
         if (style is not null) data["style"] = style;

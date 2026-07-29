@@ -1179,6 +1179,7 @@ async function initBattle(canvasId, opts) {
         enemyId: opts.enemyId,
         vfx: createVfxSystem(scene), // vfx-plan.md — renderer-only, driven by voxel.setVfxEvents
         cameraMotion: 'full', // clientPrefs-backed, see below
+        playerTargetAddId: null, // set by setBattlePositions — see the player facing block in loop()
     };
     {
         const prefs = loadClientPrefs();
@@ -1396,7 +1397,18 @@ async function initBattle(canvasId, opts) {
         // feedback: that layer visibly jumped/overshot for the player; it's
         // NPC-only, see enemy/adds below).
         {
-            const actor = st.player, other = st.enemy;
+            const actor = st.player;
+            // Bug report: attacking a swarm/drone add read as attacking the
+            // boss — this "other" used to be hardcoded to st.enemy, so the
+            // player's facing (and, via handleCombatVfxEvent's actorFor,
+            // the attack lunge/splat too) never had any notion of "the
+            // player is currently fighting an add." When the player has an
+            // active add target (SetTargetCommand, tap-to-target) and that
+            // add still has a live mesh, face IT instead of the boss —
+            // takes priority over holdPosition since targeting an add is
+            // its own explicit action, independent of boss engagement.
+            const targetAddMesh = st.playerTargetAddId ? st.addMeshes.get(st.playerTargetAddId) : null;
+            const other = targetAddMesh ? { pos: { wx: targetAddMesh.position.x, wz: targetAddMesh.position.z } } : st.enemy;
             let instSpeed = 0;
             if (!actor.crumbled) {
                 const rx = actor.target.wx - actor.pos.wx, rz = actor.target.wz - actor.pos.wz;
@@ -1423,11 +1435,12 @@ async function initBattle(canvasId, opts) {
                 // honestly depict.
                 if (rem > 0.03) {
                     destFacing = Math.atan2(rx, rz);
-                } else if (!st.flags.holdPosition) {
+                } else if (targetAddMesh || !st.flags.holdPosition) {
                     // Face the target while stationary and engaged (about
-                    // to attack or holding ground). holdPosition false
-                    // means Engage() has run (see GameState's targeting
-                    // model).
+                    // to attack or holding ground) — or, independent of
+                    // holdPosition, whenever an add is actively targeted.
+                    // holdPosition false means Engage() has run (see
+                    // GameState's targeting model).
                     destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
                 } else {
                     // Holding position (walked away, not re-engaged) and
@@ -1590,13 +1603,20 @@ async function initBattle(canvasId, opts) {
         // swarm adds: same generic interpolation layer as player/enemy (their
         // crawl-toward-you used to snap tile-to-tile with zero smoothing —
         // now a genuine lerp across the tick, facing the direction they're
-        // heading). The invisible hitbox stays snapped to the sim's current
-        // tile, not interpolated — a tap should always target where the add
-        // really is, not a lagging visual.
+        // heading). Bug report: "cannot target them when they're moving" —
+        // the invisible tap hitbox used to stay snapped straight to the
+        // sim's new tile the instant a snapshot arrived while the visible
+        // sphere was still lerping toward it, so for most of the ~600ms
+        // transit the two were up to a full tile apart and a tap aimed at
+        // what the player actually SEES missed the real hit-test target.
+        // The hitbox now follows the same interpolated position as the
+        // visible mesh every frame instead.
         for (const [id, m] of st.addMeshes) {
             const snap = interpolateSnapshot(m, now);
             if (snap) {
                 m.position.x = snap.wx; m.position.z = snap.wz;
+                const hb = st.addHitboxes.get(id);
+                if (hb) { hb.position.x = snap.wx; hb.position.z = snap.wz; }
                 const moving = snap.frac < 1 && Math.hypot(snap.dx, snap.dz) > 0.03;
                 if (moving) {
                     const destFacing = Math.atan2(snap.dx, snap.dz);
@@ -1791,7 +1811,23 @@ function destroyPreview(canvasId) {
 // only covers clips/splats/lunges/shake/the perfect-dodge glint that
 // aren't three.quarks particles.
 function handleCombatVfxEvent(st, ev, now) {
-    const actorFor = id => id === 'player' ? st.player : st.enemy;
+    // Bug report: attacking a swarm/drone add visually read as attacking the
+    // boss (facing, lunge and the outgoing projectile all defaulted to
+    // st.enemy) while the add was the one actually taking damage and dying —
+    // AppendHitsplat now carries the add's real id as entityId/targetId
+    // (GameState.cs), so this needs to resolve one to a target. Adds have no
+    // skeletal rig (no mixer/overlay), so they only get a lightweight
+    // position-only proxy — good enough for splat placement and a lunge/
+    // projectile destination, but never pass one to playOverlay/flinch
+    // (isAdd marks that).
+    const actorFor = id => {
+        if (id === 'player') return st.player;
+        if (id === 'enemy') return st.enemy;
+        const mesh = st.addMeshes.get(id);
+        return mesh
+            ? { pos: { wx: mesh.position.x, wz: mesh.position.z }, ch: { height: 1.25 }, isAdd: true }
+            : st.enemy; // stale/removed add id (e.g. died same tick) — fall back rather than crash
+    };
     switch (ev.type) {
         case 'attack_swing': {
             const attacker = actorFor(ev.entityId);
@@ -1809,6 +1845,8 @@ function handleCombatVfxEvent(st, ev, now) {
             // cosmetic fixed-duration projectile — player attacks resolve
             // synchronously (no travel-time sim), unlike the boss's
             // sim-authoritative homing projectiles (setBattleProjectiles).
+            // Flies to whatever `target` resolved to above — the boss, or
+            // the add actually being fought.
             if (attacker === st.player && (style === 'ranged' || style === 'magic')) {
                 const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8),
                     new THREE.MeshBasicMaterial({ color: style === 'magic' ? '#7ab8ff' : '#ffd166' }));
@@ -1816,7 +1854,7 @@ function handleCombatVfxEvent(st, ev, now) {
                 st.projectiles.push({
                     mesh, t0: now, dur: 300,
                     from: new THREE.Vector3(st.player.pos.wx, 1.2, st.player.pos.wz),
-                    toActor: st.enemy, toY: 1.2,
+                    toActor: target, toY: 1.2,
                 });
             }
             break;
@@ -1825,7 +1863,10 @@ function handleCombatVfxEvent(st, ev, now) {
             const victim = actorFor(ev.entityId);
             const dmg = ev.data?.dmg ?? 0, tier = ev.data?.tier ?? 'normal', style = ev.data?.style;
             spawnSplat(st, victim, dmg, tier, style, now);
-            flinch(victim, tier, dmg);
+            // flinch/playOverlay assume a real skeletal actor (st.player/
+            // st.enemy) — an add proxy has no mixer to animate; the splat
+            // alone carries the read for it.
+            if (!victim.isAdd) flinch(victim, tier, dmg);
             // A max-hit/spec/boss-tier hit gets a screen shake (items doc
             // §1's "distinct max-hit visual") — cameraMotion 'off' cuts it
             // entirely, matching that setting's promise elsewhere.
@@ -1848,7 +1889,7 @@ function handleCombatVfxEvent(st, ev, now) {
             // successful defense shouldn't look like getting hit); this
             // case was accidentally defeating that same principle.
             const role = blockRoleForStyle(style);
-            if (role) playOverlay(victim, role, { ts: 1.1 });
+            if (role && !victim.isAdd) playOverlay(victim, role, { ts: 1.1 }); // adds are fodder/real-HP, never block — defensive, not reachable today
             break;
         }
         case 'flask_sip':
@@ -2024,6 +2065,9 @@ const api = {
         // block in loop()) — not the snapshot-interpolation layer.
         if (pos.player) st.player.target = { wx: pos.player.x * TILE, wz: pos.player.z * TILE };
         if (pos.enemy) applySnapshot(st.enemy, pos.enemy.x * TILE, pos.enemy.z * TILE, !!pos.enemy.discontinuous, performance.now());
+        // The add the player is currently attacking, if any — see the player
+        // facing block in loop() and handleCombatVfxEvent's actorFor.
+        st.playerTargetAddId = pos.playerTargetAddId ?? null;
     },
     setBattleObstacles(canvasId, tiles) {
         const st = battles.get(canvasId);
@@ -2102,11 +2146,13 @@ const api = {
             // Visible sphere goes through the generic interpolation layer
             // (a brand-new add with no prior snapshot snaps in at its spawn
             // tile automatically — interpolateSnapshot returns null until a
-            // snapTo exists). The hitbox stays snapped directly to the sim's
-            // current tile — a tap should always target where the add
-            // really is, not a lagging visual mid-lerp.
+            // snapTo exists). The hitbox's per-frame position is owned by
+            // that same interpolation loop (see loop()) so it always
+            // matches what's on screen — it used to snap straight to this
+            // raw sim tile here instead, which meant a tap aimed at the
+            // still-lerping visible sphere could miss by up to a full tile
+            // (bug report: "cannot target them when they're moving").
             applySnapshot(m, a.x * TILE, a.z * TILE, !!a.discontinuous, performance.now());
-            hb.position.x = a.x * TILE; hb.position.z = a.z * TILE;
             const hpPct = Math.max(0, Math.min(100, a.hpPct ?? 100));
             m.material.color.set(hpPct <= 50 ? '#b23a3a' : '#7a9e3a');
         }

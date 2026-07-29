@@ -317,6 +317,23 @@ not reused.)*
     genuinely move and attack in the same tick before assuming this is
     dead entirely. *(Animation quality pass, see
     design/plans/animation-pass-plan.md/-findings.md)*
+50. **Add tap-targeting may still lose to the boss when the two overlap on
+    screen — flagged, not confirmed.** While fixing round 5's "can't target
+    a moving add" bug (combat-feel-findings.md), noticed `toon.js`'s tap
+    handler (`onUp`) checks `ray.intersectObjects(st.enemy.ch.group.children,
+    true).length > 0` first and routes the tap to `OnEnemyClick`
+    unconditionally whenever that's true — before ever checking
+    `st.addHitboxes` — with no comparison of *which* hit is actually closer
+    along the ray. Hive Matron's drones orbit at radius 2 (`duels-boss-
+    designs.md`), close enough on a telephoto (FOV 15) camera that a tap
+    aimed at a drone could still register as a boss click if the ray also
+    grazes any part of the boss's mesh first. Not reproduced or confirmed —
+    the bug report this round was specifically about Maggot King's swarm
+    (which crawls toward the *player*, not the boss, so this overlap is
+    much less likely there) — but worth checking directly against Hive
+    Matron's drones before assuming it's fine. If real, the fix is
+    comparing raycast hit distances instead of an enemy-first priority
+    order.
 
 ---
 

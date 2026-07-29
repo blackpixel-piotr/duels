@@ -7,6 +7,96 @@ flagged rather than invented.
 
 ---
 
+## Post-merge, round 5 (user-reported): attacking a swarm/drone add read as attacking the boss
+
+User report (after the animation-quality pass, playtesting Maggot King's
+swarm adds — "poison pods" in the user's own terms, same as the M1 playtest
+report that drove the hitbox-enlargement fix): "i cannot target them when
+they're moving and also when killing them my player is still facing the
+boss and looks like i'm casting towards the boss but pod dies." Two
+separate, real bugs, both in `toon.js`; no C# combat-math change (69/69
+`.NET` suite unaffected — the C# edits here are additive, an optional
+parameter and its two call sites).
+
+**Bug 1 — can't tap a moving add.** `setBattleAdds`'s invisible tap hitbox
+(`st.addHitboxes`, the M1-revision fix that enlarged the tap target to a
+whole tile) was being snapped straight to the raw new sim tile the instant
+each tick's snapshot arrived, while the *visible* sphere mesh
+(`st.addMeshes`) went through the separate snapshot-interpolation layer,
+lerping smoothly toward that same tile over `TILE_MS` (~600ms). For most of
+that window the two were up to a full tile apart — a tap aimed at where the
+player actually *sees* the add landed on empty ground (or missed) because
+the real hit-test target had already jumped ahead. **Fix**: the hitbox's
+position is now written in the same per-frame block that already computes
+the visible mesh's interpolated position (`loop()`'s add-interpolation
+loop), so it's identical to what's on screen every frame by construction —
+removed the old direct write inside `setBattleAdds` entirely (only the
+mesh/hitbox's *creation* still happens there; live positioning is the
+render loop's job now, same split as the player/enemy actors already had).
+Verified via Playwright: injected a synthetic add and stepped it through a
+tile-to-tile move, sampling both positions each frame — `hb.position` and
+`m.position` were identical (gap `0` tiles) on every sampled frame, which
+is now a structural guarantee (both read off the same `snap.wx/wz`), not a
+timing coincidence.
+
+**Bug 2 — attacking an add visually attacked the boss.** Root cause was
+`GameState.AppendHitsplat`: it hardcoded the vfxEvent victim/attacker ids
+to the literal strings `"enemy"`/`"player"`, with no notion that a hit
+could land on an *add* instead of the boss — `ExecuteBasicAttackOnAdd`
+called it exactly the same way as attacking the boss. So the resulting
+`attack_swing`/`impact` vfxEvents always carried `targetId`/`entityId:
+"enemy"`, and `toon.js`'s `actorFor` (`handleCombatVfxEvent`) could only
+ever resolve to `st.player` or `st.enemy` — there was no add-actor mapping
+at all. Every piece of attack presentation therefore defaulted to the
+boss's position when the real target was an add: the impact splat, the
+melee lunge target, and the player's own cosmetic ranged/magic outgoing
+projectile. Separately, the player's per-frame facing block
+(`const actor = st.player, other = st.enemy`) had `other` hardcoded to the
+boss with no path to ever face an add at all, engaged or not. All correct
+individually (this is exactly what "Combat feel pass 1" built, before adds
+were part of the picture) but never extended to cover add-targeting.
+
+**Fix, C# side**: `AppendHitsplat` gained an optional `targetEntityId`
+parameter (default `null`, so every existing boss-attack call site is
+unaffected — same log-message text, same default vfxEvent ids);
+`ExecuteBasicAttackOnAdd`'s two branches (Drone, Swarm) now pass `add.Id`.
+`BattleScene.razor` additionally forwards `state.TargetId` (the add the
+player is currently attacking, if any — `SetTargetCommand`, tap-to-target)
+to the renderer as `playerTargetAddId` on the existing `setBattlePositions`
+payload, piggybacking on that call rather than adding a new round trip.
+
+**Fix, JS side**: `handleCombatVfxEvent`'s `actorFor` now resolves an
+unrecognized id against `st.addMeshes` and, if found, returns a lightweight
+position-only proxy (`{ pos, ch: { height }, isAdd: true }`) — enough for
+`spawnSplat`/`startLunge`/the outgoing-projectile target (all they read is
+`.pos.wx/wz`, `.ch.height`), but adds have no skeletal rig, so `flinch`/
+`playOverlay` are now guarded (`!victim.isAdd`) rather than crashing on a
+proxy with no `.mixer`. The player's facing block resolves `other` to the
+targeted add's mesh (via the new `st.playerTargetAddId`, stored by
+`setBattlePositions`) whenever one is set and alive, and — unlike boss
+engagement — this takes priority over `holdPosition`, since tapping an add
+is its own explicit action independent of boss-engagement state.
+
+**Verified** via Playwright against a real live Maggot King fight (not a
+mock): injected a synthetic add off to the side of the boss, set it as
+`playerTargetAddId`, fired the exact vfxEvent shape `AppendHitsplat` now
+produces for an add hit, and sampled real engine state. `overlayRoleImmediatelyAfter`
+was `"cast"` (style: magic, matching the report — the user was playing a
+caster). Facing converged cleanly toward the add's actual bearing
+(`1.573` rad sampled vs. `1.571` expected, `atan2` of the real relative
+position) within 4 frames, before the live game's own periodic
+`setBattlePositions` push (real `TargetId: null`, since no real
+`SetTargetCommand` was ever issued in the test) reverted it back toward
+the boss a few frames later — confirms both the add-targeting path and the
+boss-fallback path resolve correctly, and that this reversion is the live
+app's own real state winning the race, not a flaw in the fix. The impact
+splat spawned at `x=3.5`, exactly the add's world position, not the boss's
+(`x=-1.75`). `dotnet build`/`test`: 69/69 passed, unaffected. Zero new
+console errors (only the two pre-existing "known noise" entries per the
+`verify` skill).
+
+---
+
 ## Post-merge, round 4 (user-reported): round 3's facing fix reverted
 
 Round 3 made engagement beat movement for the player's facing (an engaged
