@@ -105,18 +105,36 @@ function buildBurstSystem(row, color) {
         }),
     });
     // Fade out over the full lifetime; color stays constant (no doctrine
-    // meaning to encode — see vfx-plan.md's note on --border here).
+    // meaning to encode — see vfx-plan.md's note on --border here). Alpha
+    // defaults to an instant pop to alphaPeak then a linear fade (every
+    // combat-effect row's existing, unchanged look); a row can opt into a
+    // quick fade-IN first (fadeInFrac > 0) — dust_puff does, since an
+    // instant-opaque circle read as a flat smudge rather than a puff
+    // (playtest report: "feels cheap").
+    const alphaPeak = row.alphaPeak ?? 0.55;
+    const fadeInFrac = row.fadeInFrac ?? 0;
+    const alphaKeyframes = fadeInFrac > 0
+        ? [[0, 0], [alphaPeak, fadeInFrac], [0, 1]]
+        : [[alphaPeak, 0], [0, 1]];
     system.addBehavior(new ColorOverLife(new Gradient(
         [[new THREE.Vector3(color.r, color.g, color.b), 0], [new THREE.Vector3(color.r, color.g, color.b), 1]],
-        [[0.55, 0], [0, 1]],
+        alphaKeyframes,
     )));
     // Billows outward slightly as it fades, cheap "puff" read without a
     // second draw call.
     system.addBehavior(new SizeOverLife(new PiecewiseBezier([[new Bezier(1, 1.3, 1.6, 1.6), 0]])));
     // Mutated per-burst (see spawnBurst) to bias drift opposite whatever
     // direction triggered this event — kept as its own behavior instance so
-    // its x/z generators can be swapped without rebuilding the system.
-    const drift = new ForceOverLife(new ConstantValue(0), new ConstantValue(0.05), new ConstantValue(0));
+    // its x/z generators can be swapped without rebuilding the system. Y is
+    // a constant per-row upward lift (row.liftForce, default 0.05 — every
+    // existing combat-effect row's unchanged value); dust_puff raises it,
+    // since PointEmitter's fully-spherical initial velocity sends roughly
+    // half of every burst's particles downward with only 0.05 of upward
+    // counter-force to fight it, which visibly sank dust particles a few
+    // centimeters below the ground plane by mid-life (found by direct
+    // particle-position inspection, not just eyeballing) — read as clipping
+    // through the floor, part of the "feels cheap" report.
+    const drift = new ForceOverLife(new ConstantValue(0), new ConstantValue(row.liftForce ?? 0.05), new ConstantValue(0));
     system.addBehavior(drift);
     return { system, drift };
 }
@@ -304,5 +322,22 @@ export function createVfxSystem(scene) {
         },
         _ready: ready, // test/debug hook only
         _debugLiveParticles: () => totalLiveParticles(allSlots), // Playwright probe hook, mirrors api._battles
+        // Playwright probe hook: every dust slot's emitter world position +
+        // its live particles' own world positions, for diagnosing "spawned
+        // in the wrong place" reports without guessing from a screenshot.
+        _debugDustSlots: () => {
+            const pool = poolsByEvent.get('entity_moved')?.[0];
+            if (!pool) return [];
+            return pool.slots.map((slot, i) => ({
+                i,
+                emitter: slot.system.emitter.position.toArray().map(n => Number(n.toFixed(3))),
+                particleNum: slot.system.particleNum,
+                particles: slot.system.particles.slice(0, slot.system.particleNum).map(p => ({
+                    pos: [p.position.x, p.position.y, p.position.z].map(n => Number(n.toFixed(3))),
+                    age: Number(p.age?.toFixed(3)),
+                    life: Number(p.life?.toFixed(3)),
+                })),
+            }));
+        },
     };
 }
