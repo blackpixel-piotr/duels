@@ -265,3 +265,101 @@ lifetime:0.45, poolSize:8`. The freeze button: confirmed visible outside
 local UI toggle. (Freezing only gates the *boss's* own actions — the
 player's own attacks still land as normal while frozen, which is correct:
 the button's contract is "the enemy stops acting," not "combat pauses.")
+
+---
+
+## Post-merge, round 2: the "bigger/more often" tuning overshot — dark smudge + trailing artifacts
+
+User report, after playing with the round-1 tuning above: "theres some
+visual artifact spawning now when running related to the vfx but its not
+under the player. the dust animation isnt a good enough dust animation.
+feels cheap."
+
+**Investigation.** Round 1's numeric verification (getDustDebug round-
+tripping correctly) never actually *looked* at the result — it confirmed
+the tuning API was wired correctly, not that the tuned values looked good.
+This round started by adding a genuine Playwright-visible check: a new
+`_debugDustSlots()` probe hook (emitter position + live particles' own
+world positions/age/life, mirroring `_debugLiveParticles`'s existing
+convention) to rule out an actual position bug before assuming it was a
+feel/density problem, then screenshots (with the boss frozen via the new
+FREEZE button and `cameraMotion:'off'` so the frame is stable) to see the
+effect directly rather than reason about it from data alone — the lesson
+from `vfx-findings.md`'s very first round ("a screenshot alone had missed
+a real bug") cuts both ways: sampled state alone can also miss a real
+*look* problem that only shows up visually.
+
+- **No position-corruption bug found.** `_debugDustSlots()` showed every
+  live particle staying within a small, physically-sensible distance of
+  its *own* burst's emitter position (growing from ~0.01 units at spawn to
+  ~0.15-0.2 by the end of its ~0.35-0.45s life) — exactly what the
+  `ForceOverLife` drift + `startSpeed` config should produce. An earlier
+  reading of one diagnostic run *appeared* to show the player teleporting
+  8+ tiles ahead of the dust within ~200ms — traced to unreliable
+  `requestAnimationFrame`-counted timing in headless Chromium (the
+  `verify` skill's own "~12fps, GPU-stall" note), not a real discontinuity:
+  a follow-up check using real wall-clock `setTimeout` delays instead of
+  rAF-frame counts showed the player's rendered position advancing
+  smoothly and continuously toward its target, no snap. Recording this
+  because it's a real trap in this test harness, not just noise to ignore.
+- **Two real, visible problems, confirmed by actually looking at a
+  screenshot** (frozen boss, `cameraMotion:'off'`, zoomed/pitched for a
+  clear ground-level view — earlier screenshot attempts in this round kept
+  missing the ~0.35-0.45s window entirely due to `page.screenshot()`'s own
+  round-trip latency; catching it took polling `_debugLiveParticles()` in
+  a tight loop and screenshotting the instant it went nonzero):
+  1. **The dust rendered as a dark smudge, not light dust.** `colorToken:
+     "--border"` (`#4a3d2e`, "sandstone border" — chosen in iteration 1
+     specifically as a neutral non-doctrine token, not for its actual
+     shade) is a fairly dark brown; multiplied onto the procedural white-
+     radial-gradient texture with `NormalBlending` at up to 55% opacity
+     against the mid-brightness green ground (`#4a7038`), it read as a
+     near-black blob rather than a puff of kicked-up dirt — exactly what
+     "feels cheap" would describe. Switched to `--text` (`#d4c5a9`,
+     "parchment off-white") — still an existing neutral/non-doctrine
+     token (same "token, never raw hex" rule iteration 1 already
+     established for this row), just one that's actually the right
+     brightness for dust.
+  2. **Particles sank visibly below the ground plane.** `PointEmitter`'s
+     `initialize()` (read directly in the vendored three.quarks source)
+     gives every particle a fully spherical random initial velocity
+     direction — roughly half of any burst launches with a *downward* Y
+     component — against which the shared upward counter-force
+     (`ForceOverLife`'s Y, `0.05` for every effect) was far too weak to
+     compensate; `_debugDustSlots()` showed several particles' Y drop to
+     small negative values (e.g. `-0.046`) by mid-life, i.e. visibly
+     clipping through the floor. Made the lift force data-driven per row
+     (`row.liftForce`, default `0.05` — every existing combat-effect row
+     keeps today's exact value, unaffected) and raised dust's to `0.55`.
+- **Separately, round 1's own density bump (`poolSize` 3→8, `count` 5→9,
+  `size` 0.35→0.55, `lifetime` 0.4→0.45s) overshot "more often"** into
+  visibly multiple, larger, longer-lived puffs strung out along the
+  player's recent path during any fast/long move order — technically each
+  one *was* correctly placed at its own historical foot position (see the
+  "no position bug" finding above), but several simultaneously-visible
+  blobs trailing behind, once the player's continuous on-screen position
+  has moved on, is exactly what "an artifact... not under the player"
+  describes, even without any actual mispositioning. Dialed back to
+  `poolSize: 5`, `count: 7`, `size: 0.5`, `lifetime: 0.35` — still more/
+  bigger than the original iteration-1 baseline (3/5/0.35/0.4s), just not
+  as far over it as round 1 went.
+- **Added a fade-in.** Every particle in a burst spawns on the exact same
+  frame (`emissionBursts` fires the whole `count` at `time:0`) and the
+  existing alpha curve popped straight to `alphaPeak` with no ramp — an
+  instantly-opaque circle reads as a flat sprite, not a puff forming. Made
+  the curve data-driven (`row.alphaPeak` default `0.55`, `row.fadeInFrac`
+  default `0` — both match every existing row's current 2-keyframe curve
+  exactly when unset) and gave dust a quick `0 → alphaPeak` ramp over the
+  first 15% of its life before the existing fade-out.
+
+**Verified**: `dotnet build`/`test` (69/69, unaffected — JS + manifest
+only). Playwright: `getDustDebug` correctly read back the new baseline
+(`poolSize`/`count`/`size` reflected in `maxSlots`/the multiplier math),
+`setDustDebug`/reset still round-tripped correctly against the new
+baseline. Visual: a screenshot caught mid-burst (see the investigation
+above for how) shows a light, soft tan puff sitting directly under the
+trailing foot — no dark smudge, no visible ground-clipping, no stray
+blobs trailing behind. `_debugDustSlots()` is now a permanent Playwright
+probe hook (mirrors `_debugLiveParticles`), kept rather than removed after
+this investigation, for the next time a "looks wrong" report needs
+ground-truth particle positions instead of guessing from a screenshot.

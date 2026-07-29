@@ -4,12 +4,15 @@
       "event": "entity_moved",
       "effectId": "dust_puff",
       "texture": "procedural:radial_soft",
-      "count": 9,
-      "size": 0.55,
-      "lifetime": 0.45,
-      "colorToken": "--border",
+      "count": 7,
+      "size": 0.5,
+      "lifetime": 0.35,
+      "colorToken": "--text",
       "blend": "normal",
-      "poolSize": 8
+      "poolSize": 5,
+      "liftForce": 0.55,
+      "alphaPeak": 0.5,
+      "fadeInFrac": 0.15
     },
     {
       "event": "attack_swing",
