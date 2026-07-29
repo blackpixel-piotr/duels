@@ -4,11 +4,12 @@
       "event": "entity_moved",
       "effectId": "dust_puff",
       "texture": "procedural:radial_soft",
-      "count": 5,
-      "size": 0.35,
-      "lifetime": 0.4,
+      "count": 9,
+      "size": 0.55,
+      "lifetime": 0.45,
       "colorToken": "--border",
-      "blend": "normal"
+      "blend": "normal",
+      "poolSize": 8
     },
     {
       "event": "attack_swing",

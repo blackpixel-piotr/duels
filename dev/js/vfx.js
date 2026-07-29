@@ -89,7 +89,11 @@ function buildBurstSystem(row, color) {
         startSize: new IntervalValue(row.size * 0.75, row.size * 1.25),
         startColor: new ConstantColor(new THREE.Vector4(1, 1, 1, 1)),
         worldSpace: true,
-        maxParticle: row.count * 2, // headroom: previous burst's tail can still be fading
+        // 4x, not 2x: leaves headroom for a live countMult/sizeMult debug
+        // tweak (setDustDebug) to actually raise the burst count above the
+        // manifest baseline — maxParticle is fixed at construction time, so
+        // a live count boost silently truncates without this margin.
+        maxParticle: row.count * 4,
         emissionOverTime: new ConstantValue(0),
         emissionBursts: [{ time: 0, count: new ConstantValue(row.count), cycle: 1, interval: 0, probability: 1 }],
         shape: new PointEmitter(),
@@ -118,12 +122,19 @@ function buildBurstSystem(row, color) {
 }
 
 // A tiny fixed pool per effectId, round-robined — see DUST_POOL_SIZE's
-// comment for why pool size == concurrency cap. `all` is every slot ever
-// created (across every effect), used for the global particle budget below.
+// comment for why pool size == concurrency cap. A row's own `poolSize`
+// overrides the shared default (dust_puff wants more headroom than a
+// one-shot combat effect, since continuous movement re-triggers it far
+// more often); `all` is every slot ever created (across every effect),
+// used for the global particle budget below. `activeSlots` starts equal to
+// the full built pool but can be dialed down live (setDustDebug) without
+// tearing down/rebuilding systems — spawnBurst only round-robins through
+// the first `activeSlots` of them.
 function makePool(renderer, group, row, all) {
     const color = readColorToken(row.colorToken);
+    const poolSize = row.poolSize ?? DUST_POOL_SIZE;
     const slots = [];
-    for (let i = 0; i < DUST_POOL_SIZE; i++) {
+    for (let i = 0; i < poolSize; i++) {
         const { system, drift } = buildBurstSystem(row, color);
         renderer.addSystem(system);
         group.add(system.emitter);
@@ -131,7 +142,7 @@ function makePool(renderer, group, row, all) {
         slots.push(slot);
         all.push(slot);
     }
-    return { row, slots, cursor: 0 };
+    return { row, slots, cursor: 0, activeSlots: poolSize };
 }
 
 function totalLiveParticles(all) {
@@ -176,9 +187,18 @@ export function createVfxSystem(scene) {
     });
 
     function spawnBurst(pool, worldX, worldZ, dx, dz) {
-        const slot = pool.slots[pool.cursor];
-        pool.cursor = (pool.cursor + 1) % pool.slots.length;
-        const count = quality === 'low' ? Math.max(1, Math.round(pool.row.count / 2)) : pool.row.count;
+        // Round-robin only the first `activeSlots` of the built pool — lets
+        // setDustDebug dial concurrency down live without tearing down any
+        // ParticleSystem (see makePool's comment).
+        const activeCount = Math.max(1, Math.min(pool.activeSlots ?? pool.slots.length, pool.slots.length));
+        const slot = pool.slots[pool.cursor % activeCount];
+        pool.cursor = (pool.cursor + 1) % activeCount;
+        // Read the slot's OWN live emission count (setDustDebug may have
+        // raised/lowered it above the manifest row's baseline), not the
+        // static row default, so the particle-budget check stays accurate
+        // under a live tweak.
+        const liveCount = slot.system.emissionBursts[0].count.value ?? pool.row.count;
+        const count = quality === 'low' ? Math.max(1, Math.round(liveCount / 2)) : liveCount;
         makeRoomFor(allSlots, count);
         // Drift opposite the movement direction — tile deltas are already
         // axis-aligned to world space at this TILE scale (same assumption
@@ -235,6 +255,45 @@ export function createVfxSystem(scene) {
         },
         setQuality(q) {
             if (q === 'off' || q === 'low' || q === 'full') quality = q;
+        },
+        // Live movement-dust tuning (playtest request: "bigger, more often,
+        // and can I tweak this live"). Scoped to the entity_moved pool(s)
+        // only — the manifest currently has one (dust_puff, no style
+        // filter), but this loops every pool under the event in case a
+        // style-specific dust row is ever added later, same pattern
+        // attack_swing/impact already use. Mutates the already-built
+        // ParticleSystems in place (replacing their value-generator objects,
+        // same technique spawnBurst already uses for drift) rather than
+        // rebuilding pools, so a slider drag applies with no visible pop.
+        setDustDebug({ sizeMult, countMult, activeSlots } = {}) {
+            const list = poolsByEvent.get('entity_moved');
+            if (!list) return;
+            for (const pool of list) {
+                if (typeof activeSlots === 'number')
+                    pool.activeSlots = Math.max(1, Math.min(pool.slots.length, Math.round(activeSlots)));
+                for (const slot of pool.slots) {
+                    if (typeof sizeMult === 'number')
+                        slot.system.startSize = new IntervalValue(
+                            pool.row.size * 0.75 * sizeMult, pool.row.size * 1.25 * sizeMult);
+                    if (typeof countMult === 'number')
+                        slot.system.emissionBursts[0].count =
+                            new ConstantValue(Math.max(1, Math.round(pool.row.count * countMult)));
+                }
+            }
+        },
+        // Current tuning, read off the first dust pool/slot — all slots in
+        // a pool are always kept in sync by setDustDebug above, so any one
+        // is representative. Returns null before the manifest has loaded.
+        getDustDebug() {
+            const pool = poolsByEvent.get('entity_moved')?.[0];
+            if (!pool) return null;
+            const s = pool.slots[0].system;
+            return {
+                sizeMult: Number((s.startSize.b / (pool.row.size * 1.25)).toFixed(3)),
+                countMult: Number((s.emissionBursts[0].count.value / pool.row.count).toFixed(3)),
+                activeSlots: pool.activeSlots,
+                maxSlots: pool.slots.length,
+            };
         },
         dispose() {
             for (const slot of allSlots) {
