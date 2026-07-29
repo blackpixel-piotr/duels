@@ -12,7 +12,8 @@
       "poolSize": 5,
       "liftForce": 0.55,
       "alphaPeak": 0.5,
-      "fadeInFrac": 0.15
+      "fadeInFrac": 0.15,
+      "spreadRadius": 0.3
     },
     {
       "event": "attack_swing",

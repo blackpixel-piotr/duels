@@ -114,6 +114,11 @@
                 <input type="range" min="1" max="@_dustMaxSlots" step="1"
                        value="@_dustActiveSlots" @oninput="@(e => OnDustInput(e, v => _dustActiveSlots = v))" />
             </div>
+            <div class="cam-debug-row">
+                <label>Dust spread × <span>@_dustSpreadMult.ToString("0.00")</span></label>
+                <input type="range" min="0.3" max="3" step="0.05"
+                       value="@_dustSpreadMult" @oninput="@(e => OnDustInput(e, v => _dustSpreadMult = v))" />
+            </div>
             <button class="cam-debug-reset" @onclick="ResetDustDebug">Reset</button>
         </div>
     }
@@ -276,8 +281,9 @@
     private double _dustCountMult = 1.0;
     private double _dustActiveSlots = 8;
     private int _dustMaxSlots = 8;
+    private double _dustSpreadMult = 1.0;
 
-    private sealed record DustDebug(double SizeMult, double CountMult, double ActiveSlots, int MaxSlots);
+    private sealed record DustDebug(double SizeMult, double CountMult, double ActiveSlots, int MaxSlots, double? SpreadMult);
 
     private async Task ToggleVfxPanel()
     {
@@ -287,6 +293,7 @@
             var d = await JS.InvokeAsync<DustDebug>("voxel.getDustDebug", "battle-canvas");
             _dustSizeMult = d.SizeMult; _dustCountMult = d.CountMult;
             _dustActiveSlots = d.ActiveSlots; _dustMaxSlots = d.MaxSlots;
+            _dustSpreadMult = d.SpreadMult ?? 1.0;
         }
         StateHasChanged();
     }
@@ -301,11 +308,12 @@
         JS.InvokeVoidAsync("voxel.setDustDebug", "battle-canvas", new
         {
             sizeMult = _dustSizeMult, countMult = _dustCountMult, activeSlots = _dustActiveSlots,
+            spreadMult = _dustSpreadMult,
         }).AsTask();
 
     private Task ResetDustDebug()
     {
-        _dustSizeMult = 1.0; _dustCountMult = 1.0; _dustActiveSlots = _dustMaxSlots;
+        _dustSizeMult = 1.0; _dustCountMult = 1.0; _dustActiveSlots = _dustMaxSlots; _dustSpreadMult = 1.0;
         return PushDustDebug();
     }
 

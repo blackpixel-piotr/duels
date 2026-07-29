@@ -2065,9 +2065,9 @@ const api = {
     // matches the MOVE/CAM debug panels' convention, not PREFS's.
     async getDustDebug(canvasId) {
         const st = battles.get(canvasId);
-        if (!st) return { sizeMult: 1, countMult: 1, activeSlots: 1, maxSlots: 1 };
+        if (!st) return { sizeMult: 1, countMult: 1, activeSlots: 1, maxSlots: 1, spreadMult: 1 };
         await st.vfx._ready; // manifest may not have loaded yet if the panel is opened very early
-        return st.vfx.getDustDebug() ?? { sizeMult: 1, countMult: 1, activeSlots: 1, maxSlots: 1 };
+        return st.vfx.getDustDebug() ?? { sizeMult: 1, countMult: 1, activeSlots: 1, maxSlots: 1, spreadMult: 1 };
     },
     setDustDebug(canvasId, tune) {
         const st = battles.get(canvasId);

@@ -417,3 +417,75 @@ is the particles' own small pre-existing drift/spread, not error). This
 is a stronger verification than a lucky screenshot would have been: it
 confirms the *exact* coefficient is applied, not just "some plausible-
 looking movement happened."
+
+(A separate, unrelated report the same session — "a rectangle spawns in
+the middle of the arena on every move" — could not be reproduced despite
+scene-graph diffing before/after moves, screenshots from several camera
+angles, and a full console-message dump; the user later reported it
+resolved itself. Not otherwise investigated further; noting it here only
+so it isn't mistaken for a duplicate of round 2's dark-smudge report if
+it resurfaces.)
+
+---
+
+## Post-merge, round 4: dust particles all spawn at the same point — "one big ball"
+
+User report: "if the dust particles are size max, it looks like one big
+ball - shouldn't there be a separate particle size + count? more dirt
+means more particles spaced out in some natural looking manner, not a
+clump creating a sphere."
+
+**Root cause**: `PointEmitter` (the default shape for every manifest row,
+dust included) gives every particle in a burst the *exact same spawn
+position* — `initialize()` sets `p.position.setScalar(0)` unconditionally,
+read directly in the vendored three.quarks source. Only each particle's
+own random *velocity* separates them afterward, over the burst's
+lifetime. Size and count *were* already independent, live-tunable knobs
+(`setDustDebug`'s `sizeMult`/`countMult`, since the previous VFX debug-
+panel round) — the report's implicit "shouldn't these be separate?" was
+really "why does turning either one up make it worse, not better?" — and
+the answer is that neither one addressed the actual missing ingredient:
+spawn-time *positional* variance. With zero spatial spread at t=0, a
+bigger per-particle size just means more overlap between same-origin
+circles (reads as one bigger blob), and a higher count just stacks more
+overlapping circles on the same spot (denser blob, still one shape) —
+count was never going to read as "spaced-out dirt" without particles
+actually starting in different places.
+
+**Fix**: gave `dust_puff` its own emission shape — `CircleEmitter` (a
+filled disc, `thickness:1`) instead of `PointEmitter` — via a new
+manifest field `spreadRadius` (`0.3`), read in `buildBurstSystem`; every
+row without `spreadRadius` set keeps the exact unchanged `PointEmitter`
+behavior (no combat effect was touched). `CircleEmitter`'s disc lies in
+its own local XY plane (checked directly in the vendored source:
+`position.x=cos(theta), position.y=sin(theta), z=0`) — the *same*
+`-90°`-about-X rotation the ground plane itself already uses
+(`ground.rotation.x = -Math.PI/2`) reorients it flat onto the world XZ
+ground plane instead of standing upright facing the camera; applied once
+to `system.emitter.rotation.x` at construction (`spawnBurst` only ever
+touches the emitter's *position* per burst, never rotation, so a one-time
+setup is enough). A useful side effect: since the disc now supplies
+purely horizontal (Y=0) initial velocity, dust can no longer be launched
+downward through the floor at all — round 2's `liftForce` fix (raising
+the upward counter-force) is now a belt-and-suspenders measure rather
+than the only thing preventing ground-clipping, for this row.
+
+Added a fourth live-tunable dial, `spreadMult` (mutating
+`emitterShape.radius` directly — a plain field on `CircleEmitter`, no
+value-generator wrapper needed, unlike size/count), plus a matching "Dust
+spread ×" slider in the `VFX` debug panel and `ResetDustDebug` reset.
+`setDustDebug`/`getDustDebug` no-op that field for rows without
+`spreadRadius` (i.e. every combat effect), so this stays entirely scoped
+to dust.
+
+**Verified**: `dotnet build`/`test` (69/69, unaffected). A deterministic
+Playwright check (same reasoning as round 3's — real-movement screenshots
+keep missing the ~0.35s window) spawned one burst and sampled every
+particle's position on the very first frame, *before* any lifetime drift
+could contribute — isolating spawn-time scatter specifically. Result: 7
+particles landed across a `0.458 × 0.327` world-unit footprint (previously
+would have been `0 × 0` — literally one point) and every particle's `y`
+was exactly `0.05` (the emitter's set height), confirming the disc lies
+flat with zero vertical scatter as intended. `setDustDebug({spreadMult:
+2})` correctly doubled `emitterShape.radius`, read back via
+`getDustDebug`.
