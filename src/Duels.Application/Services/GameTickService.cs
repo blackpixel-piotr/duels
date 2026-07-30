@@ -354,8 +354,24 @@ public sealed class GameTickService : IDisposable
             npc.ResetMovementCounter();
         }
 
+        var prev = state.NpcTile;
         var step = NextStepToward(state, state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
         state.SetNpcTile(step.X, step.Z);
+        EmitNpcStepDust(state, prev);
+    }
+
+    // Movement dust for a WALKED boss step (combat-feel-2 §9) — the player
+    // has had this since the first VFX pass; the boss stepping dustlessly
+    // read as weightless. Ordinary steps only: dashes/repositions are
+    // teleports (NpcTeleport log kind → discontinuous snap), not steps.
+    private static void EmitNpcStepDust(GameState state, (int X, int Z) prev)
+    {
+        if (state.NpcTile == prev) return;
+        state.AppendVfxEvent("entity_moved", "enemy", new Dictionary<string, object>
+        {
+            ["dx"] = state.NpcTile.X - prev.X,
+            ["dz"] = state.NpcTile.Z - prev.Z,
+        });
     }
 
     // Hive Matron's movement AI (Boss Bible §2 "Core movement AI"): holds a
@@ -368,6 +384,7 @@ public sealed class GameTickService : IDisposable
     private static void ProcessSpacingAiMovement(GameState state, NpcInstance npc, SpacingAiDef ai)
     {
         int dist = state.DistanceToNpc;
+        var prev = state.NpcTile;
         if (dist < ai.PreferredRangeMin)
         {
             var away = StepAwayFrom(state, state.NpcTile, state.PlayerTile);
@@ -379,6 +396,7 @@ public sealed class GameTickService : IDisposable
             var step = NextStepToward(state, state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
             state.SetNpcTile(step.X, step.Z);
         }
+        EmitNpcStepDust(state, prev);
     }
 
     private void ProcessAdds(GameState state)

@@ -327,7 +327,7 @@ export function createVfxSystem(scene) {
         }
     });
 
-    function spawnBurst(pool, worldX, worldZ, dx, dz) {
+    function spawnBurst(pool, worldX, worldZ, dx, dz, ownerId) {
         // Round-robin only the first `activeSlots` of the built pool — lets
         // setDustDebug dial concurrency down live without tearing down any
         // ParticleSystem (see makePool's comment).
@@ -360,6 +360,7 @@ export function createVfxSystem(scene) {
         slot.system.emitter.updateWorldMatrix(true, false);
         slot.system.restart();
         slot.lastUsedAt = performance.now();
+        slot.lastOwner = ownerId; // dragDust only follows the player's own dust
     }
 
     // Nudges every currently-alive dust particle by (dx, dz) *
@@ -376,6 +377,9 @@ export function createVfxSystem(scene) {
         if (!list) return;
         for (const pool of list) {
             for (const slot of pool.slots) {
+                // Boss steps emit entity_moved too now — their dust must not
+                // be dragged around by the PLAYER's movement delta.
+                if (slot.lastOwner !== 'player') continue;
                 const particles = slot.system.particles;
                 for (let i = 0; i < slot.system.particleNum; i++) {
                     particles[i].position.x += dx;
@@ -409,7 +413,7 @@ export function createVfxSystem(scene) {
                     // fires (iteration 1's dust_puff, entity_moved has no
                     // style at all).
                     if (pool.row.style && pool.row.style !== ev.data?.style) continue;
-                    spawnBurst(pool, pos.wx, pos.wz, dx, dz);
+                    spawnBurst(pool, pos.wx, pos.wz, dx, dz, ev.entityId);
                 }
             }
         },
