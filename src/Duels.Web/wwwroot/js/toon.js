@@ -752,19 +752,32 @@ async function makeActor(st, key, colors) {
     return actor;
 }
 
-// One-shot overlay: attacks / hit reactions / eat / death.
-function playOverlay(actor, role, { ts = 1, fade = TRANSITION_S.walkAttack, hold = false, force = true } = {}) {
+// One-shot overlay: attacks / hit reactions / eat / death. One slot per
+// actor, arbitrated by kind priority — before this pass it was last-writer-
+// wins (force:true everywhere), so when one setVfxEvents batch carried both
+// an attack_swing and an impact (attacker and victim events land in the
+// same tick's array), whichever happened to be later in the array clobbered
+// the other, arbitrarily.
+// PROVISIONAL: priority ordering is behavior-design judgment, no design-doc
+// source. Equal replaces equal on purpose: an attack chains into the next
+// attack, and the real swing (attack 50) interrupts its own windup (45) —
+// the "sudden release" read the telegraph system was designed around.
+const OVERLAY_PRIORITY = {
+    death: 100, spec: 60, attack: 50, bigHit: 48, windup: 45,
+    block: 40, flinch: 30, eat: 25,
+};
+function playOverlay(actor, role, { ts = 1, fade = TRANSITION_S.walkAttack, hold = false, kind = 'attack' } = {}) {
     const clip = actor.clips[role];
     if (!clip || actor.crumbled && role !== 'death') return;
     if (actor.overlay) {
-        if (!force) return;
+        if ((OVERLAY_PRIORITY[kind] ?? 0) < (OVERLAY_PRIORITY[actor.overlay.kind] ?? 0)) return;
         actor.overlay.action.fadeOut(TRANSITION_S.walkAttack);
     }
     const a = actor.mixer.clipAction(clip);
     a.reset().setLoop(THREE.LoopOnce, 1);
     a.clampWhenFinished = hold;
     a.setEffectiveTimeScale(ts).setEffectiveWeight(1).fadeIn(fade).play();
-    actor.overlay = { action: a, role, hold };
+    actor.overlay = { action: a, role, hold, kind };
 }
 
 // ── StyleTelegraphSystem (shared, boss-agnostic) ──────────────────────────
@@ -775,8 +788,9 @@ function playOverlay(actor, role, { ts = 1, fade = TRANSITION_S.walkAttack, hold
 
 // Windup pose: the same attack-role clip the real swing will use, played at
 // a fraction of speed so it visibly "winds up" rather than immediately
-// resolving — the actual attack (played at full speed, force:true) then
-// naturally interrupts and reads as the sudden release. 'ambiguous' (the
+// resolving — the actual attack (played at full speed; attack outranks
+// windup in OVERLAY_PRIORITY) then naturally interrupts and reads as the
+// sudden release. 'ambiguous' (the
 // compound style-shift telegraph) deliberately falls through to the plain
 // melee swing-start below rather than getting its own branch — a bow-draw
 // or cast pose would commit to a specific style the same way the old green
@@ -818,9 +832,12 @@ function blockRoleForStyle(style) {
 // for the same reason.
 function flinch(actor, tier, dmg) {
     if (actor.crumbled || tier === 'miss' || tier === 'poison' || tier === 'blocked') return;
-    if (actor.overlay && actor.overlay.role !== 'hitA' && actor.overlay.role !== 'hitB') return;
+    // "Never interrupt a swing" now lives in the OVERLAY_PRIORITY table
+    // (flinch 30 loses to attack/windup/block) instead of the old role-name
+    // check here — which had a nasty side effect: a stuck hold:true windup
+    // overlay disabled flinching permanently.
     const big = tier === 'heavy' || tier === 'spec' || tier === 'boss' || tier === 'max';
-    playOverlay(actor, big ? 'hitB' : 'hitA', { ts: 1.25, fade: TRANSITION_S.hitReact });
+    playOverlay(actor, big ? 'hitB' : 'hitA', { ts: 1.25, fade: TRANSITION_S.hitReact, kind: 'flinch' });
 }
 
 // Damage-number sprite, positioned at the actor's live rendered spot.
@@ -1867,7 +1884,7 @@ function handleCombatVfxEvent(st, ev, now) {
             const tier = ev.data?.tier ?? 'normal';
             const armed = attacker === st.player ? !!st.weaponId : true; // bosses are always "armed" (swordA/B, never punch)
             playOverlay(attacker, attackRoleForStyle(attacker, style, armed, tier),
-                { ts: attacker === st.player ? 1.15 : 1.1 });
+                { ts: attacker === st.player ? 1.15 : 1.1, kind: tier === 'spec' ? 'spec' : 'attack' });
             // Melee only — a caster/archer stays put and fires at range;
             // physically lunging forward to cast a spell or loose an arrow
             // read as a "sword lunge" regardless of which clip played.
@@ -1920,12 +1937,12 @@ function handleCombatVfxEvent(st, ev, now) {
             // successful defense shouldn't look like getting hit); this
             // case was accidentally defeating that same principle.
             const role = blockRoleForStyle(style);
-            if (role && !victim.isAdd) playOverlay(victim, role, { ts: 1.1 }); // adds are fodder/real-HP, never block — defensive, not reachable today
+            if (role && !victim.isAdd) playOverlay(victim, role, { ts: 1.1, kind: 'block' }); // adds are fodder/real-HP, never block — defensive, not reachable today
             break;
         }
         case 'flask_sip':
             // Flask belt (m1-plan Workstream E) reuses the raise-to-mouth clip.
-            playOverlay(st.player, 'eat', { ts: 1.3 });
+            playOverlay(st.player, 'eat', { ts: 1.3, kind: 'eat' });
             break;
         case 'perfect_dodge': {
             // Gold glint at the player's feet — always a reward, never
@@ -1959,7 +1976,7 @@ function handleCombatVfxEvent(st, ev, now) {
             // gap-closer: no hit reaction, the accompanying attack_swing
             // brings the swing clip.
             if (ev.data?.cause === 'knockback' && !actor.isAdd)
-                playOverlay(actor, 'hitBig', { ts: 1.1, fade: TRANSITION_S.hitReact });
+                playOverlay(actor, 'hitBig', { ts: 1.1, fade: TRANSITION_S.hitReact, kind: 'bigHit' });
             break;
         }
     }
@@ -2011,9 +2028,22 @@ const api = {
         const st = battles.get(canvasId);
         if (!st) return;
         const rising = t?.active && !st.telegraph?.active;
+        const falling = !t?.active && st.telegraph?.active;
         st.telegraph = t;
+        // Falling edge: release a still-held windup pose. The windup is
+        // hold:true (the pose must persist until the cast) and the mixer's
+        // 'finished' listener deliberately skips held overlays — so before
+        // this pass, any telegraph whose cast resolved without an
+        // attack_swing on the boss itself left the overlay stuck for the
+        // REST OF THE FIGHT: locomotion damped (frozen legs on every
+        // subsequent move) and, via the old flinch guard, boss flinches
+        // permanently disabled.
+        if (falling && st.enemy.overlay?.kind === 'windup') {
+            st.enemy.overlay.action.fadeOut(TRANSITION_S.attackIdle);
+            st.enemy.overlay = null;
+        }
         if (!rising) return;
-        playOverlay(st.enemy, windupRoleForStyle(st.enemy, t.style ?? 'melee'), { ts: 0.35, fade: 0.15, hold: true });
+        playOverlay(st.enemy, windupRoleForStyle(st.enemy, t.style ?? 'melee'), { ts: 0.35, fade: 0.15, hold: true, kind: 'windup' });
     },
     setBattleVitals(canvasId, v) {
         const st = battles.get(canvasId);
@@ -2304,7 +2334,7 @@ const api = {
             case 'enemyDeath': case 'playerDeath': {
                 const dying = evt.type === 'enemyDeath' ? st.enemy : st.player;
                 dying.crumbled = true;
-                playOverlay(dying, 'death', { ts: 1, fade: TRANSITION_S.death, hold: true });
+                playOverlay(dying, 'death', { ts: 1, fade: TRANSITION_S.death, hold: true, kind: 'death' });
                 break;
             }
         }
