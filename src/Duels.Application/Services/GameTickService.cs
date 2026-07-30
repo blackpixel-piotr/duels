@@ -637,6 +637,10 @@ public sealed class GameTickService : IDisposable
         {
             ["fromX"] = (double)fromTile.X, ["fromZ"] = (double)fromTile.Z,
             ["toX"] = (double)adjacent.X, ["toZ"] = (double)adjacent.Z,
+            // What kind of forced move this was — the player's own gap-closer,
+            // not being hit. The renderer keys the reaction off it (a lunge
+            // slides into the swing; a knockback also plays a hit reaction).
+            ["cause"] = "lunge",
         });
         ExecuteSpecialHit(state, player, npc, weapon, "Lunge");
     }
@@ -2026,6 +2030,7 @@ public sealed class GameTickService : IDisposable
             {
                 ["fromX"] = (double)from.X, ["fromZ"] = (double)from.Z,
                 ["toX"] = (double)target.X, ["toZ"] = (double)target.Z,
+                ["cause"] = "knockback", // being hit away — see ExecuteLunge's note
             });
         }
     }

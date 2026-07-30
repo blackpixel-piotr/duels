@@ -855,6 +855,11 @@ const SLIDE_MS = 150;
 const LANDING_SQUASH_MS = 120;
 
 function startLunge(actor, targetActor, now) {
+    // The Lunge special teleports + swings on one tick: its forced_move slide
+    // (the real traversal read) must not be clobbered by this cosmetic
+    // attack nudge sharing the presentFx slot — the swing overlay still
+    // plays either way.
+    if (actor.presentFx?.kind === 'slide') return;
     const dx = targetActor.pos.wx - actor.pos.wx, dz = targetActor.pos.wz - actor.pos.wz;
     const dist = Math.hypot(dx, dz) || 1;
     const reach = MAX_LUNGE_TILES * TILE;
@@ -1937,7 +1942,24 @@ function handleCombatVfxEvent(st, ev, now) {
         }
         case 'forced_move': {
             const actor = actorFor(ev.entityId);
-            startForcedMoveSlide(actor, ev.data?.fromX ?? actor.pos.wx, ev.data?.fromZ ?? actor.pos.wz, now);
+            // The sim sends TILE coordinates (its native unit — the sim never
+            // speaks world units); convert before differencing against the
+            // world-space render position. Sent raw before this pass, which
+            // made every slide offset garbage.
+            const fx = ev.data?.fromX, fz = ev.data?.fromZ;
+            // Defensive: setBattlePositions (which snaps the player on its
+            // discontinuous flag) runs earlier in the same render, but a
+            // coalesced render could break that ordering — make sure the
+            // render position really is at the post-move tile before
+            // computing the "slide back from" offset against it.
+            if (actor === st.player && actor.target) { actor.pos.wx = actor.target.wx; actor.pos.wz = actor.target.wz; }
+            startForcedMoveSlide(actor, fx !== undefined ? fx * TILE : actor.pos.wx, fz !== undefined ? fz * TILE : actor.pos.wz, now);
+            // A knockback is also a HIT — the extracted Hit_Knockback clip
+            // (hitBig) finally earns its keep. A lunge is the player's own
+            // gap-closer: no hit reaction, the accompanying attack_swing
+            // brings the swing clip.
+            if (ev.data?.cause === 'knockback' && !actor.isAdd)
+                playOverlay(actor, 'hitBig', { ts: 1.1, fade: TRANSITION_S.hitReact });
             break;
         }
     }
@@ -2109,7 +2131,17 @@ const api = {
         if (pos.player) {
             const wx = pos.player.x * TILE, wz = pos.player.z * TILE;
             const p = st.player;
-            if (!p.target || p.target.wx !== wx || p.target.wz !== wz) {
+            if (pos.player.discontinuous) {
+                // Teleport (Lunge, knockback): snap the render position to the
+                // new tile immediately — this flag used to be dropped for the
+                // player, so a 2-tile Lunge run-slid across the gap at walk
+                // speed with the attack overlay damping the legs (the
+                // flagship "slides with straight legs" repro). The
+                // forced_move event that accompanies every player teleport
+                // then paints the traversal as a presentFx slide on top.
+                p.target = { wx, wz };
+                p.pos.wx = wx; p.pos.wz = wz;
+            } else if (!p.target || p.target.wx !== wx || p.target.wz !== wz) {
                 p.target = { wx, wz };
                 // Adaptive pursuit speed: cover however far this tick moved
                 // the target over one full tick window, so a 1-tile step
