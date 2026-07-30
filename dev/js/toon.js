@@ -2339,6 +2339,33 @@ const api = {
         const st = battles.get(canvasId);
         return { fov: 15, tilt: 0.3, pitch: st?.camPitch ?? 0.62, zoom: st?.zoom ?? 1 };
     },
+    // Animation/interpolation probe (combat-feel-2 §11) — lets Playwright
+    // assert the smoothness invariants (lerp windows not restarting between
+    // ticks, gait speed staying in band, overlays clearing) numerically
+    // instead of from screenshots. Same convention as getCameraDebug.
+    getAnimDebug(canvasId) {
+        const st = battles.get(canvasId);
+        if (!st) return null;
+        const actorInfo = a => ({
+            speedSm: Number(a.speedSm.toFixed(3)),
+            overlayRole: a.overlay?.role ?? null,
+            overlayKind: a.overlay?.kind ?? null,
+            additiveFlinch: !!a.additiveFx,
+            locoWeights: a.loco.map(n => Number(n.w.toFixed(3))),
+            pos: { wx: Number(a.pos.wx.toFixed(3)), wz: Number(a.pos.wz.toFixed(3)) },
+            facing: Number(a.facing.toFixed(3)),
+            snapT0: a.snapT0 ?? null,
+            snapTick: a.snapTick ?? null,
+            snapWindow: a.snapWindow ? Number(a.snapWindow.toFixed(1)) : null,
+            moveSpeed: a.moveSpeed ? Number((a.moveSpeed * 1000).toFixed(3)) : null,
+        });
+        return {
+            player: actorInfo(st.player),
+            enemy: actorInfo(st.enemy),
+            projectiles: st.projectileMeshes.size,
+            cosmeticProjectiles: st.projectiles.length,
+        };
+    },
     setCameraDebug(canvasId, d) {
         const st = battles.get(canvasId);
         if (!st) return;
