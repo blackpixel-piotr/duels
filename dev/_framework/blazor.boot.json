@@ -1,7 +1,7 @@
 {
   "mainAssemblyName": "Duels.Web",
   "resources": {
-    "hash": "sha256-Y8HEf6qWesmFCWMF2eQyRmlDRuktQDptWuAfhSUl4C8=",
+    "hash": "sha256-jwiWRi3o17WCgzGww7vKetS7pqytqHny+w1c6GTPABc=",
     "jsModuleNative": {
       "dotnet.native.js": "sha256-JTswf4CBcNmmrTGm6DppxYNII8GVEmbA3iXD3bU1fcA="
     },
@@ -13,10 +13,10 @@
     },
     "coreAssembly": {},
     "assembly": {
-      "Duels.Application.wasm": "sha256-Ixvm6C8cAhvpY9nAr2u/wbekl/aKrI1DtT+b4cdDwEg=",
-      "Duels.Domain.wasm": "sha256-Yuy2flo0+Fnt7NRci8TdV8EufKCVZkKilO6a8rtCh0w=",
-      "Duels.Infrastructure.wasm": "sha256-SECnnIPlaKgi9/7KU6bPU/iKvY0G+44lvoZr1Um4HQQ=",
-      "Duels.Web.wasm": "sha256-NXM02yWJoLC90hfIe/KApUlGbvbLsFHMK2eGRD9522E=",
+      "Duels.Application.wasm": "sha256-Kk++gO98LbhpSxOfEvwC8tu/8jwvF/+XnM4wPjO3whE=",
+      "Duels.Domain.wasm": "sha256-RCGKTUIvLJ7bIVM7g4lG9lqLlhhbA9ZrkYOZw1I1P0U=",
+      "Duels.Infrastructure.wasm": "sha256-cOvNy58R0y7iO8QAAbCGMV50RXMDRDleAXSqQDQF/ZE=",
+      "Duels.Web.wasm": "sha256-XxDcRuCuSbIDv7EtPTyFm8cL9vo8vxN2BvSkhdW0xHE=",
       "Microsoft.AspNetCore.Components.Web.wasm": "sha256-qX1KyI1ld2ERAD7ZdPprg3yOBnjrwqRmIpZ/QL0i8/8=",
       "Microsoft.AspNetCore.Components.WebAssembly.wasm": "sha256-VJpHvwKmfVfmpiHwzsbYA/m9ilj9Y/wyf2s3QtW9vGY=",
       "Microsoft.AspNetCore.Components.wasm": "sha256-LI5TLwI1cvXiW1S+vAPzE0kRDat3sB0/uiSKoKf/5mc=",
