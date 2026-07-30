@@ -124,12 +124,24 @@ function interpolateSnapshot(entity, now) {
         dz: entity.snapTo.wz - entity.snapFrom.wz,
     };
 }
-function applySnapshot(entity, wx, wz, discontinuous, now) {
+function applySnapshot(entity, wx, wz, discontinuous, now, tick) {
+    // Idempotency guard: Blazor renders fire on any command dispatch (prayer
+    // flick, tap), not just sim ticks, and each re-send used to re-base
+    // snapFrom to the live position and restart the lerp window — the
+    // remaining distance got re-spread over a fresh TILE_MS, so the derived
+    // gait speed (window span / TILE_MS) decayed toward zero while the mesh
+    // still translated: the "slides with straight legs" bug. Same sim tick +
+    // same target ⇒ nothing new happened ⇒ keep the running lerp untouched.
+    // tick compares with !== (not <): FightTicks resets to 0 on a rematch.
+    if (!discontinuous && entity.snapTo
+        && entity.snapTo.wx === wx && entity.snapTo.wz === wz
+        && (tick === undefined || entity.snapTick === tick)) return;
     const cur = interpolateSnapshot(entity, now);
     const tooFar = cur && Math.hypot(wx - cur.wx, wz - cur.wz) > SNAP_DIST;
     entity.snapFrom = (discontinuous || !cur || tooFar) ? { wx, wz } : { wx: cur.wx, wz: cur.wz };
     entity.snapTo = { wx, wz };
     entity.snapT0 = now;
+    entity.snapTick = tick;
 }
 
 // UI bible §1 doctrine palette — melee red-orange / ranged green / magic
@@ -2079,7 +2091,7 @@ const api = {
         // Player: constant-speed pursuit target (see MOVE_SPEED / the player
         // block in loop()) — not the snapshot-interpolation layer.
         if (pos.player) st.player.target = { wx: pos.player.x * TILE, wz: pos.player.z * TILE };
-        if (pos.enemy) applySnapshot(st.enemy, pos.enemy.x * TILE, pos.enemy.z * TILE, !!pos.enemy.discontinuous, performance.now());
+        if (pos.enemy) applySnapshot(st.enemy, pos.enemy.x * TILE, pos.enemy.z * TILE, !!pos.enemy.discontinuous, performance.now(), pos.tick);
         // The add the player is currently attacking, if any — see the player
         // facing block in loop() and handleCombatVfxEvent's actorFor.
         st.playerTargetAddId = pos.playerTargetAddId ?? null;
@@ -2167,7 +2179,7 @@ const api = {
             // raw sim tile here instead, which meant a tap aimed at the
             // still-lerping visible sphere could miss by up to a full tile
             // (bug report: "cannot target them when they're moving").
-            applySnapshot(m, a.x * TILE, a.z * TILE, !!a.discontinuous, performance.now());
+            applySnapshot(m, a.x * TILE, a.z * TILE, !!a.discontinuous, performance.now(), a.tick);
             const hpPct = Math.max(0, Math.min(100, a.hpPct ?? 100));
             m.material.color.set(hpPct <= 50 ? '#b23a3a' : '#7a9e3a');
         }
