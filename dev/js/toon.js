@@ -115,7 +115,11 @@ const previews = new Map();   // canvasId → equipment-preview state (M2 Workst
 // than have it slide visibly across the arena.
 function interpolateSnapshot(entity, now) {
     if (!entity.snapTo) return null; // no snapshot received yet
-    const frac = Math.min(1, Math.max(0, (now - entity.snapT0) / TILE_MS));
+    // Lerp over the MEASURED inter-snapshot interval, not the nominal
+    // TILE_MS: ticks never land exactly 600ms apart (tick jitter + Blazor
+    // render + interop latency), and a fixed window made every NPC arrive
+    // early and dwell idle until the next snapshot — a per-tick gait hitch.
+    const frac = Math.min(1, Math.max(0, (now - entity.snapT0) / (entity.snapWindow ?? TILE_MS)));
     return {
         wx: entity.snapFrom.wx + (entity.snapTo.wx - entity.snapFrom.wx) * frac,
         wz: entity.snapFrom.wz + (entity.snapTo.wz - entity.snapFrom.wz) * frac,
@@ -138,6 +142,16 @@ function applySnapshot(entity, wx, wz, discontinuous, now, tick) {
         && (tick === undefined || entity.snapTick === tick)) return;
     const cur = interpolateSnapshot(entity, now);
     const tooFar = cur && Math.hypot(wx - cur.wx, wz - cur.wz) > SNAP_DIST;
+    // Measured snapshot cadence (EMA), used as the lerp window above. Only a
+    // continuous update samples it — a teleport/first-snapshot interval says
+    // nothing about tick pacing. Clamped so an entity that idled for many
+    // ticks before moving again can't stretch the window absurdly.
+    // PROVISIONAL: [1, 1.4]×TILE_MS clamp + 0.3 EMA alpha — jitter
+    // absorption, no design-doc source.
+    if (!discontinuous && cur) {
+        const iv = Math.min(TILE_MS * 1.4, Math.max(TILE_MS, now - entity.snapT0));
+        entity.snapWindow = entity.snapWindow ? entity.snapWindow + (iv - entity.snapWindow) * 0.3 : iv;
+    }
     entity.snapFrom = (discontinuous || !cur || tooFar) ? { wx, wz } : { wx: cur.wx, wz: cur.wz };
     entity.snapTo = { wx, wz };
     entity.snapT0 = now;
@@ -1428,7 +1442,7 @@ async function initBattle(canvasId, opts) {
                 if (rem > SNAP_DIST) { actor.pos.wx = actor.target.wx; actor.pos.wz = actor.target.wz; rem = 0; }
                 let destFacing;
                 if (rem > 0.03) {
-                    const sp = MOVE_SPEED.player * 1000; // wu/s
+                    const sp = (actor.moveSpeed ?? MOVE_SPEED.player) * 1000; // wu/s
                     const step = Math.min(rem, sp * dt);
                     actor.pos.wx += rx / rem * step; actor.pos.wz += rz / rem * step;
                     instSpeed = step / dt;
@@ -1503,7 +1517,7 @@ async function initBattle(canvasId, opts) {
                     // lerp instead of getting noisy as the remaining distance
                     // shrinks toward the end of the window.
                     destFacing = Math.atan2(snap.dx, snap.dz);
-                    instSpeed = Math.hypot(snap.dx, snap.dz) / (TILE_MS / 1000); // wu/s for this window
+                    instSpeed = Math.hypot(snap.dx, snap.dz) / ((actor.snapWindow ?? TILE_MS) / 1000); // wu/s for this window
                 } else {
                     if (snap) { actor.pos.wx = snap.wx; actor.pos.wz = snap.wz; }
                     destFacing = Math.atan2(other.pos.wx - actor.pos.wx, other.pos.wz - actor.pos.wz);
@@ -2089,8 +2103,26 @@ const api = {
         const st = battles.get(canvasId);
         if (!st) return;
         // Player: constant-speed pursuit target (see MOVE_SPEED / the player
-        // block in loop()) — not the snapshot-interpolation layer.
-        if (pos.player) st.player.target = { wx: pos.player.x * TILE, wz: pos.player.z * TILE };
+        // block in loop()) — not the snapshot-interpolation layer. Only a
+        // CHANGED target re-tunes the pursuit: re-sends of the same tile
+        // (mid-tick command renders) must not touch the running walk.
+        if (pos.player) {
+            const wx = pos.player.x * TILE, wz = pos.player.z * TILE;
+            const p = st.player;
+            if (!p.target || p.target.wx !== wx || p.target.wz !== wz) {
+                p.target = { wx, wz };
+                // Adaptive pursuit speed: cover however far this tick moved
+                // the target over one full tick window, so a 1-tile step
+                // walks the whole 600ms (continuous chained walking) instead
+                // of sprinting it in 300ms at the fixed 2-tiles/tick cruise
+                // and idling out the rest — the stop-start gait bug. Clamped
+                // so a multi-tile catch-up still hurries and a tiny nudge
+                // doesn't crawl. PROVISIONAL: [1, 3] tiles/tick clamp — feel
+                // tuning, no design-doc source.
+                const rem = Math.hypot(wx - p.pos.wx, wz - p.pos.wz);
+                p.moveSpeed = Math.min(3 * TILE / TILE_MS, Math.max(1 * TILE / TILE_MS, rem / TILE_MS));
+            }
+        }
         if (pos.enemy) applySnapshot(st.enemy, pos.enemy.x * TILE, pos.enemy.z * TILE, !!pos.enemy.discontinuous, performance.now(), pos.tick);
         // The add the player is currently attacking, if any — see the player
         // facing block in loop() and handleCombatVfxEvent's actorFor.
