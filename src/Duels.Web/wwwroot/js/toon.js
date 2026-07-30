@@ -1002,14 +1002,22 @@ function removeProjectileVisual(st, group, hex, impact, now) {
         vis.trailLine.geometry.dispose();
         vis.trailLine.material.dispose();
     }
-    if (impact) {
-        const ring = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.3, 20),
-            new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.8, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
-        ring.rotation.x = -Math.PI / 2;
-        ring.position.set(group.position.x, 0.06, group.position.z);
-        st.scene.add(ring);
-        st.splats.push({ sprite: ring, t0: now, grow: 3.2, rise: 0, life: 450 });
-    }
+    if (impact) spawnImpactRing(st, group.position.x, group.position.z, hex, now);
+}
+
+// The expanding doctrine-color arrival ring, on the ground. Split out of
+// removeProjectileVisual so a LANDED boss hit can drive it off the `impact`
+// vfxEvent instead of the blind projectile despawn — a fully-prayed
+// (cancelled) hit is emitted as `hit_blocked`, never `impact`, so it no
+// longer paints a "you got hit here" ring under the player; only the
+// block feedback (shield-dome / blocked splat) remains.
+function spawnImpactRing(st, wx, wz, hex, now) {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.3, 20),
+        new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.8, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(wx, 0.06, wz);
+    st.scene.add(ring);
+    st.splats.push({ sprite: ring, t0: now, grow: 3.2, rise: 0, life: 450 });
 }
 
 // Combat-feel pass 1 (§2/§4): a small additive world-space offset (plus an
@@ -2200,6 +2208,14 @@ function handleCombatVfxEvent(st, ev, now) {
             const dmg = ev.data?.dmg ?? 0, tier = ev.data?.tier ?? 'normal', style = ev.data?.style;
             spawnSplat(st, victim, dmg, tier, style, now);
             startImpactJuice(st, victim, tier, now);
+            // Ground arrival ring for a LANDED boss projectile (ranged/magic)
+            // on the player — driven off this event, not the projectile
+            // despawn, so a fully-prayed hit (emitted as hit_blocked, never
+            // impact) shows no "you got hit here" ring, only its block
+            // feedback. Scoped to the player victim so it doesn't double with
+            // the player's own outgoing-projectile ring against the boss.
+            if (victim === st.player && (style === 'ranged' || style === 'magic'))
+                spawnImpactRing(st, victim.pos.wx, victim.pos.wz, DOCTRINE_HEX[style], now);
             // flinch/playOverlay assume a real skeletal actor (st.player/
             // st.enemy) — an add proxy has no mixer to animate; the splat
             // alone carries the read for it.
@@ -2644,12 +2660,12 @@ const api = {
         for (const [id, m] of st.projectileMeshes)
             if (!seen.has(id)) {
                 if (PROJ_TRACE) console.debug('[PROJ][sim-despawn]', id);
-                // Removal from the sim array IS the impact signal — but it's
-                // also how fight-end/phase-transition sweeps clear the sky,
-                // so only a despawn near the player (the homing target) gets
-                // the impact ring. PROVISIONAL: 2.0 wu arrival heuristic.
-                const nearPlayer = Math.hypot(m.position.x - st.player.pos.wx, m.position.z - st.player.pos.wz) < 2.0;
-                removeProjectileVisual(st, m, m.userData.hex, nearPlayer, performance.now());
+                // The arrival ring is no longer spawned here: a bare despawn
+                // can't tell a landed hit from a fully-prayed (cancelled) one
+                // or a fight-end/phase-transition sweep. It's driven instead
+                // off the `impact` vfxEvent (see the impact handler), which a
+                // cancelled hit — emitted as hit_blocked — never produces.
+                removeProjectileVisual(st, m, m.userData.hex, false, performance.now());
                 st.projectileMeshes.delete(id);
             }
     },

@@ -171,6 +171,24 @@ emission into the renderer, timed to the actual gait phase:
   gait markers 0/0.5) + the two retuned/added manifest rows folded into
   backlog #51's provisional batch.
 
+## Follow-up: impact ring suppressed on a fully-prayed hit
+
+The Step 7 ground impact ring spawned on projectile *despawn* (a `nearPlayer`
+heuristic), which is blind to the hit's outcome — so a fully-prayed
+(cancelled) boss attack, emitted by the sim as tier `blocked` → `hit_blocked`
+(never `impact`), still painted a "you got hit here" ring under the player.
+Fixed renderer-only (no sim change — the sim already distinguishes landed
+`impact` from cancelled `hit_blocked`): the ring block was extracted into
+`spawnImpactRing()` and is now driven off the `impact` vfxEvent for a
+ranged/magic hit on the player (scoped to `victim === st.player` so it
+doesn't double with the player's own outgoing-projectile ring). A cancelled
+hit fires `hit_blocked`, so it gets only its block feedback (shield-dome /
+blocked splat) and no ring; a partially-prayed hit (damage > 0, tier normal)
+still rings. Boss-projectile despawn no longer spawns the ring; the player's
+own cosmetic projectile keeps its landing ring on the boss (bosses don't
+pray). Playwright 5/5: landed ranged/magic → ring, cancelled → none, melee
+unchanged, no console errors.
+
 ### Caveat
 
 The live boss footstep path was exercised by a **synthetic** gait drive
