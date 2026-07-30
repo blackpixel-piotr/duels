@@ -1076,6 +1076,68 @@ function updatePresentOffset(actor, now) {
     return { x: 0, z: 0, scale: 1 - 0.22 * Math.sin(Math.min(1, squashT) * Math.PI) };
 }
 
+// ── Impact juice (combat-feel-2 §10, renderer-only) ──────────────────────
+// Three tiny reads layered on the victim at the moment of impact: a
+// decaying emissive flash (neutral white — encodes no gameplay, same
+// precedent as movement dust's non-doctrine color), a multiplicative
+// scale.y squash composed with presentFx's own scale, and — big tiers
+// only — a short mixer hit-stop on both combatants (animation freezes a
+// beat; positions are untouched, movement isn't mixer-driven).
+// PROVISIONAL: every constant here is feel tuning, no design-doc source.
+const HIT_FLASH_MS = 90;
+const HIT_FLASH_PEAK = 0.55;
+const IMPACT_SQUASH_MS = 120;
+const IMPACT_SQUASH_AMT = 0.08;
+const HIT_STOP_MS = 50;
+const HIT_STOP_SCALE = 0.15;
+
+function startImpactJuice(st, victim, tier, now) {
+    if (victim.isAdd || victim.crumbled || tier === 'miss' || tier === 'blocked') return;
+    victim.hitFlashT0 = now;
+    victim.impactSquashT0 = now;
+    if (tier === 'heavy' || tier === 'spec' || tier === 'boss' || tier === 'max') {
+        victim.hitStopUntil = now + HIT_STOP_MS;
+        const attacker = victim === st.player ? st.enemy : st.player;
+        attacker.hitStopUntil = now + HIT_STOP_MS;
+    }
+    // (Re)collect the flash material list at hit time — armor/weapon meshes
+    // swap at runtime, so a build-once cache would go stale and flash the
+    // wrong (possibly disposed) materials.
+    const mats = [];
+    victim.ch.group.traverse(n => {
+        if (!n.isMesh && !n.isSkinnedMesh) return;
+        for (const m of Array.isArray(n.material) ? n.material : [n.material])
+            if (m?.emissive) mats.push(m);
+    });
+    victim.flashMats = mats;
+}
+
+function updateHitFlash(actor, now) {
+    if (!actor.flashMats) return;
+    const t = (now - (actor.hitFlashT0 ?? 0)) / HIT_FLASH_MS;
+    if (t >= 1) {
+        for (const m of actor.flashMats) m.emissive.setRGB(0, 0, 0);
+        actor.flashMats = null;
+        return;
+    }
+    const k = HIT_FLASH_PEAK * (1 - t);
+    for (const m of actor.flashMats) m.emissive.setRGB(k, k, k);
+}
+
+function impactSquash(actor, now) {
+    if (!actor.impactSquashT0) return 1;
+    const t = (now - actor.impactSquashT0) / IMPACT_SQUASH_MS;
+    if (t >= 1) { actor.impactSquashT0 = null; return 1; }
+    return 1 - IMPACT_SQUASH_AMT * Math.sin(t * Math.PI);
+}
+
+// A hit-stopped mixer crawls at HIT_STOP_SCALE for HIT_STOP_MS — restored
+// here every frame by timestamp, never via setTimeout (frame-driven, so a
+// backgrounded tab can't strand a frozen mixer).
+function mixerDt(actor, dt, now) {
+    return now < (actor.hitStopUntil ?? 0) ? dt * HIT_STOP_SCALE : dt;
+}
+
 // Sets (rgb != null) or clears (rgb == null) a pulsing rim-outline color on
 // every material in the actor's hierarchy — OutlineEffect reads
 // material.userData.outlineParameters per-mesh (see OutlineEffect.js), so
@@ -1688,11 +1750,12 @@ async function initBattle(canvasId, opts) {
                 actor.facing = turnFacing(actor.facing, destFacing, dt);
                 const fx = updatePresentOffset(actor, now);
                 actor.ch.group.position.set(actor.pos.wx + fx.x, 0, actor.pos.wz + fx.z);
-                actor.ch.group.scale.y = fx.scale;
+                actor.ch.group.scale.y = fx.scale * impactSquash(actor, now);
                 actor.ch.group.rotation.y = actor.facing;
             }
+            updateHitFlash(actor, now);
             updateActorAnim(actor, instSpeed, dt);
-            actor.mixer.update(dt);
+            actor.mixer.update(mixerDt(actor, dt, now));
         }
 
         // Enemy/boss: snapshot interpolation (generic NPC layer above) —
@@ -1720,12 +1783,13 @@ async function initBattle(canvasId, opts) {
                 actor.facing = turnFacing(actor.facing, destFacing, dt);
                 const fx = updatePresentOffset(actor, now);
                 actor.ch.group.position.set(actor.pos.wx + fx.x, 0, actor.pos.wz + fx.z);
-                actor.ch.group.scale.y = fx.scale;
+                actor.ch.group.scale.y = fx.scale * impactSquash(actor, now);
                 actor.ch.group.rotation.y = actor.facing;
             }
+            updateHitFlash(actor, now);
             updateActorAnim(actor, instSpeed, dt);
             // mixer ALWAYS ticks — a dead actor still needs its fall to play out
-            actor.mixer.update(dt);
+            actor.mixer.update(mixerDt(actor, dt, now));
         }
 
         // camera: trails the player (not a rigid lock — see camFocus above),
@@ -2092,6 +2156,7 @@ function handleCombatVfxEvent(st, ev, now) {
             const victim = actorFor(ev.entityId);
             const dmg = ev.data?.dmg ?? 0, tier = ev.data?.tier ?? 'normal', style = ev.data?.style;
             spawnSplat(st, victim, dmg, tier, style, now);
+            startImpactJuice(st, victim, tier, now);
             // flinch/playOverlay assume a real skeletal actor (st.player/
             // st.enemy) — an add proxy has no mixer to animate; the splat
             // alone carries the read for it.
