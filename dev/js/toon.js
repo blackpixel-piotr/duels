@@ -2290,10 +2290,15 @@ const api = {
         const st = battles.get(canvasId);
         if (!st) return;
         const now = performance.now();
-        st.vfx.handleEvents(events, {
+        // Position map includes every live add — the sim emits impact events
+        // with the add's real entityId, and vfx.handleEvents drops any event
+        // whose entity it can't place, so add hits used to get no particles.
+        const positions = {
             player: { wx: st.player.pos.wx, wz: st.player.pos.wz },
             enemy: { wx: st.enemy.pos.wx, wz: st.enemy.pos.wz },
-        }, now);
+        };
+        for (const [id, m] of st.addMeshes) positions[id] = { wx: m.position.x, wz: m.position.z };
+        st.vfx.handleEvents(events, positions, now);
         // Non-particle presentation (clips/splats/lunges/shake) — see
         // handleCombatVfxEvent's own header comment.
         for (const ev of events) handleCombatVfxEvent(st, ev, now);
