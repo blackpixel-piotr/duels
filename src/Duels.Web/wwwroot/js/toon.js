@@ -913,6 +913,105 @@ function spawnSplat(st, actor, dmg, tier, style, now) {
     st.splats.push({ sprite: sp, t0: now });
 }
 
+// ── Projectile visual dressing (combat-feel-2 §7) ────────────────────────
+// Both projectile systems (the boss's sim-authoritative homers and the
+// player's cosmetic outgoing shot) used to be a bare untextured sphere —
+// no glow, no trail, no arrival read — allocating fresh geometry+material
+// per shot and never disposing either. One factory now builds a comet:
+// hot near-white core + additive doctrine-color glow sprite (spawn-flash
+// from 2.2× over ~120ms, gentle pulse) + a short world-space polyline
+// trail. Core geometry, glow texture and per-style materials are module-
+// cached and shared; the only per-shot allocations are the trail's
+// geometry/material, disposed on despawn. The glow stays small (≤ ~0.6 wu)
+// and additive — always subordinate to telegraph readability.
+// PROVISIONAL: all sizes/timings here are visual dressing, no design-doc
+// source.
+const PROJ_TRAIL_LEN = 10;
+let _projCoreGeo = null;
+let _projGlowTex = null;
+const _projMats = new Map(); // style hex → { core, glow } (shared, never disposed)
+
+function projGlowTexture() {
+    if (_projGlowTex) return _projGlowTex;
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.3, 'rgba(255,255,255,0.55)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+    _projGlowTex = new THREE.CanvasTexture(c);
+    return _projGlowTex;
+}
+
+function makeProjectileVisual(scene, hex, now) {
+    _projCoreGeo ??= new THREE.SphereGeometry(0.13, 12, 12);
+    let mats = _projMats.get(hex);
+    if (!mats) {
+        mats = {
+            core: new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).lerp(new THREE.Color('#ffffff'), 0.65) }),
+            glow: new THREE.SpriteMaterial({ map: projGlowTexture(), color: hex, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }),
+        };
+        _projMats.set(hex, mats);
+    }
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(_projCoreGeo, mats.core));
+    const glow = new THREE.Sprite(mats.glow);
+    group.add(glow);
+    const trailGeo = new THREE.BufferGeometry();
+    trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PROJ_TRAIL_LEN * 3), 3));
+    const trailMat = new THREE.LineBasicMaterial({ color: hex, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false });
+    const trailLine = new THREE.Line(trailGeo, trailMat);
+    trailLine.frustumCulled = false; // world-space ring buffer — bounds never recomputed
+    trailLine.visible = false;       // until the buffer has real positions (avoids a one-frame origin streak)
+    scene.add(trailLine);
+    group.userData.vis = { glow, trailLine, trail: [], spawnT: now };
+    return group;
+}
+
+// Per-frame dressing update: spawn-flash + pulse on the glow, and the trail
+// ring buffer re-written into the line geometry (world space — the line is
+// a sibling of the group in the scene, not a child).
+function updateProjectileVisual(group, now) {
+    const vis = group.userData.vis;
+    if (!vis) return;
+    const flashT = Math.min(1, (now - vis.spawnT) / 120);
+    const base = 0.55 * (1 + 0.08 * Math.sin(now * 0.02));
+    const s = base * (1 + 1.2 * (1 - flashT));
+    vis.glow.scale.set(s, s, 1);
+    vis.trail.push({ x: group.position.x, y: group.position.y, z: group.position.z });
+    if (vis.trail.length > PROJ_TRAIL_LEN) vis.trail.shift();
+    if (vis.trail.length >= 2) vis.trailLine.visible = true;
+    const pos = vis.trailLine.geometry.attributes.position;
+    for (let i = 0; i < PROJ_TRAIL_LEN; i++) {
+        const p = vis.trail[Math.min(i, vis.trail.length - 1)];
+        pos.setXYZ(i, p.x, p.y, p.z);
+    }
+    pos.needsUpdate = true;
+}
+
+// Despawn: remove + dispose the per-shot trail (shared core/glow resources
+// stay cached), and — when the despawn looks like a genuine arrival rather
+// than a fight-end/phase-transition sweep — a doctrine-color expanding
+// impact ring via the splat lifecycle.
+function removeProjectileVisual(st, group, hex, impact, now) {
+    const vis = group.userData.vis;
+    st.scene.remove(group);
+    if (vis) {
+        st.scene.remove(vis.trailLine);
+        vis.trailLine.geometry.dispose();
+        vis.trailLine.material.dispose();
+    }
+    if (impact) {
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.3, 20),
+            new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.8, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(group.position.x, 0.06, group.position.z);
+        st.scene.add(ring);
+        st.splats.push({ sprite: ring, t0: now, grow: 3.2, rise: 0, life: 450 });
+    }
+}
+
 // Combat-feel pass 1 (§2/§4): a small additive world-space offset (plus an
 // optional squash scale) layered on TOP of an actor's real tile position at
 // the final ch.group.position.set call — never touching actor.pos itself,
@@ -1763,6 +1862,10 @@ async function initBattle(canvasId, opts) {
                 m.position.x += dx / dist * step;
                 m.position.z += dz / dist * step;
             }
+            // Subtle bob — a full arc needs a known total flight time, which
+            // dynamic homing doesn't have (see the height note above).
+            m.position.y = 1.25 + Math.sin(now * 0.006 + m.position.x) * 0.08;
+            updateProjectileVisual(m, now);
         }
 
         // StyleTelegraphSystem: pulsing doctrine-color rim glow while a
@@ -1774,13 +1877,27 @@ async function initBattle(canvasId, opts) {
             setActorTelegraphGlow(st.enemy, null);
         }
 
-        // splats rise & fade
+        // splats rise & fade (impact rings opt out of the rise and grow
+        // outward instead — same lifecycle, different verbs). Removal now
+        // disposes the per-splat material + canvas texture (and geometry
+        // for ring meshes — Sprite geometry is three.js-shared, never
+        // disposed): these leaked before this pass.
         for (let i = st.splats.length - 1; i >= 0; i--) {
             const s = st.splats[i];
-            s.sprite.position.y += dt * 0.4;
-            const age = now - s.t0;
-            s.sprite.material.opacity = age > 600 ? Math.max(0, 1 - (age - 600) / 300) : 1;
-            if (age > 900) { st.scene.remove(s.sprite); st.splats.splice(i, 1); }
+            s.sprite.position.y += dt * (s.rise ?? 0.4);
+            const age = now - s.t0, life = s.life ?? 900;
+            if (s.grow) {
+                const sc = 1 + s.grow * Math.min(1, age / 350);
+                s.sprite.scale.set(sc, sc, sc);
+            }
+            s.sprite.material.opacity = age > life - 300 ? Math.max(0, 1 - (age - (life - 300)) / 300) : 1;
+            if (age > life) {
+                st.scene.remove(s.sprite);
+                if (s.sprite.isMesh) s.sprite.geometry.dispose();
+                s.sprite.material.map?.dispose?.();
+                s.sprite.material.dispose();
+                st.splats.splice(i, 1);
+            }
         }
         // projectiles — the player's own outgoing ranged/magic attack visual
         // only now (the boss's telegraph-preview spawn that used to also
@@ -1792,10 +1909,16 @@ async function initBattle(canvasId, opts) {
         // cast time) for visual polish only.
         for (let i = st.projectiles.length - 1; i >= 0; i--) {
             const pr = st.projectiles[i], t = (now - pr.t0) / pr.dur;
-            if (t >= 1) { st.scene.remove(pr.mesh); st.projectiles.splice(i, 1); continue; }
+            if (t >= 1) {
+                // Fixed-duration flight: expiry IS arrival — always ring.
+                removeProjectileVisual(st, pr.mesh, pr.hex, true, now);
+                st.projectiles.splice(i, 1);
+                continue;
+            }
             const to = new THREE.Vector3(pr.toActor.pos.wx, pr.toY, pr.toActor.pos.wz);
             pr.mesh.position.lerpVectors(pr.from, to, t);
             pr.mesh.position.y += Math.sin(t * Math.PI) * 0.8;
+            updateProjectileVisual(pr.mesh, now);
         }
 
         st.vfx.update(dt, st.player.pos);
@@ -1951,11 +2074,14 @@ function handleCombatVfxEvent(st, ev, now) {
             // Flies to whatever `target` resolved to above — the boss, or
             // the add actually being fought.
             if (attacker === st.player && (style === 'ranged' || style === 'magic')) {
-                const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8),
-                    new THREE.MeshBasicMaterial({ color: style === 'magic' ? '#7ab8ff' : '#ffd166' }));
+                // Doctrine color for the player's own shot too (was ad-hoc
+                // amber/ice-blue) — same comet dressing as boss projectiles.
+                const hex = DOCTRINE_HEX[style];
+                const mesh = makeProjectileVisual(st.scene, hex, now);
+                mesh.position.set(st.player.pos.wx, 1.2, st.player.pos.wz);
                 st.scene.add(mesh);
                 st.projectiles.push({
-                    mesh, t0: now, dur: 300,
+                    mesh, hex, t0: now, dur: 300,
                     from: new THREE.Vector3(st.player.pos.wx, 1.2, st.player.pos.wz),
                     toActor: target, toY: 1.2,
                 });
@@ -2360,13 +2486,16 @@ const api = {
             seen.add(p.id);
             let m = st.projectileMeshes.get(p.id);
             if (!m) {
-                m = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8),
-                    new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX[p.style] ?? '#ffffff' }));
-                // simBacked marks this mesh as legitimately traceable to a
+                const hex = DOCTRINE_HEX[p.style] ?? '#ffffff';
+                m = makeProjectileVisual(st.scene, hex, performance.now());
+                // simBacked marks this group as legitimately traceable to a
                 // GameState.Projectiles entry — the invariant check in the
-                // render loop below relies on every mesh in projectileMeshes
+                // render loop below relies on every entry in projectileMeshes
                 // carrying it, since this is the only sanctioned spawn site.
-                m.userData = { id: p.id, simBacked: true, speedPerSec: (p.speed ?? 3) * TILE / TILE_MS * 1000 };
+                m.userData.id = p.id;
+                m.userData.simBacked = true;
+                m.userData.speedPerSec = (p.speed ?? 3) * TILE / TILE_MS * 1000;
+                m.userData.hex = hex;
                 m.position.set(p.x * TILE, 1.25, p.z * TILE); // spawn tile; cosmetic pursuit takes over next frame
                 st.scene.add(m); st.projectileMeshes.set(p.id, m);
                 if (PROJ_TRACE) console.debug('[PROJ][sim-spawn]', p.id, 'style=', p.style, 'speed=', p.speed);
@@ -2375,7 +2504,13 @@ const api = {
         for (const [id, m] of st.projectileMeshes)
             if (!seen.has(id)) {
                 if (PROJ_TRACE) console.debug('[PROJ][sim-despawn]', id);
-                st.scene.remove(m); st.projectileMeshes.delete(id);
+                // Removal from the sim array IS the impact signal — but it's
+                // also how fight-end/phase-transition sweeps clear the sky,
+                // so only a despawn near the player (the homing target) gets
+                // the impact ring. PROVISIONAL: 2.0 wu arrival heuristic.
+                const nearPlayer = Math.hypot(m.position.x - st.player.pos.wx, m.position.z - st.player.pos.wz) < 2.0;
+                removeProjectileVisual(st, m, m.userData.hex, nearPlayer, performance.now());
+                st.projectileMeshes.delete(id);
             }
     },
     // The only remaining battleEvent cases are driven by EnemyDead/PlayerDead
