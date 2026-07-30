@@ -698,6 +698,22 @@ async function makeActor(st, key, colors) {
             punchA: ch.clips.attack, swordA: ch.clips.attack, spec: ch.clips.attack,
             throw: ch.clips.attack, cast: ch.clips.attack, death: ch.clips.death };
 
+    // Additive hit-react variants (combat-feel-2 §5): makeClipAdditive turns
+    // every track into a delta against the clip's own first frame, so the
+    // authored leg motion that made full-clip bone-masking a non-starter
+    // (backlog #49) becomes a small offset ON TOP of whatever locomotion or
+    // swing is running, instead of replacing it. Clones first —
+    // makeClipAdditive mutates, and the originals stay in service as the
+    // full-body flinch for stationary actors.
+    const additiveClips = {};
+    for (const r of ['hitA', 'hitB']) {
+        if (!clips[r]) continue;
+        const c = clips[r].clone();
+        c.name = r + '_additive';
+        THREE.AnimationUtils.makeClipAdditive(c);
+        additiveClips[r] = c;
+    }
+
     // blend-space nodes: [anchor speed wu/s, role]; anchors double as the
     // clip's natural speed so timeScale = speed/anchor ≈ 1 at the anchor.
     // Scaled ×1.47 with the 2.8 wu character (longer legs cover more ground
@@ -736,7 +752,8 @@ async function makeActor(st, key, colors) {
     }
 
     const actor = {
-        key, ch, mixer, clips, loco, overlay: null, speedSm: 0, gaitPhase: 0, swingAlt: 0,
+        key, ch, mixer, clips, additiveClips, loco, overlay: null, additiveFx: null,
+        speedSm: 0, gaitPhase: 0, swingAlt: 0,
         pos: { wx: 0, wz: 0 }, target: { wx: 0, wz: 0 },
         facing: 0, crumbled: false, hp: 1,
         weaponMesh: null, weaponToken: 0, armorMeshes: [], armorKey: '',
@@ -744,6 +761,7 @@ async function makeActor(st, key, colors) {
         presentFx: null, // combat-feel pass 1: attack lunge / forced-move slide, see updatePresentOffset
     };
     mixer.addEventListener('finished', e => {
+        if (actor.additiveFx && e.action === actor.additiveFx) actor.additiveFx = null;
         if (actor.overlay && e.action === actor.overlay.action && !actor.overlay.hold) {
             e.action.fadeOut(TRANSITION_S.attackIdle);
             actor.overlay = null;
@@ -830,6 +848,24 @@ function blockRoleForStyle(style) {
 // Flinches never interrupt a swing — the hit still splats, and the swing
 // reads better than a mid-swing twitch. Promoted alongside attackRoleForStyle
 // for the same reason.
+// Additive-flinch kill switch: if this rig ever reads wrong under additive
+// blending (a rest pose far from the hit clips' first frame would contort
+// the spine), flip to false and every flinch routes through the full-body
+// overlay path — exactly the pre-pass behavior.
+const ADDITIVE_FLINCH = true;
+const ADDITIVE_FLINCH_WEIGHT = 0.6; // PROVISIONAL: recoil strength — feel tuning, no design-doc source
+function playAdditiveFlinch(actor, big) {
+    const clip = actor.additiveClips?.[big ? 'hitB' : 'hitA'];
+    if (!clip) return false;
+    const a = actor.mixer.clipAction(clip);
+    a.reset().setLoop(THREE.LoopOnce, 1);
+    a.clampWhenFinished = false; // deactivate at end — an additive delta simply stops applying
+    a.setEffectiveTimeScale(1.25);
+    a.setEffectiveWeight(ADDITIVE_FLINCH_WEIGHT).fadeIn(TRANSITION_S.hitReact).play();
+    actor.additiveFx = a;
+    return true;
+}
+
 function flinch(actor, tier, dmg) {
     if (actor.crumbled || tier === 'miss' || tier === 'poison' || tier === 'blocked') return;
     // "Never interrupt a swing" now lives in the OVERLAY_PRIORITY table
@@ -837,6 +873,14 @@ function flinch(actor, tier, dmg) {
     // check here — which had a nasty side effect: a stuck hold:true windup
     // overlay disabled flinching permanently.
     const big = tier === 'heavy' || tier === 'spec' || tier === 'boss' || tier === 'max';
+    // Moving, or mid-overlay (swinging/winding/blocking/eating): the flinch
+    // plays on the separate ADDITIVE layer — a torso recoil composed over
+    // the running gait or swing, so getting hit while casting-and-running
+    // finally shows all three at once instead of the flinch either
+    // vanishing (old guard) or freezing the legs (full-body overlay).
+    // Stationary and idle keeps the stronger full-body reaction.
+    // PROVISIONAL: 0.4 wu/s moving threshold mirrors the damp band below.
+    if (ADDITIVE_FLINCH && (actor.speedSm > 0.4 || actor.overlay) && playAdditiveFlinch(actor, big)) return;
     playOverlay(actor, big ? 'hitB' : 'hitA', { ts: 1.25, fade: TRANSITION_S.hitReact, kind: 'flinch' });
 }
 
@@ -1143,7 +1187,32 @@ function updateActorAnim(actor, instSpeed, dt) {
     if (instSpeed > 0.1 && actor.speedSm < 0.1) actor.gaitPhase = 0; // fresh stride on launch
     actor.speedSm += (instSpeed - actor.speedSm) * k;
     const s = actor.speedSm;
-    const damp = actor.crumbled ? 0 : actor.overlay ? (s > 0.4 ? 0.35 : 0) : 1;
+    // How hard each overlay kind ducks the locomotion weights. Before this
+    // pass every overlay cut locomotion to 0.35 moving / 0 slow — with the
+    // windup lasting whole ticks, a telegraphing boss WALKED with frozen
+    // legs. Reactions that shouldn't kill the stride (windup, block,
+    // flinch, eat) now leave most of it running; full-commit actions
+    // (attack, spec) keep the old hard duck, carried by the lunge presentFx.
+    // PROVISIONAL: per-kind damp values — feel tuning, no design-doc source.
+    const OVERLAY_DAMP = {
+        death: 0, attack: (s > 0.4 ? 0.35 : 0), spec: (s > 0.4 ? 0.35 : 0),
+        bigHit: 0.5, windup: 0.75, block: 0.5, flinch: 0.5, eat: 0.6,
+    };
+    const damp = actor.crumbled ? 0
+        : actor.overlay ? (OVERLAY_DAMP[actor.overlay.kind] ?? OVERLAY_DAMP.attack) : 1;
+    // A windup pose at full weight still overpowers the (unnormalized)
+    // locomotion mix — while the boss is actually moving, ease the pose
+    // itself down so legs visibly keep striding under the raised weapon.
+    // Manual per-frame ease (setEffectiveWeight cancels any scheduled fade,
+    // so this takes over from playOverlay's fadeIn on the first frame and
+    // ramps from wherever that fade had gotten to).
+    // PROVISIONAL: 0.55 moving windup weight — feel tuning.
+    if (actor.overlay?.kind === 'windup') {
+        const a = actor.overlay.action;
+        const target = s > 0.4 ? 0.55 : 1;
+        const cur = a.getEffectiveWeight();
+        a.setEffectiveWeight(cur + (target - cur) * Math.min(1, dt / 0.15));
+    }
     const L = actor.loco;
     // segment weights: 1 at a node's anchor, fading linearly to its neighbors
     const targets = new Array(L.length).fill(0);
@@ -1993,6 +2062,7 @@ const api = {
         for (const a of [st.player, st.enemy]) {
             a.crumbled = false; a.ch.group.visible = true;
             if (a.overlay) { a.overlay.action.stop(); a.overlay = null; }
+            if (a.additiveFx) { a.additiveFx.stop(); a.additiveFx = null; }
             a.speedSm = 0; a.gaitPhase = 0;
             for (const n of a.loco) {
                 if (n.fadeOutAction) { n.fadeOutAction.stop(); n.fadeOutAction = null; }
