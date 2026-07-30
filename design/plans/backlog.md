@@ -248,14 +248,12 @@ not reused.)*
     spring's separation-to-zoom band are both PROVISIONAL** — the brief's
     own stated "~90°/100ms" figure and a hand-picked 4-tile-neutral/±15%
     band respectively, neither sourced from a design doc, neither tuned
-    against a real device. *(Combat feel pass 1)*
-44. **New VFX effects (slash_arc/impact_burst/blocked_spark/deflect_ward/
-    shield_dome/landing_dust) all inherit the same slight-upward-drift
-    `ForceOverLife` iteration 1's dust puff uses**, whether or not it suits
-    the effect (a "shield dome" floating upward is a minor visual
-    mismatch). No per-effect behavior override exists yet in `vfx.js` —
-    worth adding once there's a second data point beyond "everything
-    drifts a little." *(Combat feel pass 1)*
+    against a real device. *(Combat feel pass 1)* Combat feel pass 2
+    unified the three per-entity copies into one `turnFacing()` and made
+    the ease frame-rate-exact (`1-exp(-dt·14)` instead of `min(1, dt*14)`)
+    — the constants themselves (`TURN_EASE_RATE`, `MAX_TURN_RAD_PER_S`)
+    remain provisional and untuned on-device.
+44. *(moved to Resolved — combat feel pass 2)*
 45. **No real Settings UI exists to read/write `clientPrefs`** (`cameraMotion`/
     `vfxQuality`, one `duels_client_prefs` localStorage object) — a dev-only
     `PREFS` toggle panel in `BattleScene.razor` (same "always visible, not
@@ -322,7 +320,16 @@ not reused.)*
     capacity, and re-check whether boss scripts (unlike the player) ever
     genuinely move and attack in the same tick before assuming this is
     dead entirely. *(Animation quality pass, see
-    design/plans/animation-pass-plan.md/-findings.md)*
+    design/plans/animation-pass-plan.md/-findings.md)* **Combat feel
+    pass 2 addendum:** the third technique — ADDITIVE layering
+    (`makeClipAdditive`, deltas against the clip's own first frame rather
+    than bone masking) — was evaluated and SHIPPED for hit reacts
+    specifically: a moving/mid-overlay actor's flinch now plays as an
+    additive torso recoil composed over the gait or swing
+    (`playAdditiveFlinch` in toon.js, kill-switch const
+    `ADDITIVE_FLINCH`). This closes the hit-react slice of this item;
+    attacks/casts over locomotion remain governed by the original
+    bone-mask verdict above.
 50. **Add tap-targeting may still lose to the boss when the two overlap on
     screen — flagged, not confirmed.** While fixing round 5's "can't target
     a moving add" bug (combat-feel-findings.md), noticed `toon.js`'s tap
@@ -340,6 +347,33 @@ not reused.)*
     Matron's drones before assuming it's fine. If real, the fix is
     comparing raycast hit distances instead of an enemy-first priority
     order.
+51. **Combat feel pass 2's PROVISIONAL constants batch is untuned.**
+    Everything invented in that pass is flagged in code and listed in
+    `design/plans/combat-feel-2-findings.md`: snapshot-window EMA clamp
+    ([1, 1.4]×TILE_MS, α 0.3), player adaptive-speed clamp ([1, 3]
+    tiles/tick), `OVERLAY_PRIORITY` ordering, per-kind locomotion damp
+    (`OVERLAY_DAMP`) + the 0.55 moving-windup weight, additive-flinch
+    weight (0.6) and 0.4 wu/s routing threshold, projectile dressing
+    sizes/timings + the 2.0 wu arrival heuristic for the impact ring,
+    impact-juice numbers (90ms flash @0.55, 120ms squash @0.08, 50ms
+    hit-stop @0.15 — big tiers only), and the full vfx-manifest retune
+    batch (JSON can't carry `// PROVISIONAL` comments). All feel-tuning
+    judgment calls, none design-doc-sourced, none device-tuned. The
+    hit-stop specifically is a keep-or-cut playtest question (does a 50ms
+    freeze read as impact or jank at 600ms tick pacing?).
+    *(Combat feel pass 2, `combat-feel-2-plan.md`/`-findings.md`)*
+52. **Lean-into-turn was considered and not built** (combat feel pass 2
+    step 6 optional flourish): tilting the actor slightly about its
+    forward axis proportional to angular velocity. Deferred as pure
+    polish once the unified turning law landed — revisit if turns still
+    read stiff after on-device playtesting.
+53. **Projectile trail is a 1px `THREE.Line`** — WebGL ignores
+    `linewidth`, so the trail reads as reinforcement behind the glow
+    sprite rather than a thick ribbon. If it's too faint on phones, the
+    upgrade path is a triangle-strip ribbon or three.quarks' Trail
+    render mode. Adds deliberately emit no movement dust (fodder,
+    particle budget) — that's a judgment, not an oversight.
+    *(Combat feel pass 2)*
 
 ---
 
@@ -348,6 +382,15 @@ not reused.)*
 *(Move an item here, with a pointer to what closed it, instead of deleting
 it — this is the record that it was tracked and picked up, not just that
 it disappeared.)*
+
+**#44 All VFX effects inherited dust's upward `ForceOverLife` drift** —
+closed by combat feel pass 2 step 8 (`combat-feel-2-plan.md`, commit
+"Particle quality: five texture families, per-row physics, stretched
+sparks"). `liftForce` is now set explicitly per manifest row (sparks get
+negative gravity-fall, rings get zero, dust keeps its lift), alongside the
+broader per-row physics fields (`speedMin/Max`, `startRotation`,
+`spinSpeed`, `endScale`, `renderMode: "stretched"`) that item asked the
+groundwork for.
 
 **#14 No boss-side poison DoT track exists** — closed for its
 Rotfang-shaped half back in M2 batch 1 (`NpcInstance.PoisonStacks`,
