@@ -218,6 +218,14 @@
 
     private int _lastCount;
     private bool _inited;
+    // vfxEvent send cursor: renders also fire on mid-tick command dispatches
+    // (prayer flick, tap), and the sim only clears VfxEvents at the NEXT tick
+    // start — without a cursor every such render re-sends (and re-fires) the
+    // whole tick's events. Keyed on FightTicks (single-threaded WASM: a tick
+    // processes atomically w.r.t. renders); mid-tick KickMove appends grow the
+    // list under the same tick value, so only the new tail is sent.
+    private int _lastVfxTick = -1;
+    private int _vfxSentCount;
     private DotNetObjectReference<BattleScene>? _selfRef;
     private bool _lastTelegraph;
     private bool _lastPunished;
@@ -581,6 +589,11 @@
                 // always defaulting to the boss (bug report: attacking a swarm
                 // add visually read as attacking the boss while the add died).
                 playerTargetAddId = s.TargetId,
+                // Sim tick stamp: NPC tiles only ever change inside ProcessTick,
+                // so the renderer's interpolation layer can ignore re-sends of
+                // the same tick's positions (mid-tick command renders) instead
+                // of restarting its lerp window every render.
+                tick = s.FightTicks,
             });
             // Tile hazards v2 (boss mechanic): warning fuse -> pool -> scorch
             // (permanent, safe). JS diffs pending→gone itself to fire the
@@ -593,7 +606,7 @@
             });
             // Swarm adds (m1-plan Workstream C.7).
             await JS.InvokeVoidAsync("voxel.setBattleAdds", "battle-canvas",
-                s.Adds.Select(a => new { id = a.Id, x = a.Tile.X, z = a.Tile.Z, hpPct = a.MaxHp > 0 ? a.CurrentHp * 100 / a.MaxHp : 0, discontinuous = false }).ToArray());
+                s.Adds.Select(a => new { id = a.Id, x = a.Tile.X, z = a.Tile.Z, hpPct = a.MaxHp > 0 ? a.CurrentHp * 100 / a.MaxHp : 0, discontinuous = false, tick = s.FightTicks }).ToArray());
             // Sim-authoritative boss projectiles (Global Combat Grammar:
             // homing, ~3 tiles/tick, arrival-tick impact) — x/z here are the
             // sim's own tick-quantized position, used only for spawn
@@ -612,9 +625,17 @@
             // standing-still player adds zero interop calls, and dropped
             // entirely if a render gets coalesced — cosmetic-only, no
             // gameplay state depends on this array ever being complete.
-            if (s.VfxEvents.Count > 0)
+            if (s.FightTicks != _lastVfxTick)
+            {
+                _lastVfxTick = s.FightTicks;
+                _vfxSentCount = 0;
+            }
+            if (s.VfxEvents.Count > _vfxSentCount)
+            {
                 await JS.InvokeVoidAsync("voxel.setVfxEvents", "battle-canvas",
-                    s.VfxEvents.Select(e => new { type = e.Type, entityId = e.EntityId, data = e.Data }).ToArray());
+                    s.VfxEvents.Skip(_vfxSentCount).Select(e => new { type = e.Type, entityId = e.EntityId, data = e.Data }).ToArray());
+                _vfxSentCount = s.VfxEvents.Count;
+            }
         }
 
         // Overhead prayer icons (billboarded in-world sprite); send only on change.
