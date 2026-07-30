@@ -417,6 +417,23 @@ export function createVfxSystem(scene) {
                 }
             }
         },
+        // Renderer-triggered footfall dust (combat-feel-2 follow-up).
+        // Movement dust is NOT sim-sourced anymore: the sim only knows tile
+        // deltas per 600ms tick, but a footfall's timing lives in the
+        // renderer's own gait phase (toon.js updateActorAnim). So toon.js
+        // calls this on each detected footstep instead of the dust riding an
+        // entity_moved vfxEvent — a renderer-native cosmetic, same category
+        // as facing/camera (CLAUDE.md's locked-invariant carve-out for
+        // presentation that reads only interpolation state). (dx, dz) is the
+        // actor's forward direction; spawnBurst negates it so dust kicks
+        // backward. Rides the same pooled entity_moved rows, so dragDust /
+        // setDustDebug / the VFX debug panel keep working unchanged.
+        footstepDust(wx, wz, dx, dz, ownerId) {
+            if (quality === 'off') return;
+            const list = poolsByEvent.get('entity_moved');
+            if (!list) return;
+            for (const pool of list) spawnBurst(pool, wx, wz, dx, dz, ownerId);
+        },
         // playerPos: { wx, wz } — the player's LIVE rendered position this
         // frame (toon.js's own continuous pursuit, already computed earlier
         // in the same render-loop tick this is called from), used only to

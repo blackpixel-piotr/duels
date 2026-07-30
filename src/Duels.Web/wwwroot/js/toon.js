@@ -1138,6 +1138,47 @@ function mixerDt(actor, dt, now) {
     return now < (actor.hitStopUntil ?? 0) ? dt * HIT_STOP_SCALE : dt;
 }
 
+// ── Footstep dust (combat-feel-2 follow-up, renderer-only) ───────────────
+// Movement dust is triggered by the RENDERER's own gait phase, not the
+// sim's per-tick entity_moved event — footfall timing lives only in the
+// renderer (the sim knows tile deltas per 600ms tick, never the stride
+// phase), so tick-driven dust puffed on a lumpy cadence unrelated to the
+// feet. `updateActorAnim` advances `actor.gaitPhase` 0→1 per stride cycle;
+// the two footfalls sit at phase 0 and 0.5. Emitting a small ground puff on
+// each crossing, kicked backward from the planted foot, is pure
+// presentation reading only interpolation state — the same locked-invariant
+// carve-out CLAUDE.md already grants facing and camera motion. Disabled
+// with zero gameplay impact via vfx quality 'off' (footstepDust early-outs).
+// PROVISIONAL: all constants here are feel tuning, no design-doc source.
+const FOOTSTEP_MIN_SPEED = 1.2; // wu/s — below this (a slow shuffle) a step kicks no dust
+const FOOT_BACK_OFF = 0.15;     // puff spawns this far behind the body
+const FOOT_LAT_OFF = 0.18;      // ...and to the planted foot's side
+
+function emitFootstepDust(st, actor, side) {
+    // facing uses atan2(dx, dz), so forward = (sin, cos); while moving fast
+    // enough to footstep, facing already equals travel direction.
+    const fx = Math.sin(actor.facing), fz = Math.cos(actor.facing);
+    const lat = side ? 1 : -1; // perpendicular = (-fz, fx)
+    const wx = actor.pos.wx - fx * FOOT_BACK_OFF + (-fz) * FOOT_LAT_OFF * lat;
+    const wz = actor.pos.wz - fz * FOOT_BACK_OFF + (fx) * FOOT_LAT_OFF * lat;
+    // forward dir → spawnBurst negates it, so dust drifts backward.
+    st.vfx.footstepDust(wx, wz, fx, fz, actor === st.player ? 'player' : 'enemy');
+}
+
+function updateFootsteps(st, actor, now) {
+    if (actor.crumbled || actor.presentFx?.kind === 'slide' || actor.speedSm < FOOTSTEP_MIN_SPEED) {
+        actor.prevGaitPhase = actor.gaitPhase; // keep the tracker current so the next launch reads a clean crossing
+        return;
+    }
+    const p = actor.gaitPhase, prev = actor.prevGaitPhase ?? p;
+    // Footfalls at phase 0 (wrap 1→0, also the launch reset) and 0.5.
+    if (p < prev || (prev < 0.5 && p >= 0.5)) {
+        actor.footSide = !actor.footSide;
+        emitFootstepDust(st, actor, actor.footSide);
+    }
+    actor.prevGaitPhase = actor.gaitPhase;
+}
+
 // Sets (rgb != null) or clears (rgb == null) a pulsing rim-outline color on
 // every material in the actor's hierarchy — OutlineEffect reads
 // material.userData.outlineParameters per-mesh (see OutlineEffect.js), so
@@ -1755,6 +1796,7 @@ async function initBattle(canvasId, opts) {
             }
             updateHitFlash(actor, now);
             updateActorAnim(actor, instSpeed, dt);
+            updateFootsteps(st, actor, now);
             actor.mixer.update(mixerDt(actor, dt, now));
         }
 
@@ -1788,6 +1830,7 @@ async function initBattle(canvasId, opts) {
             }
             updateHitFlash(actor, now);
             updateActorAnim(actor, instSpeed, dt);
+            updateFootsteps(st, actor, now);
             // mixer ALWAYS ticks — a dead actor still needs its fall to play out
             actor.mixer.update(mixerDt(actor, dt, now));
         }

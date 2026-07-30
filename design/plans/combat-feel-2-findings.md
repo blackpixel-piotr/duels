@@ -120,3 +120,62 @@ doctrine-colored (`DOCTRINE_HEX[style]`).
 - Feel judgments the probe can't settle (hit-stop keep/cut, damp values,
   windup weight, projectile glow size on a phone screen) are listed in
   backlog #51 for on-device playtesting.
+
+## Follow-up: footstep-timed running dust
+
+The pass-2 dust retune (Step 8, smoke texture) still read cheap because the
+dust rode the sim's per-tick `entity_moved` event — one lumpy puff per
+~600ms tick, unrelated to the stride, one flat layer. Fixed by moving dust
+emission into the renderer, timed to the actual gait phase:
+
+- **Renderer owns footfall timing.** `updateFootsteps(st, actor, now)` runs
+  in the render loop after `updateActorAnim` for both the player and enemy
+  blocks; it emits a burst when `actor.gaitPhase` crosses 0.0 (wrap / launch
+  reset) or 0.5 — the two footfalls per stride cycle — gated on
+  `speedSm > FOOTSTEP_MIN_SPEED`, not crumbled, and not mid-`slide`.
+  `emitFootstepDust` places the puff behind the body and to the alternating
+  planted-foot side (analytic from `facing`; foot bones left as a possible
+  refinement), passing the forward direction so the existing `spawnBurst`
+  drift kicks it backward.
+- **vfx.js `footstepDust(wx, wz, dx, dz, ownerId)`** spawns the pooled
+  `entity_moved` rows directly (reusing `spawnBurst`), so `dragDust`,
+  `setDustDebug`, and the BattleScene VFX debug panel keep working unchanged.
+  Early-outs under `quality:'off'`.
+- **Sim emissions retired.** The three `entity_moved` emit sites
+  (`ProcessTick`'s player-moved block, `KickMoveAsync`, and Step 9's
+  `EmitNpcStepDust` + both call sites) are deleted — footfall timing is
+  renderer-native, the sim only ever knew tile deltas. No test referenced
+  `entity_moved`, so nothing broke; 141/141 still green.
+- **Architecture rationale (why this doesn't violate "VFX driven by
+  vfxEvents").** That rule exists for *sim-sourced* effects the renderer
+  can't otherwise know about (hits, casts). Footfalls are the opposite: the
+  stride phase exists *only* in the renderer, so dust timed to it is
+  renderer-native presentation reading only interpolation state — the same
+  locked-invariant carve-out CLAUDE.md already grants facing and camera
+  motion. Encodes no gameplay; disabled with zero gameplay impact via the
+  quality path. This is a deliberate, reasoned placement, documented here.
+- **Two-layer look.** `dust_puff` retuned to ground-hugging soft smoke
+  (lift 0.55→0.08, muted-tan `--text-dim`, count 7→4, tighter spread); new
+  `dust_kick` row = small fast dark-dirt (`--border`) flecks with negative
+  lift (gravity fall), stretched billboard, shrink — the kicked-debris read.
+  Both ride `entity_moved`, so one footstep fires both (multi-row precedent:
+  landing_dust + landing_ring).
+- **Verification:** dedicated Playwright probe 6/6 — no dust while
+  stationary (after the fight-start auto-approach settles), dust spawns and
+  stays under budget while walking (player `speedSm` up to 4.1), a synthetic
+  gait drive on the (stationary) Maggot King confirms the enemy footstep
+  path emits too, no console errors; plus a forced-burst screenshot
+  confirming the dust reads as a low ground-hugging tan smear at the feet
+  rather than a floating blob. New PROVISIONAL constants
+  (`FOOTSTEP_MIN_SPEED` 1.2 wu/s, `FOOT_BACK_OFF` 0.15, `FOOT_LAT_OFF` 0.18,
+  gait markers 0/0.5) + the two retuned/added manifest rows folded into
+  backlog #51's provisional batch.
+
+### Caveat
+
+The live boss footstep path was exercised by a **synthetic** gait drive
+(Maggot King is stationary; the two reachable moving bosses — Bloodtithe's
+approach, Hive Matron's spacing — compile through the identical shared
+`updateFootsteps` path but weren't run live). `setDustDebug`/`getDustDebug`
+now tune/read both `entity_moved` rows (dust_puff + dust_kick) since they
+loop the event's pools — harmless for a dev panel, noted for completeness.

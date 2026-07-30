@@ -374,6 +374,19 @@ not reused.)*
     render mode. Adds deliberately emit no movement dust (fodder,
     particle budget) — that's a judgment, not an oversight.
     *(Combat feel pass 2)*
+54. **Footstep dust ships with untuned PROVISIONAL constants and a
+    partly-synthetic verification.** The footstep-timed running dust
+    (combat-feel-2 follow-up) is driven off the renderer's gait phase;
+    `FOOTSTEP_MIN_SPEED` (1.2 wu/s), `FOOT_BACK_OFF`/`FOOT_LAT_OFF`
+    (0.15/0.18) and the gait footfall markers (0.0/0.5) are all feel
+    judgments, and the two dust manifest rows (`dust_puff` ground smoke +
+    `dust_kick` dirt flecks) are a retune batch JSON can't comment. The
+    boss footstep path was only exercised via a synthetic gait drive
+    (Maggot King is stationary) — verify against a live Bloodtithe /
+    Hive Matron walk on a real device, and re-check the emit density/foot
+    offset there. Foot-bone-accurate spawn position (`foot_l`/`foot_r`)
+    is a deferred refinement over the current analytic offset.
+    *(Combat feel pass 2 follow-up, `combat-feel-2-findings.md`)*
 
 ---
 

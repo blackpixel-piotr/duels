@@ -86,16 +86,13 @@ public sealed class GameTickService : IDisposable
 
         for (int i = 0; i < 2 && state.PlayerMoveTarget is not null; i++)
         {
-            var prevTile = state.PlayerTile;
             var step = NextStepToward(state, state.PlayerTile, moveTarget, state.NpcTile);
             bool blocked = step == state.PlayerTile;
             state.SetPlayerTile(step.X, step.Z);
-            if (!blocked)
-                state.AppendVfxEvent("entity_moved", "player", new Dictionary<string, object>
-                {
-                    ["dx"] = step.X - prevTile.X,
-                    ["dz"] = step.Z - prevTile.Z,
-                });
+            // Movement dust is no longer emitted here: footfall timing lives
+            // in the renderer's gait phase (toon.js updateFootsteps), driven
+            // off the smooth interpolated position, not these discrete tile
+            // steps — see the combat-feel-2 footstep-dust follow-up.
             if (state.PlayerTile == moveTarget || blocked)
                 state.ClearMoveOrder();
         }
@@ -135,18 +132,10 @@ public sealed class GameTickService : IDisposable
         // already captured above (for hazard Perfect-Dodge), so this is
         // free to reuse rather than a second snapshot.
         bool playerMovedThisTick = state.PlayerTile != preTickPlayerTile;
-        if (playerMovedThisTick)
-        {
-            // Movement dust (vfx-plan.md iteration 1): ordinary steps only —
-            // playerMovedThisTick is already false for anything a teleport
-            // (Lunge, knockback) would cause, since those run later in this
-            // same tick, after this line.
-            state.AppendVfxEvent("entity_moved", "player", new Dictionary<string, object>
-            {
-                ["dx"] = state.PlayerTile.X - preTickPlayerTile.X,
-                ["dz"] = state.PlayerTile.Z - preTickPlayerTile.Z,
-            });
-        }
+        // (Movement dust used to be emitted here as an entity_moved vfxEvent;
+        // it's now renderer-driven off the actual gait phase — see the
+        // combat-feel-2 footstep-dust follow-up. playerMovedThisTick is still
+        // needed below to defer the attack on a moving tick.)
 
         int playerRange = GetPlayerWeaponRange(player);
         bool targetInRange = state.CurrentTargetAdd is { } targetAdd
@@ -354,24 +343,11 @@ public sealed class GameTickService : IDisposable
             npc.ResetMovementCounter();
         }
 
-        var prev = state.NpcTile;
         var step = NextStepToward(state, state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
         state.SetNpcTile(step.X, step.Z);
-        EmitNpcStepDust(state, prev);
-    }
-
-    // Movement dust for a WALKED boss step (combat-feel-2 §9) — the player
-    // has had this since the first VFX pass; the boss stepping dustlessly
-    // read as weightless. Ordinary steps only: dashes/repositions are
-    // teleports (NpcTeleport log kind → discontinuous snap), not steps.
-    private static void EmitNpcStepDust(GameState state, (int X, int Z) prev)
-    {
-        if (state.NpcTile == prev) return;
-        state.AppendVfxEvent("entity_moved", "enemy", new Dictionary<string, object>
-        {
-            ["dx"] = state.NpcTile.X - prev.X,
-            ["dz"] = state.NpcTile.Z - prev.Z,
-        });
+        // Boss movement dust is renderer-driven off the gait phase now (same
+        // footstep path as the player) — see the combat-feel-2 footstep-dust
+        // follow-up; no entity_moved vfxEvent is emitted from the sim.
     }
 
     // Hive Matron's movement AI (Boss Bible §2 "Core movement AI"): holds a
@@ -384,7 +360,6 @@ public sealed class GameTickService : IDisposable
     private static void ProcessSpacingAiMovement(GameState state, NpcInstance npc, SpacingAiDef ai)
     {
         int dist = state.DistanceToNpc;
-        var prev = state.NpcTile;
         if (dist < ai.PreferredRangeMin)
         {
             var away = StepAwayFrom(state, state.NpcTile, state.PlayerTile);
@@ -396,7 +371,8 @@ public sealed class GameTickService : IDisposable
             var step = NextStepToward(state, state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
             state.SetNpcTile(step.X, step.Z);
         }
-        EmitNpcStepDust(state, prev);
+        // Boss movement dust is renderer-driven off the gait phase now (see
+        // ProcessNpcMovement's note / the combat-feel-2 footstep-dust follow-up).
     }
 
     private void ProcessAdds(GameState state)
