@@ -11,8 +11,8 @@
 import * as THREE from '../lib/three.module.min.js';
 import {
     BatchedRenderer, ParticleSystem, ConstantValue, IntervalValue, ConstantColor,
-    ColorOverLife, SizeOverLife, ForceOverLife, Gradient, PiecewiseBezier, Bezier,
-    PointEmitter, CircleEmitter,
+    ColorOverLife, SizeOverLife, ForceOverLife, RotationOverLife, Gradient,
+    PiecewiseBezier, Bezier, PointEmitter, CircleEmitter, RenderMode,
 } from '../lib/three.quarks.esm.js';
 
 // Global live-particle budget (renderer-only cosmetic rail, vfx-plan.md §6).
@@ -47,32 +47,105 @@ async function loadVfxManifest() {
     }
 }
 
-// A soft round dust puff, generated at runtime — no texture asset is
+// Procedural texture family, generated at runtime — no texture asset is
 // vendored yet. PROVISIONAL: the brief calls for Kenney particle-pack (CC0)
 // textures under assets/vfx/; kenney.nl and itch.io both 403 from this
 // sandbox's egress proxy (org policy, not a transient failure — see
-// vfx-plan.md §5). Swap this for a real THREE.TextureLoader().load(...) of
-// a vendored PNG once a session with broader network access can fetch one;
-// nothing else in this file needs to change (manifest row already carries
-// a `texture` field, currently the sentinel "procedural:radial_soft").
-function makeProceduralDustTexture() {
+// vfx-plan.md §5 and backlog #40). Every effect used to share ONE soft
+// radial-gradient blob, which made dust, sparks, slashes and shockwaves
+// all read as the same fuzzy circle ("particles feel cheap"). Five looks
+// now, still swap-ready for real PNGs: a manifest row's `texture` value
+// maps straight through resolveTexture either way.
+const _texCache = new Map();
+function proceduralTexture(kind) {
+    let tex = _texCache.get(kind);
+    if (tex) return tex;
     const size = 64;
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = size;
     const ctx = canvas.getContext('2d');
-    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    g.addColorStop(0, 'rgba(255,255,255,0.9)');
-    g.addColorStop(0.5, 'rgba(255,255,255,0.35)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, size, size);
-    const tex = new THREE.CanvasTexture(canvas);
+    const c = size / 2;
+    const radial = (stops) => {
+        const g = ctx.createRadialGradient(c, c, 0, c, c, c);
+        for (const [t, col] of stops) g.addColorStop(t, col);
+        return g;
+    };
+    switch (kind) {
+        case 'smoke': {
+            // Soft base + random low-alpha blotches punched OUT of the rim so
+            // the silhouette goes irregular — reads as a dirt/smoke wisp
+            // instead of a perfect airbrushed circle.
+            ctx.fillStyle = radial([[0, 'rgba(255,255,255,0.85)'], [0.55, 'rgba(255,255,255,0.4)'], [1, 'rgba(255,255,255,0)']]);
+            ctx.fillRect(0, 0, size, size);
+            ctx.globalCompositeOperation = 'destination-out';
+            for (let i = 0; i < 26; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const r = size * (0.28 + Math.random() * 0.24);
+                const x = c + Math.cos(a) * r, y = c + Math.sin(a) * r;
+                const br = size * (0.05 + Math.random() * 0.1);
+                const g = ctx.createRadialGradient(x, y, 0, x, y, br);
+                g.addColorStop(0, `rgba(0,0,0,${0.25 + Math.random() * 0.35})`);
+                g.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = g;
+                ctx.fillRect(x - br, y - br, br * 2, br * 2);
+            }
+            ctx.globalCompositeOperation = 'source-over';
+            break;
+        }
+        case 'spark': {
+            // Thin horizontal streak, hot white core fading to nothing at the
+            // tips — pairs with renderMode:"stretched" so it aligns and
+            // elongates along each particle's own velocity.
+            const g = ctx.createLinearGradient(0, 0, size, 0);
+            g.addColorStop(0, 'rgba(255,255,255,0)');
+            g.addColorStop(0.5, 'rgba(255,255,255,1)');
+            g.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = g;
+            const h = size * 0.14;
+            ctx.filter = 'blur(1px)';
+            ctx.fillRect(0, c - h / 2, size, h);
+            ctx.filter = 'none';
+            ctx.fillStyle = radial([[0, 'rgba(255,255,255,0.9)'], [0.18, 'rgba(255,255,255,0.35)'], [0.4, 'rgba(255,255,255,0)'], [1, 'rgba(255,255,255,0)']]);
+            ctx.fillRect(0, 0, size, size);
+            break;
+        }
+        case 'ring': {
+            // Annulus — the expanding-shockwave / ward-dome read.
+            ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+            ctx.lineWidth = size * 0.09;
+            ctx.filter = 'blur(1.5px)';
+            ctx.beginPath();
+            ctx.arc(c, c, size * 0.34, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.filter = 'none';
+            break;
+        }
+        case 'arc': {
+            // Crescent sliver — the slash-trail read.
+            ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+            ctx.lineWidth = size * 0.11;
+            ctx.lineCap = 'round';
+            ctx.filter = 'blur(1px)';
+            ctx.beginPath();
+            ctx.arc(c, c, size * 0.33, -Math.PI * 0.25, Math.PI * 0.55);
+            ctx.stroke();
+            ctx.filter = 'none';
+            break;
+        }
+        default: // 'radial_soft' — the original all-purpose puff, unchanged
+            ctx.fillStyle = radial([[0, 'rgba(255,255,255,0.9)'], [0.5, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
+            ctx.fillRect(0, 0, size, size);
+    }
+    tex = new THREE.CanvasTexture(canvas);
     tex.needsUpdate = true;
+    _texCache.set(kind, tex);
     return tex;
 }
 
 function resolveTexture(ref) {
-    if (ref === 'procedural:radial_soft') return makeProceduralDustTexture();
+    // Cached — before this pass every pool SLOT rebuilt its own canvas
+    // texture of the same gradient.
+    if (ref?.startsWith('procedural:')) return proceduralTexture(ref.slice('procedural:'.length));
     // Real vendored texture path (future rows) — mirrors asset-manifest's
     // convention of paths being relative to wwwroot.
     return new THREE.TextureLoader().load(ref);
@@ -95,9 +168,23 @@ function buildBurstSystem(row, color) {
         duration: 1,
         looping: false,
         startLife: new IntervalValue(row.lifetime * 0.85, row.lifetime),
-        startSpeed: new IntervalValue(0.15, 0.5),
+        // Per-row launch speed (combat-feel-2 §8): sparks fly, smoke drifts.
+        // Defaults are the pre-pass hardcoded values, so untouched rows
+        // render identically.
+        startSpeed: new IntervalValue(row.speedMin ?? 0.15, row.speedMax ?? 0.5),
         startSize: new IntervalValue(row.size * 0.75, row.size * 1.25),
+        // Random initial spin breaks the "every quad is upright" sameness —
+        // meaningless for the radially-symmetric textures, load-bearing for
+        // smoke/arc. (Stretched-billboard rows ignore rotation by design —
+        // they align to velocity instead.)
+        startRotation: row.startRotation ? new IntervalValue(0, Math.PI * 2) : new ConstantValue(0),
         startColor: new ConstantColor(new THREE.Vector4(1, 1, 1, 1)),
+        // "stretched" elongates each quad along its own velocity (sparks,
+        // debris); default billboard for everything else.
+        renderMode: row.renderMode === 'stretched' ? RenderMode.StretchedBillBoard : RenderMode.BillBoard,
+        rendererEmitterSettings: row.renderMode === 'stretched'
+            ? { speedFactor: row.speedFactor ?? 0.18, lengthFactor: row.lengthFactor ?? 1.6 }
+            : {},
         worldSpace: true,
         // 4x, not 2x: leaves headroom for a live countMult/sizeMult debug
         // tweak (setDustDebug) to actually raise the burst count above the
@@ -150,9 +237,14 @@ function buildBurstSystem(row, color) {
         [[new THREE.Vector3(color.r, color.g, color.b), 0], [new THREE.Vector3(color.r, color.g, color.b), 1]],
         alphaKeyframes,
     )));
-    // Billows outward slightly as it fades, cheap "puff" read without a
-    // second draw call.
-    system.addBehavior(new SizeOverLife(new PiecewiseBezier([[new Bezier(1, 1.3, 1.6, 1.6), 0]])));
+    // Size over life, per row: > 1 billows outward as it fades (smoke,
+    // rings), < 1 shrinks away (sparks burning out). Default is the
+    // pre-pass hardcoded 1.6 billow.
+    const endScale = row.endScale ?? 1.6;
+    system.addBehavior(new SizeOverLife(new PiecewiseBezier(
+        [[new Bezier(1, 1 + (endScale - 1) * 0.55, endScale, endScale), 0]])));
+    // Slow tumble on top of the random start angle, when a row asks for it.
+    if (row.spinSpeed) system.addBehavior(new RotationOverLife(new IntervalValue(-row.spinSpeed, row.spinSpeed)));
     // Mutated per-burst (see spawnBurst) to bias drift opposite whatever
     // direction triggered this event — kept as its own behavior instance so
     // its x/z generators can be swapped without rebuilding the system. Y is
