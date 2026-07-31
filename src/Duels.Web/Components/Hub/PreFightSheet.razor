@@ -30,6 +30,10 @@
                 <button class="prefight-fight-btn" disabled="@(!HasLoadout)" @onclick="() => OnFight.InvokeAsync()">
                     FIGHT
                 </button>
+                <button class="prefight-playtest-btn" disabled="@(!HasLoadout)" @onclick="() => OnPlaytest.InvokeAsync()"
+                        title="Auto-play this fight so you can watch the boss script — the autopilot dodges, prays and attacks for you.">
+                    ▶ PLAYTEST (auto)
+                </button>
                 @if (!HasLoadout)
                 {
                     <span class="prefight-hint">Grab a loadout first</span>
@@ -44,6 +48,7 @@
     [Parameter] public string BossId { get; set; } = "";
     [Parameter] public EventCallback OnClose { get; set; }
     [Parameter] public EventCallback OnFight { get; set; }
+    [Parameter] public EventCallback OnPlaytest { get; set; }
 
     private NpcTemplate? Template => Npcs.GetTemplate(BossId);
     private BossRecord? _record => State?.Player?.BossRecords.GetValueOrDefault(BossId);

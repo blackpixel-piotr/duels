@@ -1,3 +1,4 @@
+using Duels.Application.AutoPlay;
 using Duels.Domain.ValueObjects;
 
 namespace Duels.SimHarness;

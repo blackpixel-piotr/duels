@@ -29,6 +29,11 @@ public sealed class GameTickService : IDisposable
     private CancellationTokenSource? _cts;
     private Action? _notify;
 
+    // Playtest autopilot (GameState.AutoPlay). Stateless and boss-agnostic, so
+    // one shared instance drives every auto duel. Only ever consulted when the
+    // duel opted in via StartDuelCommand.AutoPlay — a pure input source.
+    private readonly AutoPlay.IPlayerBrain _autoBrain = new AutoPlay.AutoPlayBrain();
+
     public GameTickService(
         IGameStateRepository states,
         IDamageModel damage,
@@ -115,6 +120,20 @@ public sealed class GameTickService : IDisposable
 
         var player = state.Player;
         var npc = state.ActiveNpc!;
+
+        // Playtest autopilot: let the brain write this tick's inputs (prayer,
+        // move, attack, special) BEFORE anything reads them — the prayer set
+        // here must be captured by TickStartProtection below, and any move/
+        // attack consumed by the movement + attack-gate later this tick. Same
+        // seam and ordering the sim harness uses (brain.Decide → tick).
+        if (state.AutoPlay)
+        {
+            // Offer the autopilot a ranged weapon from the bar so it can kite
+            // (the safest way to let a whole boss script play out on screen).
+            string? rangedWeaponId = player.Loadout.WeaponSlots
+                .FirstOrDefault(w => w is not null && (_items.GetWeapon(w)?.Range ?? 1) >= 2);
+            _autoBrain.Decide(new AutoPlay.SimContext(state, GetPlayerWeaponRange(player), rangedWeaponId));
+        }
 
         state.TickStartProtection = player.ActiveProtection;
         state.ClearVfxEvents(); // this tick's vfx events only — see GameState.VfxEvents

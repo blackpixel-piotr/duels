@@ -37,6 +37,10 @@ else
                 @if (_state?.InDuel == true)
                 {
                     <PrayerStrip State="@_state" />
+                    @if (_state.AutoPlay)
+                    {
+                        <div class="autoplay-banner">▶ PLAYTEST — autopilot fighting</div>
+                    }
                 }
                 @if (_duelResult is not null)
                 {
@@ -86,7 +90,8 @@ else
                 <PreFightSheet State="@_state"
                                BossId="@_prefightBossId"
                                OnClose="@(() => { _prefightBossId = null; StateHasChanged(); })"
-                               OnFight="@(() => FightBoss(_prefightBossId!))" />
+                               OnFight="@(() => FightBoss(_prefightBossId!))"
+                               OnPlaytest="@(() => FightBoss(_prefightBossId!, autoPlay: true))" />
             }
 
             <ToastHost LogEntries="@(_state?.CombatLog.ToList() ?? [])" />
@@ -165,12 +170,12 @@ else
         });
     }
 
-    private async Task FightBoss(string bossId)
+    private async Task FightBoss(string bossId, bool autoPlay = false)
     {
         if (_processing || GameSvc.PlayerId is null) return;
         _prefightBossId = null;
         await RunDuelAction(() =>
-            GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, bossId)));
+            GameSvc.DispatchAsync(new StartDuelCommand(GameSvc.PlayerId!, bossId, autoPlay)));
     }
 
     private async Task RetryDuel()

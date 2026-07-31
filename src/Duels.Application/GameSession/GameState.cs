@@ -365,6 +365,15 @@ public sealed class GameState
     public bool Engaged { get; private set; }
     public bool EngageApproachActive { get; private set; }
 
+    /// <summary>Playtest autopilot: when true, an <c>IPlayerBrain</c> supplies
+    /// the player's inputs at the top of every tick (the "Playtest Fight"
+    /// button), so the fight plays itself while the user watches the boss
+    /// script in the real renderer. Reset every StartDuel; the start command
+    /// opts a duel in. Purely an input source — it changes nothing about how
+    /// the sim resolves a tick.</summary>
+    public bool AutoPlay { get; private set; }
+    public void SetAutoPlay(bool on) => AutoPlay = on;
+
     public void OrderMove(int x, int z)
     {
         x = Math.Clamp(x, -ArenaRadius, ArenaRadius);
@@ -546,6 +555,7 @@ public sealed class GameState
         PlayerMoveTarget = null;
         Engaged = true;
         EngageApproachActive = true;
+        AutoPlay = false; // opt-in per duel; StartDuelCommand.AutoPlay re-enables
         TestScene = false;
         EnemyFrozen = false;
         ClearHazards();

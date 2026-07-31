@@ -1,3 +1,4 @@
+using Duels.Application.AutoPlay;
 using Duels.SimHarness;
 
 // ── Duels headless combat sim harness ("the dev arena") ─────────────────────
@@ -36,7 +37,8 @@ IPlayerBrain brain = brainName switch
     "naive" => new NaiveRangedBrain(),
     "melee" => new MeleeWeaveBrain(),
     "perfect" => new PerfectHiveMatronBrain(),
-    _ => throw new ArgumentException($"unknown brain '{brainName}' (idle|naive|melee|perfect)"),
+    "auto" => new AutoPlayBrain(), // the live "Playtest Fight" autopilot
+    _ => throw new ArgumentException($"unknown brain '{brainName}' (idle|naive|melee|perfect|auto)"),
 };
 
 var rng = seed is { } s ? (Duels.Domain.Interfaces.IRandomProvider)new SeededRandom(s) : new AlwaysHitRandom();
@@ -47,7 +49,7 @@ var trace = new TraceRecorder(world.State);
 Console.WriteLine($"═══ {boss}  vs  {brain.Name}  " +
     $"(rng={(seed is { } sv ? $"seed {sv}" : "always-hit")}, boss {world.Npc.MaxHp} HP, arena {world.State.ArenaRadius * 2 + 1}²) ═══\n");
 
-var ctx = new SimContext(world.State);
+var ctx = new SimContext(world.State, world.PlayerWeaponRange);
 int bossMaxHp = world.Npc.MaxHp;
 int finalBossHp = bossMaxHp;
 for (int tick = 0; tick < maxTicks && !world.FightOver; tick++)

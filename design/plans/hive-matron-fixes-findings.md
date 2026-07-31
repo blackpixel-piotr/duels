@@ -113,6 +113,43 @@ banner, the P2 double-chain Pin, and venom flavor all read correctly in the
 trace. Re-runnable any time as a smoke test:
 `dotnet run -c Release --project tools/Duels.SimHarness -- hive_matron perfect`.
 
+## Follow-up: "Playtest Fight" — watch the autopilot play, in the real game
+
+Second request: a button on the boss pre-fight screen that auto-plays the fight
+in the live renderer so the boss script can be watched/analysed without playing
+it by hand. Shipped:
+
+- The brain seam (`IPlayerBrain` + `SimContext`) moved from the harness into
+  `Duels.Application/AutoPlay/`, so the **same** code drives both the offline
+  harness and the live autopilot — no divergence. Added a general
+  `AutoPlayBrain` (boss-agnostic: prays the incoming projectile's style, dodges
+  globs/pools/Pin lines, kites at range or weaves melee by weapon type, specials
+  into punish windows).
+- `GameState.AutoPlay` flag (reset every `StartDuel`, opted in by
+  `StartDuelCommand.AutoPlay`). `GameTickService.ProcessTick` invokes the brain
+  at the very top of the tick — the same `brain.Decide → tick` ordering the
+  harness uses — so the prayer it sets is captured by `TickStartProtection` and
+  its move/attack are consumed by the normal movement + attack gate. It is a
+  pure input source; nothing about tick resolution changed.
+- UI: a "▶ PLAYTEST (auto)" button on `PreFightSheet` next to FIGHT, wired
+  through `Game.FightBoss(bossId, autoPlay: true)`, plus a pulsing
+  "▶ PLAYTEST — autopilot fighting" banner in the battle HUD while it runs.
+- The harness gained an `auto` brain (`dotnet run … -- <boss> auto`) exercising
+  the exact live autopilot.
+
+**Browser verification caught a real gap.** First live run: the autopilot died
+at 1 HP while the boss barely moved. Cause: the dev T2 loadout equips the
+*melee* weapon, so the brain tried the (flagged-broken) melee weave. Fix: the
+autopilot now prefers a ranged weapon from the action bar when one exists
+(`SimContext.PreferredRangedWeaponId`, computed in `GameTickService` from the
+loadout) and kites with it — the safest way to let a whole script play out.
+Re-verified in-browser: player holds ~96/100 (only the cold-open venom DoT)
+while the boss drops steadily, Perfect Dodges and the Pin telegraph visible on
+screen — matching the headless perfect run. (Note: the one banner-position CSS
+tweak, top→bottom to clear the toast stream, was made after the last live
+screenshot and confirmed only by inspection, not re-shot — the app launcher was
+too flaky to relaunch reliably at the end of the session.)
+
 ## Verification
 
 - `dotnet build` clean (0 warnings). `dotnet test` green: 141 tests

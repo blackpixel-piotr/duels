@@ -22,6 +22,9 @@ dotnet run -c Release --project tools/Duels.SimHarness -- <bossId> <brain> [--ti
   - `naive` — prays Range, never dodges. The un-mastered baseline.
   - `melee` — a diagnostic weave probe (see backlog #40).
   - `perfect` — the scripted clean Hive Matron kill (ranged spacing).
+  - `auto` — the **live** autopilot behind the in-game "Playtest Fight" button
+    (the `AutoPlayBrain` in `Duels.Application/AutoPlay`). Boss-agnostic; use it
+    to preview how a boss will play out under autopilot before watching it live.
 - `--ticks N` — max ticks before giving up (default 400).
 - `--seed S` — deterministic seeded RNG (accuracy/damage spread). Omit for the
   default always-hit RNG, which makes a scripted run read as pure skill (boss
@@ -43,11 +46,14 @@ dotnet run -c Release --project tools/Duels.SimHarness -- hive_matron melee
 
 ## Add a strategy
 
-Implement `IPlayerBrain` (one `Decide(SimContext ctx)` method). `SimContext`
-exposes only what a real player perceives (positions, HP, in-flight projectile
-style, telegraphed marks, hazard tiles) and the same commands the Blazor UI
-dispatches (`Pray`, `MoveTo`, `HoldAndFight`, `QueueSpecial`, `SwapWeapon`).
-Register it in `Program.cs`'s brain switch. See `Brains.cs` for examples.
+Implement `IPlayerBrain` (one `Decide(SimContext ctx)` method). The seam lives
+in `Duels.Application/AutoPlay/` — the **same** code that powers the in-game
+"Playtest Fight" autopilot, so a brain you write here can drive the live game
+too. `SimContext` exposes only what a real player perceives (positions, HP,
+in-flight projectile style, telegraphed marks, hazard tiles) and the same
+commands the Blazor UI dispatches (`Pray`, `MoveTo`, `HoldAndFight`,
+`QueueSpecial`, `SwapWeapon`). Register harness-only brains in `Program.cs`'s
+switch; see `Brains.cs` for examples.
 
 ## Files
 

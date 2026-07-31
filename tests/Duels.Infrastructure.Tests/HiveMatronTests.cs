@@ -254,6 +254,27 @@ public sealed class HiveMatronTests
     }
 
     [Fact]
+    public async Task AutoPlay_DrivesTheFight_PlayerSurvivesAndBossTakesDamage_WithNoManualInput()
+    {
+        // The "Playtest Fight" autopilot: with GameState.AutoPlay on and a
+        // ranged weapon available, GameTickService must drive the player each
+        // tick (pray/dodge/attack) with zero external input — the boss should
+        // lose real HP while the player stays alive through the whole window.
+        var (svc, state, npc) = Build();
+        state.Player.AddToInventory("wpn_ranged_t2");
+        state.Player.Equip("wpn_ranged_t2", EquipmentSlot.Weapon);
+        state.Player.Loadout.BindWeapon(0, "wpn_ranged_t2");
+        state.SetAutoPlay(true);
+
+        int bossHpBefore = npc.CurrentHp;
+        for (int i = 0; i < 60 && npc.IsAlive && state.Player.IsAlive; i++)
+            await Tick(svc);
+
+        Assert.True(state.Player.IsAlive, "autopilot should keep the player alive by kiting/praying");
+        Assert.True(npc.CurrentHp < bossHpBefore - 100, "autopilot should deal real damage to the boss");
+    }
+
+    [Fact]
     public async Task TailStab_DoesNotFire_WhilePlayerWeavesThroughAdjacency()
     {
         // Boss Bible §2: Tail Stab answers a player who "stands adjacent for 2

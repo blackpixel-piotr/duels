@@ -28,6 +28,7 @@ public sealed class SimWorld
     public GameState State { get; }
     public Player Player => State.Player;
     public NpcInstance Npc => State.ActiveNpc!;
+    public int PlayerWeaponRange { get; }
 
     private readonly GameTickService _svc;
 
@@ -42,10 +43,12 @@ public sealed class SimWorld
 
         var player = new Player(PlayerId, "Duelist");
         // Give the player their kit up-front so weapon swaps in a brain work.
-        foreach (var itemId in loadout ?? DefaultLoadout)
+        var kit = loadout ?? DefaultLoadout;
+        foreach (var itemId in kit)
             player.AddToInventory(itemId);
-        if ((loadout ?? DefaultLoadout).Count > 0)
-            player.Equip((loadout ?? DefaultLoadout)[0], EquipmentSlot.Weapon);
+        if (kit.Count > 0)
+            player.Equip(kit[0], EquipmentSlot.Weapon);
+        PlayerWeaponRange = kit.Count > 0 ? (items.GetWeapon(kit[0])?.Range ?? 1) : 1;
 
         State = new GameState(PlayerId, player);
         State.StartDuel(new NpcInstance(template));

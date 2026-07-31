@@ -36,8 +36,11 @@ public sealed class StartDuelHandler : ICommandHandler<StartDuelCommand>
         player.RestoreHp();
         var npc = new NpcInstance(template);
         state.StartDuel(npc);
+        state.SetAutoPlay(command.AutoPlay); // playtest "watch the fight" mode
 
         state.AppendLog("═══ DUEL STARTED ═══", LogEntryKind.System);
+        if (command.AutoPlay)
+            state.AppendLog("▶ Playtest autopilot engaged — sit back and watch.", LogEntryKind.System);
         state.AppendLog($"You challenge {template.Name} ({npc.MaxHp} HP)!", LogEntryKind.System);
         state.AppendLog(template.ExamineText, LogEntryKind.Info);
         state.AppendLog("Fight!", LogEntryKind.System);
