@@ -604,6 +604,12 @@
                 pools   = s.Hazards.Where(h => h.State == HazardState.Pool).Select(h => new { x = h.X, z = h.Z }).ToArray(),
                 scorch  = s.Hazards.Where(h => h.State == HazardState.Scorch).Select(h => new { x = h.X, z = h.Z }).ToArray(),
             });
+            // Needle Spit "+" telegraph (Hive Matron rework): the marked tiles
+            // about to be needled, drawn as a Range-doctrine (green) ground
+            // warning so "step diagonally" reads on-screen. Empty array clears.
+            await JS.InvokeVoidAsync("voxel.setBattleNeedleSpit", "battle-canvas",
+                (s.ActiveNpc?.NeedleSpitTiles ?? Enumerable.Empty<(int X, int Z)>())
+                    .Select(t => new { x = t.X, z = t.Z }).ToArray());
             // Swarm adds (m1-plan Workstream C.7).
             await JS.InvokeVoidAsync("voxel.setBattleAdds", "battle-canvas",
                 s.Adds.Select(a => new { id = a.Id, x = a.Tile.X, z = a.Tile.Z, hpPct = a.MaxHp > 0 ? a.CurrentHp * 100 / a.MaxHp : 0, discontinuous = false, tick = s.FightTicks }).ToArray());

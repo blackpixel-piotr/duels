@@ -274,6 +274,9 @@ public sealed class HiveMatronTests
         Assert.True(state.Player.CurrentHp < hpBefore);
         Assert.True(state.DistanceToNpc > 1, "she should have leapt back after spitting");
         Assert.NotEqual(npcTileBefore, state.NpcTile);
+        // The needles leave venom in the ground: the struck "+" is now pooled.
+        Assert.True(state.IsPool((0, 0)), "the struck centre tile should be a venom pool afterwards");
+        Assert.True(state.IsPool((1, 0)), "a struck cardinal tile should be a venom pool afterwards");
     }
 
     [Fact]

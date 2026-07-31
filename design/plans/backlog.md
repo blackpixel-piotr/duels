@@ -159,12 +159,14 @@ not reused.)*
     ~17–26 ticks. See `hive-matron-rework-plan.md` / `-fixes-findings.md`.
     Residual open items promoted below (#42 renderer tell, #43 tuning).
 
-42. **Needle Spit has no floor visual yet (renderer TODO).** The sim marks
-    `NpcInstance.NeedleSpitTiles` on the snapshot, but `toon.js` doesn't draw
-    the "+" ground pattern or flare her mid-windup — the only tell right now is
-    the combat-log line. This is the "she needs a visual indicator before she
-    leaps" requirement: mechanically wired, visually unbuilt. Draw the marked
-    tiles as a Range-doctrine ground warning + a wing-flare telegraph glow.
+42. **Needle Spit visuals — mostly done, two loose ends.** The "+" floor
+    telegraph (green ranged-doctrine quads via `toon.js setBattleNeedleSpit`)
+    and the venom pools left on the struck tiles are implemented. Remaining:
+    (a) a **wing-flare telegraph glow** on her mid-windup (floor-only for now),
+    and (b) **live browser verification** — the render code builds + node-checks
+    + mirrors the hazard-quad path, but wasn't eyeballed on screen (flaky
+    launcher). Bonus find: **Pin's line-charge has no floor visual at all**
+    (pre-existing) — worth giving it the same treatment.
     *(Hive Matron rework, `hive-matron-fixes-findings.md`)*
 
 43. **Hive Matron rework numbers are all PROVISIONAL — needs a tuning pass.**

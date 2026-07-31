@@ -205,7 +205,7 @@
       // leaps 3 back firing needles onto the player's tile + 4 cardinals (dodge
       // diagonally). Range-typed volley (pray Range) + unprayable venom nick.
       // PROVISIONAL numbers (no doc source).
-      "NeedleSpit": { "WarningTicks": 2, "LeapTiles": 3, "NeedleDamage": 18, "VenomNickDamage": 4, "TriggerWithinRange": 5 },
+      "NeedleSpit": { "WarningTicks": 2, "LeapTiles": 3, "NeedleDamage": 18, "VenomNickDamage": 4, "TriggerWithinRange": 5, "PoolTicks": 6 },
       "AdjacencyPunish": { "AdjacencyTicks": 2, "Damage": 35, "KnockbackTiles": 2, "Name": "Tail Stab" },
       "DamageReductionWindow": { "CadenceTicks": 25, "DurationTicks": 8, "ReductionPercent": 0.5, "AffectedStyles": ["Ranged", "Magic"] },
       "LineCharge": { "WarningTicks": 2, "Damage": 35, "StunTicks": 2, "MissPunishTicks": 4, "DoubleChainInPhase2": true }

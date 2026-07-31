@@ -221,7 +221,8 @@ public sealed record NeedleSpitDef(
     int LeapTiles = 3,
     int NeedleDamage = 18,
     int VenomNickDamage = 4,
-    int TriggerWithinRange = 5);
+    int TriggerWithinRange = 5,
+    int PoolTicks = 6); // struck "+" tiles stay venomous this long after the spit
 
 /// <summary>Per-boss combat-log flavor strings. UI text only (never a
 /// renderer/gameplay source — see CLAUDE.md's CombatLog rule). Every field is

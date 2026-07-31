@@ -184,17 +184,31 @@ glob, a Tail Stab) — melee is "viable and rewarding but demanding," which is t
 intended "danced, not held" identity; a clean player wins. The `auto`/ranged
 line is unchanged: still a clean ~28s kill at 96/100 HP.
 
-### Flagged for a browser/renderer pass (not done here)
+### Follow-up 3: Needle Spit visuals + poisoned ground (implemented)
 
-- **Needle Spit floor visual.** The sim exposes `NpcInstance.NeedleSpitTiles` on
-  the snapshot, but `toon.js` doesn't draw the "+" pattern yet — the current
-  tell is the log line + (future) a wing-flare glow. Draw the marked tiles as a
-  Range-doctrine ground warning and flare her mid-windup. **This is the "she
-  needs a visual indicator" requirement — mechanically wired, visually TODO.**
-- **Drone lane rendering** already works (drones use the generic add mesh), but
-  their new between-boss-and-player motion should be eyeballed on a real device.
-- The whole rework was verified in the sim/unit layer only; no live browser pass
-  (launcher was flaky at session end). Numbers are PROVISIONAL — playtest + tune.
+- **Venom pools on spit.** `ResolveNeedleSpit` now drops settled venom pools on
+  the struck "+" tiles (`GameState.AddPools`, `NeedleSpitDef.PoolTicks` = 6
+  PROVISIONAL) — no fresh eruption (the volley was the hit), just lingering
+  poison you must then clear. They flow through the existing pool hazard channel,
+  so they deal the same per-tick venom and render green like a Sting Lob pool.
+  Unit-tested (`…HitsPlayerStandingOnThePlus…` now asserts `IsPool`).
+- **"+" floor telegraph.** `BattleScene` sends `ActiveNpc.NeedleSpitTiles` to a
+  new `toon.js` `setBattleNeedleSpit`, drawn as a pulsing **ranged-doctrine
+  (green) ground quad** on each marked tile (mirrors the hazard-quad renderer,
+  its own `needleQuads` map). This is the "she needs a visual indicator before
+  she leaps" requirement — the floor "+" plus her leap now read the attack; a
+  wing-flare telegraph glow is a nice-to-have still open.
+
+### Still flagged
+
+- **Not live-verified in the browser.** The render code node-checks, builds, and
+  mirrors the proven hazard-quad path exactly, but the container's app launcher
+  was too flaky to reliably start for a Playwright pass at session end, so the
+  "+" telegraph and drone-lane motion were **not eyeballed on screen**. Worth a
+  quick look on next launch. Pin's line-charge, incidentally, has *no* floor
+  visual either (pre-existing) — Needle Spit is the first marked-tile telegraph.
+- Numbers are all PROVISIONAL — playtest + tune (melee vuln, needle/nick damage,
+  pool duration).
 
 ## Verification
 

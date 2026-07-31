@@ -185,6 +185,16 @@ public sealed class GameState
                 _hazards.Add(new HazardTile(t.X, t.Z, HazardState.Warning, warningTicks, poolTicks, scorchTicks));
     }
 
+    /// <summary>Drop settled venom pools directly — no warning fuse, no
+    /// eruption hit. Used by Needle Spit, whose own resolution already dealt the
+    /// volley; these are just the poison the needles leave in the ground.</summary>
+    public void AddPools(IEnumerable<(int X, int Z)> tiles, int poolTicks)
+    {
+        foreach (var t in tiles)
+            if (!_hazards.Any(h => (h.X, h.Z) == t))
+                _hazards.Add(new HazardTile(t.X, t.Z, HazardState.Pool, poolTicks, poolTicks));
+    }
+
     // Concurrent-pool cap (master-script board economy). Default: no cap (P1).
     // The master-script P2 sets 8, converting the oldest excess pool to scorch
     // early rather than letting the floor fill without bound.

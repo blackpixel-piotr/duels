@@ -1146,6 +1146,12 @@ public sealed class GameTickService : IDisposable
             TryPerfectDodge(state, player, wasOnDangerTile: wasOnTile, stillOnDangerTile: stillOnTile);
         }
 
+        // The needles leave venom in the ground: the struck "+" tiles become
+        // settled venom pools (no fresh eruption — the volley above was the
+        // hit), so a player who tanked or lingered now has to clear the "+".
+        if (ns.PoolTicks > 0)
+            state.AddPools(tiles, ns.PoolTicks);
+
         // The leap: she springs LeapTiles back to make the space she wanted.
         var landed = state.NpcTile;
         for (int i = 0; i < ns.LeapTiles; i++)
