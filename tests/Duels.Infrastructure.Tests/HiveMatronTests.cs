@@ -223,4 +223,60 @@ public sealed class HiveMatronTests
         await Tick(svc);
         Assert.Equal(2, npc.Phase);
     }
+
+    [Fact]
+    public async Task Phase2_Banner_NamesHer_NotMaggotKing()
+    {
+        // Regression: the phase-2 transition line was hardcoded to "The Maggot
+        // King convulses…" and leaked into every scripted boss's Phase 2.
+        var (svc, state, npc) = Build();
+        typeof(NpcInstance).GetMethod("TakeDamage")!.Invoke(npc, [npc.MaxHp - (npc.MaxHp * 39 / 100)]);
+        await Tick(svc);
+
+        Assert.Contains(state.CombatLog, e => e.Message.Contains("frenzy") && e.Message.Contains("Hive Matron"));
+        Assert.DoesNotContain(state.CombatLog, e => e.Message.Contains("Maggot King"));
+    }
+
+    [Fact]
+    public async Task StingLob_LandingText_IsVenom_NotMaggotBroodFlavor()
+    {
+        // Regression: her Sting Lob reuses the shared hazard state machine, whose
+        // land/poison/pool lines were hardcoded with Maggot King's brood imagery
+        // ("The ground ERUPTS…", "The writhing mass poisons you!").
+        var (svc, state, _) = Build();
+        // Keep the player put (the glob lands on the cast tile) and alive until
+        // a glob resolves on top of them.
+        for (int i = 0; i < 12; i++) { await Tick(svc); state.Player.RestoreHp(); }
+
+        Assert.Contains(state.CombatLog, e => e.Message.Contains("Venom splashes across your tile"));
+        Assert.DoesNotContain(state.CombatLog, e => e.Message.Contains("writhing mass"));
+        Assert.DoesNotContain(state.CombatLog, e => e.Message.Contains("ground ERUPTS"));
+    }
+
+    [Fact]
+    public async Task TailStab_DoesNotFire_WhilePlayerWeavesThroughAdjacency()
+    {
+        // Boss Bible §2: Tail Stab answers a player who "stands adjacent for 2
+        // consecutive ticks." A player weaving (moving in and out, adjacent but
+        // never stationary-adjacent two ticks running) must NOT be punished —
+        // otherwise the weave, the fight's whole lesson, is unplayable.
+        var (svc, state, _) = Build();
+        // Corner her so she can't create space, then oscillate the player
+        // between two tiles that are both adjacent to her — always moving.
+        state.SetNpcTile(state.ArenaRadius, state.ArenaRadius);
+        var a = (X: state.ArenaRadius, Z: state.ArenaRadius - 1);
+        var b = (X: state.ArenaRadius - 1, Z: state.ArenaRadius);
+        state.SetPlayerTile(a.X, a.Z);
+        state.Engage();
+
+        for (int i = 0; i < 8; i++)
+        {
+            var target = state.PlayerTile == a ? b : a;
+            state.OrderMove(target.X, target.Z); // moves this tick → never "stands"
+            await Tick(svc);
+            state.Player.RestoreHp();
+        }
+
+        Assert.DoesNotContain(state.CombatLog, e => e.Message.Contains("Tail Stab"));
+    }
 }

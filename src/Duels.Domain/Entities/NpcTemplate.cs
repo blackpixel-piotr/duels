@@ -202,7 +202,22 @@ public sealed record BossScript(
     IReadOnlyList<FontTileDef>? Fonts = null,
     TransfusionDef? Transfusion = null,
     CrimsonPactDef? CrimsonPact = null,
-    HarvestDef? Harvest = null);
+    HarvestDef? Harvest = null,
+    FlavorDef? Flavor = null);
+
+/// <summary>Per-boss combat-log flavor strings. UI text only (never a
+/// renderer/gameplay source — see CLAUDE.md's CombatLog rule). Every field is
+/// optional; a null falls back to the shared default in GameTickService, which
+/// keeps Maggot King's original wording unchanged. Added M3 follow-up: the
+/// phase-2 banner and the shared hazard-resolution lines used to be hardcoded
+/// with Maggot King's name/brood imagery, so they leaked "The Maggot King
+/// convulses…" and "The writhing mass poisons you!" into the Hive Matron,
+/// Mirrorhide and Bloodtithe fights.</summary>
+public sealed record FlavorDef(
+    string? PhaseTwoBanner = null, // "★ … Phase 2 begins."
+    string? HazardLand = null,     // prefix before " for {dmg}! [hp]" — the glob/eruption landing
+    string? HazardPoison = null,   // the "you're poisoned" line on a fresh hazard poison
+    string? HazardPool = null);    // the per-tick "standing in the pool" line
 
 // DummyStyle: approach style for a non-scripted (Script=null) NPC's generic
 // chase-to-range movement — the shared mover, not boss-specific code. Real M1

@@ -187,6 +187,15 @@
       "ArenaRadius": 5,
       "Footprint": { "Width": 1, "Height": 1 },
       "Stationary": false,
+      // UI-text only (CombatLog flavor). "Frenzy" is the Boss Bible §2 name for
+      // her Phase 2; the hazard lines re-skin the shared eruption/pool text as
+      // her Sting Lob venom splash instead of Maggot King's brood imagery.
+      "Flavor": {
+        "PhaseTwoBanner": "★ The Hive Matron's wings scream into a frenzy — Phase 2 begins!",
+        "HazardLand": "Venom splashes across your tile",
+        "HazardPoison": "Her venom seeps into the wound — you're poisoned!",
+        "HazardPool": "Venom sizzles beneath your feet."
+      },
       "SpacingAi": { "PreferredRangeMin": 3, "PreferredRangeMax": 5, "DashEveryNAttacks": 3, "DashDistanceTiles": 3 },
       "AdjacencyPunish": { "AdjacencyTicks": 2, "Damage": 35, "KnockbackTiles": 2, "Name": "Tail Stab" },
       "DamageReductionWindow": { "CadenceTicks": 25, "DurationTicks": 8, "ReductionPercent": 0.5, "AffectedStyles": ["Ranged", "Magic"] },

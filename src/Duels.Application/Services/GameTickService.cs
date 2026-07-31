@@ -47,6 +47,14 @@ public sealed class GameTickService : IDisposable
 
     public void RegisterNotify(Action callback) => _notify = callback;
 
+    /// <summary>Advance the simulation exactly one tick for the given player.
+    /// The production loop (<see cref="Start"/>) drives this off the tick
+    /// source; unit tests and the headless dev sim harness
+    /// (tools/Duels.SimHarness) call it directly to run deterministic,
+    /// non-real-time fights. This is a thin, side-effect-free wrapper over the
+    /// same <c>ProcessTick</c> the loop uses — no separate code path.</summary>
+    public Task TickOnceAsync(string playerId) => ProcessTick(playerId);
+
     public void Start(string playerId)
     {
         _cts?.Cancel();
@@ -724,7 +732,7 @@ public sealed class GameTickService : IDisposable
         bool phaseChanged = npc.AdvanceRotation();
         if (phaseChanged)
         {
-            state.AppendLog("★ The Maggot King convulses — the assault frenzies! Phase 2 begins.", LogEntryKind.BossSpecial);
+            state.AppendLog(PhaseTwoBanner(npc), LogEntryKind.BossSpecial);
             if (npc.UsesMasterScript) EnterMasterScriptPhase(state, npc);
             return;
         }
@@ -738,6 +746,15 @@ public sealed class GameTickService : IDisposable
             state.AppendLog("⚠ The Maggot King's body swells — ROT BURST incoming!", LogEntryKind.BossSpecial);
         }
     }
+
+    // The phase-2 transition banner. Data-driven per boss (FlavorDef); the
+    // generic fallback uses the boss's own name so a boss without authored
+    // flavor never borrows Maggot King's — that leak ("The Maggot King
+    // convulses…" in the Hive Matron/Mirrorhide/Bloodtithe fights) was the bug
+    // this fixes.
+    private static string PhaseTwoBanner(NpcInstance npc) =>
+        npc.Template.Script?.Flavor?.PhaseTwoBanner
+        ?? $"★ {npc.Template.Name} shifts into a higher gear — Phase 2 begins!";
 
     // ── Master-script engine (Global Combat Grammar "Master-script rule") ──
     // One fixed-tick clock per phase; attacks, eruptions, Rot Burst and swarms
@@ -1209,11 +1226,12 @@ public sealed class GameTickService : IDisposable
             state.RecordDamageTaken(dmg);
             state.SetKilledBy("Eruption (unprayable)");
             state.AppendHitsplat(onEnemy: false, dmg, "hazard");
-            state.AppendLog($"The ground ERUPTS beneath you for {dmg}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+            var flavor = npc.Template.Script?.Flavor;
+            state.AppendLog($"{flavor?.HazardLand ?? "The ground ERUPTS beneath you"} for {dmg}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
             if (!state.PlayerPoisoned && state.PoisonImmuneTicksLeft <= 0)
             {
                 state.ApplyPoison();
-                state.AppendLog("The writhing mass poisons you!", LogEntryKind.System);
+                state.AppendLog(flavor?.HazardPoison ?? "The writhing mass poisons you!", LogEntryKind.System);
             }
             else if (state.PoisonImmuneTicksLeft > 0)
             {
@@ -1227,7 +1245,7 @@ public sealed class GameTickService : IDisposable
             state.RecordDamageTaken(dmg);
             if (dmg > 0) state.SetKilledBy("Poison pool (unprayable)");
             state.AppendHitsplat(onEnemy: false, dmg, "poison");
-            state.AppendLog($"Acrid slime burns at your feet. [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+            state.AppendLog($"{npc.Template.Script?.Flavor?.HazardPool ?? "Acrid slime burns at your feet."} [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
         }
 
         // Perfect Dodge (m1-plan Workstream C.8; generalized M3 Workstream
@@ -1267,8 +1285,18 @@ public sealed class GameTickService : IDisposable
             // Chebyshev adjacency (matches how swarm-add contact is judged
             // elsewhere), not the cardinal-only melee-attack rule — "stands
             // adjacent" is a positional read, not an attack-landing one.
-            bool adjacent = state.DistanceToNpc <= 1;
-            npc.TickAdjacency(adjacent);
+            //
+            // Boss Bible §2: Tail Stab fires "if the player STANDS adjacent for
+            // 2 consecutive ticks" — the weave is "step in → hit (1 tick) →
+            // step out." A tick the player is only *passing through* adjacency
+            // (they moved this tick) is not "standing," so it must not count,
+            // or a clean weave (arrive-adjacent one tick, strike the next, leave
+            // the third) would eat a Tail Stab on the strike tick and the whole
+            // melee rhythm — the fight's entire lesson — becomes unplayable.
+            // Only a tick the player ends STATIONARY while adjacent counts.
+            bool movedThisTick = state.PlayerTile != preTickPlayerTile;
+            bool standingAdjacent = state.DistanceToNpc <= 1 && !movedThisTick;
+            npc.TickAdjacency(standingAdjacent);
             if (npc.AdjacentTicksCount >= tailStab.AdjacencyTicks)
             {
                 npc.ResetAdjacency();

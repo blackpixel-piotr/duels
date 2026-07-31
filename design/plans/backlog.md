@@ -154,6 +154,36 @@ not reused.)*
     state, not assume this unification already happened. *(M3,
     `m3-findings.md`)*
 
+40. **Hive Matron's melee "weave" is not cleanly executable — the fight's
+    whole lesson is currently unplayable in melee.** Empirically confirmed
+    with the new sim harness (`tools/Duels.SimHarness`, `melee` brain): a
+    melee attempt lands ~1 hit per 3 Tail Stabs and dies in ~6s. Two
+    interacting causes, both needing a designer's call:
+    (a) **Attack-on-arrival.** The combat loop forbids attacking on any tick
+    the player moved (`GameTickService` L145, `!playerMovedThisTick`), so
+    landing a melee hit requires being *stationary*-adjacent — but the Boss
+    Bible's weave is "step in → hit (1 tick) → step out," which assumes the
+    hit lands on the step-in tick. This is a global combat-grammar rule, not
+    Hive-Matron-specific; changing it affects all melee.
+    (b) **Continuous flee.** `ProcessSpacingAiMovement` steps her away every
+    tick the player is inside `PreferredRangeMin` (=3), so in open ground the
+    player can never reach melee range at all; cornered, she can't flee and
+    just Tail-Stabs. This flee is *tested* behavior
+    (`HiveMatronTests.SpacingAi_StepsAwayWhenPlayerCloserThanPreferredRange`),
+    so it's a deliberate choice that contradicts the design's "melee is
+    possible" — not an obvious bug to silently remove. The Boss Bible says
+    spacing is reset by her **dash** (every 3rd attack), which would argue
+    for dash-only spacing (drop the continuous flee), but that's a design
+    decision. **Shipped as a prerequisite (not a full fix):** Tail Stab now
+    only counts *stationary* adjacent ticks ("stands adjacent," per the
+    bible) so a pass-through tick no longer triggers it — necessary for any
+    weave, but insufficient while the flee + attack-on-arrival rules stand.
+    Fix menu: allow melee attack-on-arrival; and/or replace continuous flee
+    with dash-only spacing; and/or retune Tail Stab damage vs. a melee hit.
+    Until then, ranged is the only viable way to fight her (which the perfect
+    sim run demonstrates — a clean, near-zero-damage kill). *(Hive Matron
+    fix pass, `hive-matron-fixes-findings.md`)*
+
 ## E. Technical debt / dev tooling
 
 25. **Freeze/camera/movement debug panels are unreachable in the live
@@ -184,6 +214,20 @@ not reused.)*
     mob" half of its own doc comment is now known-stale. Now cross-referenced
     from `AttackRange.Distant`'s own `// PROVISIONAL: dead path (#28)`
     comment, added in batch 1 §9. *(M2, discovered during pre-plan)*
+
+41. **Headless combat sim harness shipped (`tools/Duels.SimHarness`).** A
+    console dev-arena that drives the real `GameTickService` against the real
+    embedded content with deterministic infra stubs — no Blazor, no browser,
+    no getting-to-the-boss. `dotnet run --project tools/Duels.SimHarness --
+    <bossId> <idle|naive|melee|perfect>` prints a tick-by-tick trace of the
+    whole fight in milliseconds. Player inputs come from pluggable
+    `IPlayerBrain`s (add one per boss/strategy to script or regression-test a
+    fight). Follow-ups a future pass could add: a `manual` brain reading
+    stdin for interactive stepping; brains for Maggot King / Mirrorhide /
+    Bloodtithe perfect runs; a headless movement-only mode for pathing
+    tests; and wiring the harness into CI as a "does every boss remain
+    winnable by its perfect brain" smoke test. *(Hive Matron fix pass,
+    `hive-matron-fixes-findings.md`)*
 
 ## F. Known cosmetic/renderer gaps
 
