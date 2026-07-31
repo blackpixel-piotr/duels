@@ -1519,7 +1519,7 @@ async function initBattle(canvasId, opts) {
         yawTarget: 0.6, zoomTarget: 1, camPitchTarget: 0.62,
         viewRot: 0, // 0 or 90: CSS view rotation of the portrait fight
         player: null, enemy: null, dotnet: opts.dotnetRef ?? null,
-        splats: [], hazardQuads: new Map(), marker: null, targetTile: null,
+        splats: [], hazardQuads: new Map(), needleQuads: new Map(), marker: null, targetTile: null,
         obstacles: [], flags: {}, projectiles: [], addMeshes: new Map(), addHitboxes: new Map(), telegraph: null,
         projectileMeshes: new Map(),
         clock: new THREE.Clock(), raf: 0, drag: null,
@@ -1903,6 +1903,10 @@ async function initBattle(canvasId, opts) {
             q.material.opacity = d.scorch ? 0.22
                 : 0.25 + 0.2 * Math.sin(now * (!d.pool && d.t <= 1 ? 0.022 : d.pool ? 0.004 : 0.009));
         }
+        // Needle Spit "+" telegraph: a quicker green pulse than a hazard warning
+        // — reads as "incoming, move diagonally."
+        for (const [, q] of st.needleQuads)
+            q.material.opacity = 0.3 + 0.25 * Math.sin(now * 0.016);
 
         // punish window ring: pulses under the boss while it can't act
         st.punishRing.visible = !!st.flags.punished && !st.enemy.crumbled;
@@ -2565,6 +2569,27 @@ const api = {
             }
             q.userData = info;
             q.material.color.set(info.scorch ? '#e8c23d' : info.pool ? '#5a7a1e' : info.t <= 1 ? '#ff5555' : '#ffd166');
+        }
+    },
+    setBattleNeedleSpit(canvasId, tiles) {
+        // Hive Matron rework: the "+" of tiles a Needle Spit is about to hit,
+        // drawn in the ranged doctrine colour (green — it's a Range-typed
+        // venom volley) so the "step diagonally" read is on the floor, not just
+        // in the log. The struck tiles become real venom pools after it lands
+        // (those flow through setBattleHazards' pool channel, not this one).
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const want = new Set((tiles ?? []).map(t => `${t.x},${t.z}`));
+        for (const [key, q] of st.needleQuads)
+            if (!want.has(key)) { st.scene.remove(q); st.needleQuads.delete(key); }
+        for (const key of want) {
+            if (st.needleQuads.has(key)) continue;
+            const [x, z] = key.split(',').map(Number);
+            const q = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.92, TILE * 0.92),
+                new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX.ranged, transparent: true, opacity: 0.35, depthWrite: false }));
+            q.rotation.x = -Math.PI / 2;
+            q.position.set(x * TILE, 0.017, z * TILE);
+            st.scene.add(q); st.needleQuads.set(key, q);
         }
     },
     setBattleAdds(canvasId, adds) {
