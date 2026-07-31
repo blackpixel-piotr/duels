@@ -97,6 +97,14 @@ public sealed class SimContext
     public bool PinIncoming => Boss.LineChargeTiles is { Count: > 0 };
     public bool StandingOnPinLine => PinLine.Contains(PlayerTile);
 
+    /// <summary>The "+" of tiles a Needle Spit is about to hit, if one is
+    /// telegraphed. Safe tiles are the diagonals; step off it diagonally.</summary>
+    public IReadOnlyList<(int X, int Z)> NeedleTiles =>
+        Boss.NeedleSpitTiles ?? (IReadOnlyList<(int X, int Z)>)Array.Empty<(int X, int Z)>();
+
+    public bool NeedleSpitIncoming => Boss.NeedleSpitTiles is { Count: > 0 };
+    public bool StandingOnNeedleTile => NeedleTiles.Contains(PlayerTile);
+
     /// <summary>True while the boss is slumped and cannot act — the punish
     /// window a good player pours damage into.</summary>
     public bool BossInPunishWindow => Boss.InPunishWindow;

@@ -39,21 +39,44 @@ public sealed class MeleeWeaveBrain : IPlayerBrain
         ctx.Pray(ProtectionPrayer.Range);
         ctx.SwapWeapon("wpn_melee_t2");
 
+        // Dodge the positional threats first (glob/pool, Pin line, Needle Spit
+        // "+"), stepping to a safe tile — a real melee player reads these too.
+        if (ctx.StandingInDanger || ctx.StandingOnPinLine || ctx.StandingOnNeedleTile)
+        {
+            var safe = Neigh(ctx.PlayerTile).Where(ctx.InArena)
+                .Where(t => !ctx.IsDangerTile(t) && !ctx.PinLine.Contains(t) && !ctx.NeedleTiles.Contains(t))
+                .OrderBy(t => ctx.Chebyshev(t, ctx.BossTile)) // stay as close as we safely can
+                .Cast<(int X, int Z)?>().FirstOrDefault();
+            if (safe is { } s) { ctx.MoveTo(s); return; }
+        }
+
+        // Also step off a Pin line even when not currently standing on it isn't
+        // needed — the dodge block above handles "standing on"; Pin is dodged
+        // there. Here we run the weave.
         bool adjacent = ctx.DistanceToBoss <= 1;
         if (adjacent)
         {
-            // If we were adjacent last tick too, a 2nd consecutive adjacent
-            // tick eats a Tail Stab — step out now.
-            if (_lastAdjacentTick == ctx.Tick - 1)
+            // Only ever be adjacent on the tick we actually strike. If we can't
+            // swing this tick (on cooldown), step straight back out — lingering
+            // adjacent is exactly what stacks the 2 ticks that answer with a
+            // Tail Stab.
+            if (ctx.PlayerCanActThisTick && _lastAdjacentTick != ctx.Tick - 1)
             {
-                var away = Neigh(ctx.PlayerTile).Where(ctx.InArena)
-                    .OrderByDescending(t => ctx.Chebyshev(t, ctx.BossTile)).First();
-                ctx.MoveTo(away);
+                _lastAdjacentTick = ctx.Tick;
+                ctx.HoldAndFight(); // land the weave hit this tick
                 return;
             }
-            _lastAdjacentTick = ctx.Tick;
+            var away = Neigh(ctx.PlayerTile).Where(ctx.InArena)
+                .Where(t => !ctx.IsDangerTile(t) && !ctx.NeedleTiles.Contains(t) && !ctx.PinLine.Contains(t))
+                .OrderByDescending(t => ctx.Chebyshev(t, ctx.BossTile))
+                .Cast<(int X, int Z)?>().FirstOrDefault();
+            if (away is { } a) { ctx.MoveTo(a); return; }
         }
-        ctx.HoldAndFight(); // close in / land the hit
+
+        // Not adjacent: close in only when we're ready to strike on arrival, so
+        // we don't creep into melee range and sit there off-cooldown.
+        if (ctx.PlayerCanActThisTick || ctx.DistanceToBoss > 2)
+            ctx.HoldAndFight();
     }
 
     private static IEnumerable<(int X, int Z)> Neigh((int X, int Z) t)

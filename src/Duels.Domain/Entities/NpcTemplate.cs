@@ -203,7 +203,25 @@ public sealed record BossScript(
     TransfusionDef? Transfusion = null,
     CrimsonPactDef? CrimsonPact = null,
     HarvestDef? Harvest = null,
-    FlavorDef? Flavor = null);
+    FlavorDef? Flavor = null,
+    double MeleeVulnerabilityPercent = 0.0,
+    NeedleSpitDef? NeedleSpit = null);
+
+/// <summary>Hive Matron's "Needle Spit" (melee rework) — the redesigned dash.
+/// After every <c>SpacingAi.DashEveryNAttacks</c>th attack, IF the player is
+/// within <c>TriggerWithinRange</c> (so she never retreats from a far kiter),
+/// she telegraphs, then leaps <c>LeapTiles</c> back while firing needles onto
+/// the player's tile-at-cast + its 4 cardinal neighbours (a "+"). The safe step
+/// is diagonal. Two-layer: the needle itself is Range-typed (pray Range negates
+/// it), but a struck tile also lands an unprayable <c>VenomNickDamage</c> — so
+/// zero damage needs BOTH a Range prayer and a diagonal dodge. Perfect Dodge
+/// eligible. All numbers PROVISIONAL (no doc source).</summary>
+public sealed record NeedleSpitDef(
+    int WarningTicks = 2,
+    int LeapTiles = 3,
+    int NeedleDamage = 18,
+    int VenomNickDamage = 4,
+    int TriggerWithinRange = 5);
 
 /// <summary>Per-boss combat-log flavor strings. UI text only (never a
 /// renderer/gameplay source — see CLAUDE.md's CombatLog rule). Every field is
@@ -445,6 +463,26 @@ public sealed class NpcInstance
         return true; // resolves this tick
     }
     public void ClearLineCharge() { LineChargeTiles = null; LineChargeTicksLeft = 0; }
+
+    // Needle Spit (melee rework): the "+" of tiles about to be needled + the
+    // windup countdown, plus the attack counter that triggers the leap (reuses
+    // the old dash cadence). NeedleSpitTiles is serialized on the snapshot so
+    // the renderer can draw the marked ground and flare her mid-windup.
+    public IReadOnlyList<(int X, int Z)>? NeedleSpitTiles { get; private set; }
+    public int NeedleSpitTicksLeft { get; private set; }
+    public void StartNeedleSpit(IReadOnlyList<(int X, int Z)> tiles, int warningTicks)
+    {
+        NeedleSpitTiles = tiles;
+        NeedleSpitTicksLeft = warningTicks;
+    }
+    public bool TickNeedleSpit()
+    {
+        if (NeedleSpitTiles is null) return false;
+        NeedleSpitTicksLeft--;
+        if (NeedleSpitTicksLeft > 0) return false;
+        return true; // resolves this tick
+    }
+    public void ClearNeedleSpit() { NeedleSpitTiles = null; NeedleSpitTicksLeft = 0; }
 
     // ── M3, Mirrorhide (Boss Bible §3) ───────────────────────────────────
 

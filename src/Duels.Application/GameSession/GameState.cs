@@ -144,10 +144,24 @@ public sealed class GameState
     public IReadOnlyCollection<(int X, int Z)> Obstacles => _obstacles;
     public bool IsObstacle((int X, int Z) tile) => _obstacles.Contains(tile);
 
-    /// <summary>A tile a mover may not enter: a solid obstacle or the given
-    /// occupant (the opponent's tile, so combatants never stack).</summary>
+    // Soft blockers: dynamic, per-phase tiles the PLAYER's pathing must route
+    // around but that aren't permanent scenery — Hive Matron's drones
+    // body-blocking the melee approach lane. Set right before the player moves
+    // and cleared right after, so the boss (and the drones themselves) are
+    // never blocked by them. Never serialized state that matters across ticks.
+    private readonly HashSet<(int X, int Z)> _softBlockers = new();
+    public void SetSoftBlockers(IEnumerable<(int X, int Z)> tiles)
+    {
+        _softBlockers.Clear();
+        foreach (var t in tiles) _softBlockers.Add(t);
+    }
+    public void ClearSoftBlockers() => _softBlockers.Clear();
+
+    /// <summary>A tile a mover may not enter: a solid obstacle, an active soft
+    /// blocker (a drone in the lane), or the given occupant (the opponent's
+    /// tile, so combatants never stack).</summary>
     public bool IsBlocked((int X, int Z) tile, (int X, int Z) occupant) =>
-        tile == occupant || _obstacles.Contains(tile);
+        tile == occupant || _obstacles.Contains(tile) || _softBlockers.Contains(tile);
 
     // Tile hazards v2 (m1-plan Workstream C.4): warning fuse -> pool -> scorch
     // (permanent, walkable, safe — and the Rot Burst's safe tile). Hazards

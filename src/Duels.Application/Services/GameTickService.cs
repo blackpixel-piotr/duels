@@ -151,7 +151,13 @@ public sealed class GameTickService : IDisposable
             state.AppendLog($"You ready your {pendingWeaponName}.", LogEntryKind.Info);
         }
 
+        // Drones body-block the player's approach lane (Hive Matron): their
+        // live tiles are soft blockers the PLAYER must path around (kill them or
+        // circle to bait them aside), scoped to this movement call only so the
+        // boss and the drones themselves are never blocked by them.
+        state.SetSoftBlockers(state.Adds.Where(a => a.IsAlive && a.Kind == AddKind.Drone).Select(a => a.Tile));
         ProcessPlayerMovement(state, player);
+        state.ClearSoftBlockers();
         ProcessNpcMovement(state, npc);
         // Persistent target lock (M1 revision): moving on a tick simply
         // defers the attack — it's never cancelled, just delayed to the
@@ -169,7 +175,16 @@ public sealed class GameTickService : IDisposable
             ? Chebyshev(state.PlayerTile, targetAdd.Tile) <= playerRange
             : state.InAttackRange(playerRange);
 
-        if (state.PlayerCooldown == 0 && state.PlayerMoveTarget is null && !playerMovedThisTick && state.Engaged && targetInRange)
+        // Melee "attack on arrival" (Hive Matron rework, Q2): a melee swing may
+        // land on the very tick a move COMPLETES in range — the move order is
+        // already done (PlayerMoveTarget null) even though the player moved this
+        // tick. Without this the weave's "step in → hit" can never land on the
+        // step-in tick, which is what made melee feel bad. Ranged/magic keep
+        // deferring to a stationary tick (kiting shouldn't auto-fire on arrival).
+        bool meleeArrival = playerRange <= AttackRange.Melee && targetInRange;
+        bool mayActThisTick = !playerMovedThisTick || meleeArrival;
+
+        if (state.PlayerCooldown == 0 && state.PlayerMoveTarget is null && mayActThisTick && state.Engaged && targetInRange)
         {
             var action = state.QueuedAction ?? "attack";
             await ExecutePlayerAction(state, player, npc, action);
@@ -377,23 +392,18 @@ public sealed class GameTickService : IDisposable
         // follow-up; no entity_moved vfxEvent is emitted from the sim.
     }
 
-    // Hive Matron's movement AI (Boss Bible §2 "Core movement AI"): holds a
-    // preferred range band, stepping directly away if the player closes past
-    // the band's minimum and back in if they retreat past its maximum.
-    // Adjacency itself is never blocked by movement — Tail Stab (see
-    // ProcessSpacingAiMechanics) is what makes holding melee costly, not a
-    // flee reflex, matching the bible's "melee is possible but must be
-    // danced, not held."
+    // Hive Matron's movement AI (Boss Bible §2, revised by the melee rework):
+    // she closes when the player kites out past her preferred band, and
+    // otherwise HOLDS — she no longer flees every tick the player steps inside
+    // her minimum range. That continuous flee made melee impossible to reach
+    // and contradicted "melee is possible." Her space-making is now the
+    // telegraphed, dodgeable Needle Spit (see ProcessSpacingAiMechanics), not a
+    // reflex — and melee is the rewarded line (MeleeVulnerabilityPercent), so
+    // letting the player into range is the point.
     private static void ProcessSpacingAiMovement(GameState state, NpcInstance npc, SpacingAiDef ai)
     {
         int dist = state.DistanceToNpc;
-        if (dist < ai.PreferredRangeMin)
-        {
-            var away = StepAwayFrom(state, state.NpcTile, state.PlayerTile);
-            if (state.InArena(away) && !state.IsBlocked(away, state.PlayerTile))
-                state.SetNpcTile(away.X, away.Z);
-        }
-        else if (dist > ai.PreferredRangeMax)
+        if (dist > ai.PreferredRangeMax)
         {
             var step = NextStepToward(state, state.NpcTile, ApproachSlot(state.NpcTile, state.PlayerTile), state.PlayerTile);
             state.SetNpcTile(step.X, step.Z);
@@ -410,19 +420,16 @@ public sealed class GameTickService : IDisposable
 
             if (add.Kind == AddKind.Drone)
             {
-                // Station-keep at OrbitRadius around the boss rather than
-                // closing on the player — Hive Matron's drones "orbit her...
-                // body-blocking melee approach lanes." Simplified station-
-                // keep, not full lane-blocking collision (flagged in
-                // m3-findings.md as a scoping simplification).
-                int distFromBoss = Chebyshev(add.Tile, state.NpcTile);
-                if (distFromBoss != add.OrbitRadius)
-                {
-                    var step = distFromBoss > add.OrbitRadius
-                        ? StepToward(add.Tile, state.NpcTile)
-                        : StepAwayFrom(state, add.Tile, state.NpcTile);
-                    add.MoveTo(step);
-                }
+                // Melee rework: drones orbit to sit BETWEEN the boss and the
+                // player (on the boss→player lane at OrbitRadius, the two drones
+                // fanned to either side), tracking the player every tick — so
+                // they actually body-block the melee approach (see the soft-
+                // blocker wiring in ProcessTick) and circling her drags them out
+                // of the lane. Fixes the old bug where they spawned at fixed
+                // east/west angles and then froze.
+                var target = DroneLaneTile(state, add);
+                if (add.Tile != target)
+                    add.MoveTo(StepToward(add.Tile, target));
                 continue;
             }
 
@@ -451,6 +458,30 @@ public sealed class GameTickService : IDisposable
             }
         }
         state.RemoveDeadAdds();
+    }
+
+    // Where a drone wants to be: on the boss→player lane at its OrbitRadius,
+    // fanned to one side (by its spawn index) so the two drones flank the
+    // approach rather than stacking. Falls back onto the lane centre, then the
+    // boss tile, if the fanned tile is out of bounds or occupied.
+    private static (int X, int Z) DroneLaneTile(GameState state, AddInstance drone)
+    {
+        var boss = state.NpcTile;
+        var player = state.PlayerTile;
+        if (boss == player) return drone.Tile; // degenerate; hold
+        double baseAng = Math.Atan2(player.Z - boss.Z, player.X - boss.X);
+        int idx = int.TryParse(drone.Id.Split('_').Last(), out var i) ? i : 0;
+        double fan = (idx % 2 == 0 ? 1 : -1) * 0.55; // ~±31° to either side of the lane
+        int r = drone.OrbitRadius > 0 ? drone.OrbitRadius : 2;
+
+        (int X, int Z) At(double ang) =>
+            (boss.X + (int)Math.Round(r * Math.Cos(ang)), boss.Z + (int)Math.Round(r * Math.Sin(ang)));
+
+        var fanned = At(baseAng + fan);
+        if (state.InArena(fanned) && fanned != player && fanned != boss) return fanned;
+        var centre = At(baseAng);
+        if (state.InArena(centre) && centre != player && centre != boss) return centre;
+        return boss;
     }
 
     // ── Player offense ──────────────────────────────────────────────────
@@ -503,6 +534,7 @@ public sealed class GameTickService : IDisposable
         bool punished = npc.InPunishWindow;
         int damage = attuneImmune ? 0 : (punished ? (int)Math.Round(roll.Damage * 1.25) : roll.Damage);
         damage = ApplyBossDamageReduction(npc, doctrine, damage);
+        damage = ApplyMeleeVulnerability(npc, doctrine, damage);
         damage = ApplyBloodtitheBackBonus(npc, state, damage);
         npc.TakeDamage(damage);
 
@@ -691,6 +723,7 @@ public sealed class GameTickService : IDisposable
         bool punished = npc.InPunishWindow;
         int damage = attuneImmune ? 0 : (int)Math.Round(roll.Damage * damageMult * (punished ? 1.25 : 1.0));
         damage = ApplyBossDamageReduction(npc, weapon.AttackType, damage);
+        damage = ApplyMeleeVulnerability(npc, weapon.AttackType, damage);
         damage = ApplyBloodtitheBackBonus(npc, state, damage);
         npc.TakeDamage(damage);
 
@@ -1031,8 +1064,12 @@ public sealed class GameTickService : IDisposable
     // rather than inventing a new one (see m3-plan.md's item-doc precedent).
     private const int EchoStrikeDamage = 18;
 
-    // M3, Hive Matron's spacing AI: "after every 3rd attack she dashes 3
-    // tiles to reset spacing" — a no-op for any boss without SpacingAi.
+    // Hive Matron's spacing AI (melee rework): every Nth attack she makes
+    // space — but as the telegraphed "Needle Spit" (a leap + a needle volley
+    // you can read and dodge), and ONLY when the player is actually near her.
+    // A far kiter never triggers it, killing the old "dash back from nobody."
+    // The silent-dash fallback below is dead for current content (Hive Matron
+    // ships NeedleSpit) but kept for any SpacingAi boss that doesn't.
     private void RecordAttackAndMaybeDash(GameState state, NpcInstance npc)
     {
         var ai = npc.Template.Script?.SpacingAi;
@@ -1040,6 +1077,16 @@ public sealed class GameTickService : IDisposable
         npc.RecordAttackForDash();
         if (npc.AttacksSinceDash < ai.DashEveryNAttacks) return;
         npc.ResetDashCounter();
+
+        if (npc.Template.Script?.NeedleSpit is { } needle)
+        {
+            if (npc.NeedleSpitTiles is not null) return;                 // already winding up
+            if (!state.IsMechanicEnabled(BossMechanic.BossAutos)) return;
+            if (state.DistanceToNpc > needle.TriggerWithinRange) return; // far kiter → no leap
+            npc.StartNeedleSpit(PlusPattern(state, state.PlayerTile), needle.WarningTicks);
+            state.AppendLog($"⚠ {npc.Template.Name} rears back, wings screaming — NEEDLE SPIT! Pray Range and step diagonally!", LogEntryKind.BossSpecial);
+            return;
+        }
 
         var dashed = state.NpcTile;
         for (int i = 0; i < ai.DashDistanceTiles; i++)
@@ -1053,6 +1100,62 @@ public sealed class GameTickService : IDisposable
             state.SetNpcTile(dashed.X, dashed.Z);
             state.AppendLog($"{npc.Template.Name} dashes back to reset the distance!", LogEntryKind.BossSpecial);
         }
+    }
+
+    // The Needle Spit "+" footprint: the player's tile-at-cast plus its 4
+    // cardinal neighbours (in-arena). The only safe step is diagonal.
+    private static readonly (int X, int Z)[] Cardinals = { (0, 1), (0, -1), (1, 0), (-1, 0) };
+    private static IReadOnlyList<(int X, int Z)> PlusPattern(GameState state, (int X, int Z) center)
+    {
+        var tiles = new List<(int X, int Z)> { center };
+        foreach (var (dx, dz) in Cardinals)
+        {
+            var t = (X: center.X + dx, Z: center.Z + dz);
+            if (state.InArena(t)) tiles.Add(t);
+        }
+        return tiles;
+    }
+
+    // Resolves a Needle Spit: needles land on the marked "+", then she leaps
+    // back. Two-layer damage — a Range-typed volley (pray Range negates) plus
+    // an unprayable venom nick, so only a diagonal dodge takes zero. Perfect
+    // Dodge eligible, same helper the eruption/Pin miss use.
+    private void ResolveNeedleSpit(GameState state, Player player, NpcInstance npc, (int X, int Z) preTickPlayerTile)
+    {
+        var ns = npc.Template.Script!.NeedleSpit!;
+        var tiles = npc.NeedleSpitTiles!;
+        bool wasOnTile = tiles.Contains(preTickPlayerTile);
+        bool stillOnTile = tiles.Contains(state.PlayerTile);
+        npc.ClearNeedleSpit();
+
+        if (stillOnTile && player.IsAlive)
+        {
+            int needle = ResolveIncomingDamage(state, player, npc, ns.NeedleDamage, style: AttackType.Ranged, unprayable: false);
+            int nick = ResolveIncomingDamage(state, player, npc, ns.VenomNickDamage, style: null, unprayable: true);
+            int total = needle + nick;
+            player.TakeDamage(total);
+            state.RecordDamageTaken(total);
+            if (total > 0) state.SetKilledBy("Needle Spit");
+            state.AppendHitsplat(onEnemy: false, total, needle > 0 ? "normal" : "poison", "ranged");
+            string tail = needle == 0 ? " (you prayed the volley — only the venom bit)" : "";
+            state.AppendLog($"Needles rake you for {total}{tail}! [{player.CurrentHp}/{player.MaxHp} HP]", LogEntryKind.NpcHit);
+        }
+        else
+        {
+            state.AppendLog($"{npc.Template.Name}'s needles rattle off empty tiles — you slipped it!", LogEntryKind.BossSpecial);
+            TryPerfectDodge(state, player, wasOnDangerTile: wasOnTile, stillOnDangerTile: stillOnTile);
+        }
+
+        // The leap: she springs LeapTiles back to make the space she wanted.
+        var landed = state.NpcTile;
+        for (int i = 0; i < ns.LeapTiles; i++)
+        {
+            var next = StepAwayFrom(state, landed, state.PlayerTile);
+            if (!state.InArena(next) || state.IsBlocked(next, state.PlayerTile)) break;
+            landed = next;
+        }
+        if (landed != state.NpcTile)
+            state.SetNpcTile(landed.X, landed.Z);
     }
 
     // Boss Bible: "Ranged/magic attacks travel as simulated doctrine-colored
@@ -1359,17 +1462,21 @@ public sealed class GameTickService : IDisposable
                 if (!npc.TryFireDroneThreshold(wave.ThresholdPercent)) continue;
                 for (int i = 0; i < wave.Count; i++)
                 {
-                    double angle = i * (2 * Math.PI / wave.Count);
-                    var tile = (X: state.NpcTile.X + (int)Math.Round(wave.OrbitRadius * Math.Cos(angle)),
-                                Z: state.NpcTile.Z + (int)Math.Round(wave.OrbitRadius * Math.Sin(angle)));
-                    if (!state.InArena(tile)) tile = state.NpcTile;
-                    state.SpawnAdd(new AddInstance($"drone_{wave.ThresholdPercent}_{i}", tile, wave.Hp, AddKind.Drone, wave.OrbitRadius));
+                    // Spawn already on the boss→player lane (DroneLaneTile keys
+                    // off the id's trailing index for the fan) so they guard the
+                    // approach from tick one instead of walking in from the side.
+                    var seed = new AddInstance($"drone_{wave.ThresholdPercent}_{i}", state.NpcTile, wave.Hp, AddKind.Drone, wave.OrbitRadius);
+                    seed.MoveTo(DroneLaneTile(state, seed));
+                    state.SpawnAdd(seed);
                 }
                 state.AppendLog($"⚠ Drones rise to guard {npc.Template.Name}! ({wave.Count})", LogEntryKind.BossSpecial);
             }
 
         if (npc.LineChargeTiles is not null && npc.TickLineCharge())
             ResolveLineCharge(state, player, npc, preTickPlayerTile);
+
+        if (npc.NeedleSpitTiles is not null && npc.TickNeedleSpit())
+            ResolveNeedleSpit(state, player, npc, preTickPlayerTile);
     }
 
     private void ResolveLineCharge(GameState state, Player player, NpcInstance npc, (int X, int Z) preTickPlayerTile)
@@ -1745,6 +1852,19 @@ public sealed class GameTickService : IDisposable
         var def = npc.Template.Script?.DamageReductionWindow;
         if (def is null || !npc.DamageReductionActive || !def.AffectedStyles.Contains(style)) return damage;
         return (int)Math.Round(damage * (1.0 - def.ReductionPercent));
+    }
+
+    /// <summary>Melee vulnerability (Hive Matron rework): a boss can be "weak to
+    /// melee" — Stab/Slash/Crush hits deal +<c>MeleeVulnerabilityPercent</c>.
+    /// The mirror of Chitin Guard's ranged/magic reduction, and the thing that
+    /// makes the weave the *rewarded* line. No-op (percent 0) for every boss
+    /// that doesn't declare it.</summary>
+    private static int ApplyMeleeVulnerability(NpcInstance npc, AttackType style, int damage)
+    {
+        double pct = npc.Template.Script?.MeleeVulnerabilityPercent ?? 0.0;
+        if (pct <= 0 || damage <= 0) return damage;
+        bool melee = style is AttackType.Stab or AttackType.Slash or AttackType.Crush;
+        return melee ? (int)Math.Round(damage * (1.0 + pct)) : damage;
     }
 
     /// <summary>Bloodtithe's back-tile bonus (Boss Bible §4): "his back tile

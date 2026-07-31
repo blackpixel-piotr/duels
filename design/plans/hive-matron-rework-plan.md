@@ -1,10 +1,12 @@
-# Hive Matron rework — plan (DRAFT, awaiting review)
+# Hive Matron rework — plan (IMPLEMENTED)
 
 A player-directed redesign of the Hive Matron fight. It supersedes parts of
-Boss Bible §2 (`duels-boss-designs.md`) — those deviations are called out in
-§6 and the Bible should be updated to match once this is approved. **Nothing
-here is implemented yet.** All numbers are PROVISIONAL (no doc source) and
-tagged for a tuning pass.
+Boss Bible §2 (`duels-boss-designs.md`) — those deviations are in §6, and the
+Bible has been updated to match (its §2 now carries a "Melee rework" note). All
+four owner decisions (§7) are implemented; see `hive-matron-fixes-findings.md`
+for the as-built notes. **All numbers are PROVISIONAL** (no doc source) and
+tagged for a tuning pass — start with the melee vulnerability (+30%) and the
+Needle Spit damages if the fight feels off.
 
 ## 1. Why
 
@@ -138,7 +140,20 @@ To make the weave the rewarded line:
 - The **dash** is redefined from a silent reposition to a telegraphed attack.
 - **Drones** gain real collision (the Bible implies it; it was never built).
 
-## 7. Open questions for the owner
+## 7. Owner decisions (RESOLVED — implementing to these)
+
+- **Q1 → both.** Needle Spit is two-layer: Range-typed needle (pray Range
+  reduces) **plus** an unprayable venom nick on a struck tile, so you must pray
+  *and* diagonally dodge to take zero.
+- **Q2 → change the rule.** Melee will be allowed to swing on a move-tick that
+  ends in range ("attack on arrival") — current melee "doesn't feel good."
+  Applied so the weave is snappy.
+- **Q3 → keep the ranged-weapon drop**, just stop calling her *the spacing
+  teacher* in the Bible — she throws ranged needles, so a ranged drop stays in
+  theme.
+- **Q4 → keep Chitin Guard** (it's the pressure that pushes you into the weave).
+
+## 8. Open questions for the owner (original, now resolved above)
 
 - **Q1.** Needle Spit: two-layer (pray *and* dodge both matter — recommended)
   or single-layer Range AoE (pray *or* dodge)?

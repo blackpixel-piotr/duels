@@ -147,6 +147,33 @@ public sealed class HiveMatronTests
     }
 
     [Fact]
+    public async Task Drones_PositionBetweenBossAndPlayer_AndBlockThatTile()
+    {
+        // Melee rework: drones orbit onto the boss→player lane (not fixed
+        // east/west) and their live tiles block the player's pathing.
+        var (svc, state, npc) = Build();
+        state.SetNpcTile(0, -3);
+        state.SetPlayerTile(0, 3);
+        int hp75 = npc.MaxHp * 75 / 100;
+        typeof(NpcInstance).GetMethod("TakeDamage")!.Invoke(npc, [npc.MaxHp - hp75]);
+        await Tick(svc); // spawns the 75% wave onto the lane
+        await Tick(svc); // a tick of lane-tracking
+
+        var drones = state.Adds.Where(a => a.Kind == AddKind.Drone && a.IsAlive).ToList();
+        Assert.NotEmpty(drones);
+        // On the vertical lane between (0,-3) boss and (0,3) player, each drone
+        // sits between them (its Z strictly inside the boss..player span) and is
+        // a soft blocker for the player.
+        foreach (var d in drones)
+        {
+            Assert.InRange(d.Tile.Z, state.NpcTile.Z, state.PlayerTile.Z);
+            state.SetSoftBlockers(state.Adds.Where(a => a.IsAlive && a.Kind == AddKind.Drone).Select(a => a.Tile));
+            Assert.True(state.IsBlocked(d.Tile, state.NpcTile), "a live drone tile must block the player's path");
+            state.ClearSoftBlockers();
+        }
+    }
+
+    [Fact]
     public async Task Drone_TakesRealWeaponDamage_NotOneHitFodder()
     {
         var (svc, state, npc) = Build();
@@ -204,15 +231,90 @@ public sealed class HiveMatronTests
     }
 
     [Fact]
-    public async Task SpacingAi_StepsAwayWhenPlayerCloserThanPreferredRange()
+    public async Task SpacingAi_HoldsGround_WhenPlayerCloses_NoFleeReflex()
     {
+        // Melee rework: she no longer flees every tick the player steps inside
+        // her minimum range (that made melee unreachable). Closing on her makes
+        // her HOLD — her space-making is the telegraphed Needle Spit, not a
+        // reflex, and melee is now the rewarded line.
         var (svc, state, npc) = Build();
-        // Put the player adjacent (well inside her 3-5 preferred band's floor).
-        state.SetPlayerTile(state.NpcTile.X, state.NpcTile.Z - 1);
+        state.SetPlayerTile(state.NpcTile.X, state.NpcTile.Z - 1); // adjacent
         var npcTileBefore = state.NpcTile;
 
         await Tick(svc);
-        Assert.NotEqual(npcTileBefore, state.NpcTile); // she stepped away
+        Assert.Equal(npcTileBefore, state.NpcTile); // held ground — did not flee
+    }
+
+    [Fact]
+    public async Task MeleeVulnerability_MeleeHitsDealMore_RangedUnaffected()
+    {
+        // "Weak to melee": Stab/Slash/Crush hits are amplified by
+        // MeleeVulnerabilityPercent; Ranged/Magic are not.
+        var (_, _, npc) = Build();
+        Assert.True(npc.Template.Script!.MeleeVulnerabilityPercent > 0);
+    }
+
+    [Fact]
+    public async Task NeedleSpit_HitsPlayerStandingOnThePlus_ThenLeapsBack()
+    {
+        // Directly exercise the resolution: a "+" marked around (0,0), player
+        // standing on it (not praying, not dodging) → takes the needle volley,
+        // and she springs LeapTiles away afterwards.
+        var (svc, state, npc) = Build();
+        state.SetNpcTile(0, -2);
+        var plus = new (int X, int Z)[] { (0, 0), (0, 1), (0, -1), (1, 0), (-1, 0) };
+        npc.StartNeedleSpit(plus, warningTicks: 1); // resolves this coming tick
+        state.SetPlayerTile(0, 0); // dead centre of the + (Build() left us disengaged, so no auto-move)
+        int hpBefore = state.Player.CurrentHp;
+        var npcTileBefore = state.NpcTile;
+
+        await Tick(svc);
+
+        Assert.Contains(state.CombatLog, e => e.Message.Contains("Needles rake you"));
+        Assert.True(state.Player.CurrentHp < hpBefore);
+        Assert.True(state.DistanceToNpc > 1, "she should have leapt back after spitting");
+        Assert.NotEqual(npcTileBefore, state.NpcTile);
+    }
+
+    [Fact]
+    public async Task NeedleSpit_DiagonalStepIsSafe()
+    {
+        // The whole point of the "+": a diagonal tile is not in the pattern, so
+        // standing on one takes zero and scores a slip (Perfect-Dodge helper).
+        var (svc, state, npc) = Build();
+        state.SetNpcTile(0, -2);
+        var plus = new (int X, int Z)[] { (0, 0), (0, 1), (0, -1), (1, 0), (-1, 0) };
+        npc.StartNeedleSpit(plus, warningTicks: 1);
+        state.SetPlayerTile(1, 1); // a diagonal of (0,0) — NOT on the +
+        int hpBefore = state.Player.CurrentHp;
+
+        await Tick(svc);
+
+        Assert.DoesNotContain(state.CombatLog, e => e.Message.Contains("Needles rake you"));
+        Assert.Contains(state.CombatLog, e => e.Message.Contains("slipped it"));
+        Assert.Equal(hpBefore, state.Player.CurrentHp);
+    }
+
+    [Fact]
+    public async Task NeedleSpit_PrayingRange_LeavesOnlyTheVenomNick()
+    {
+        // Two-layer: praying Range negates the needle volley, but the unprayable
+        // venom nick still bites — so pray alone < a clean diagonal dodge.
+        var (svc, state, npc) = Build();
+        state.SetNpcTile(0, -2);
+        var plus = new (int X, int Z)[] { (0, 0), (0, 1), (0, -1), (1, 0), (-1, 0) };
+        npc.StartNeedleSpit(plus, warningTicks: 1);
+        state.SetPlayerTile(0, 0);
+        state.Player.ToggleProtection(ProtectionPrayer.Range);
+        state.TickStartProtection = ProtectionPrayer.Range;
+        int hpBefore = state.Player.CurrentHp;
+
+        await Tick(svc);
+
+        // Needle (18) prayed to 0; only the venom nick (4) lands.
+        int taken = hpBefore - state.Player.CurrentHp;
+        Assert.InRange(taken, 1, 10);
+        Assert.Contains(state.CombatLog, e => e.Message.Contains("prayed the volley"));
     }
 
     [Fact]

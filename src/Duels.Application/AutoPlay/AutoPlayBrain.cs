@@ -49,8 +49,9 @@ public sealed class AutoPlayBrain : IPlayerBrain
         if (ctx.IncomingProjectileStyle is { } style)
             ctx.Pray(ProtectionFor(style));
 
-        // 2) Get off anything about to hurt (glob/pool), or off a Pin line.
-        if ((ctx.StandingInDanger || ctx.StandingOnPinLine) && TryDodge(ctx))
+        // 2) Get off anything about to hurt (glob/pool), off a Pin line, or off
+        //    a Needle Spit "+" (a diagonal step clears the cardinal pattern).
+        if ((ctx.StandingInDanger || ctx.StandingOnPinLine || ctx.StandingOnNeedleTile) && TryDodge(ctx))
             return;
 
         // 3) Spacing, by weapon type.
@@ -90,7 +91,7 @@ public sealed class AutoPlayBrain : IPlayerBrain
     {
         var safe = Neighbours(ctx.PlayerTile)
             .Where(ctx.InArena)
-            .Where(t => !ctx.IsDangerTile(t) && !ctx.PinLine.Contains(t))
+            .Where(t => !ctx.IsDangerTile(t) && !ctx.PinLine.Contains(t) && !ctx.NeedleTiles.Contains(t))
             .OrderByDescending(t => ctx.Chebyshev(t, ctx.BossTile))
             .Cast<(int X, int Z)?>()
             .FirstOrDefault();
@@ -103,7 +104,7 @@ public sealed class AutoPlayBrain : IPlayerBrain
     {
         var back = Neighbours(ctx.PlayerTile)
             .Where(ctx.InArena)
-            .Where(t => !ctx.IsDangerTile(t) && !ctx.PinLine.Contains(t))
+            .Where(t => !ctx.IsDangerTile(t) && !ctx.PinLine.Contains(t) && !ctx.NeedleTiles.Contains(t))
             .OrderByDescending(t => ctx.Chebyshev(t, ctx.BossTile))
             .Cast<(int X, int Z)?>()
             .FirstOrDefault();

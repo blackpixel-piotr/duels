@@ -137,7 +137,9 @@ The cycle's demands alternate — flick, dodge, flick-check, adds, breathe — a
 ## 2. The Hive Matron
 
 **Fantasy:** a wasp queen the size of a horse — glassy wings, needle legs, never still.
-**Teaches:** spacing and the **weave**: melee is possible but must be danced, not held.
+**Teaches:** the **weave** — she is *weak to melee*, but melee must be danced, not held. Stay on her through her telegraphed Needle Spit retreats and past her lane-blocking drones. (She is no longer framed as the "spacing teacher": ranged is a safe, valid line and her rare is still a ranged weapon, but the mastery/reward line is melee.)
+
+> **Melee rework (implemented — see `design/plans/hive-matron-rework-plan.md` + `hive-matron-fixes-findings.md`).** A player-directed redesign that made her melee game actually work (it was previously unplayable). Changes vs. the original text below: (1) she is **weak to melee** (+30% melee damage taken, PROVISIONAL); (2) the every-3rd-attack dash is now the telegraphed **Needle Spit** — she leaps back and fires needles onto your tile + its 4 cardinal neighbours (dodge diagonally), a Range-typed volley plus an unprayable venom nick, so zero damage needs *both* a Range prayer and a diagonal step; (3) she no longer flees every tick you close (that made melee unreachable) — Needle Spit is her only space-making, and it's readable/dodgeable; (4) drones now orbit *between her and you* and body-block the melee lane (kill them or circle to bait them aside), instead of freezing behind her; (5) the engine now lets a melee swing land on the tick a step ends in range, so the weave's "step in → hit" is snappy. All numbers PROVISIONAL, pending a tuning pass.
 
 **Arena:** 11×11, open. She skitters/hovers constantly.
 

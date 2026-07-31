@@ -79,7 +79,7 @@ public sealed class RangeAndMovementTests
         state.CombatLog.Count(e => e.Kind == kind);
 
     [Fact]
-    public async Task MeleeVsMelee_NoHitsWhileApproaching_FirstContactAfterWalkIn()
+    public async Task MeleeVsMelee_NoHitsWhileApproaching_FirstContactOnArrivalTick()
     {
         var (svc, state) = Build(Tank(AttackType.Crush));
         Assert.Equal(6, state.DistanceToNpc); // (0,3) vs (1,-3)
@@ -88,16 +88,12 @@ public sealed class RangeAndMovementTests
         await Tick(svc);
         Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
 
-        // Tick 2: adjacency reached — but persistent-lock rule 2 ("moving on
-        // a tick defers the attack, never cancels it") means the tick that
-        // closes the gap doesn't also land the hit; the player was still
-        // moving this same tick.
+        // Tick 2: adjacency reached. Melee "attack on arrival" (Hive Matron
+        // rework Q2) — the tick a melee move completes IN range now also lands
+        // the hit, instead of deferring one more tick. This is what makes the
+        // weave's "step in → hit" land on the step-in tick.
         await Tick(svc);
         Assert.Equal(1, state.DistanceToNpc);
-        Assert.Equal(0, Hitsplats(state, LogEntryKind.HitsplatPlayer));
-
-        // Tick 3: the first fully-stationary tick in range — attack lands here.
-        await Tick(svc);
         Assert.True(Hitsplats(state, LogEntryKind.HitsplatPlayer) > 0);
     }
 

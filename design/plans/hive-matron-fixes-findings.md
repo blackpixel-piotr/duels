@@ -150,6 +150,52 @@ tweak, top→bottom to clear the toast stream, was made after the last live
 screenshot and confirmed only by inspection, not re-shot — the app launcher was
 too flaky to relaunch reliably at the end of the session.)
 
+## Follow-up 2: the melee rework (implemented)
+
+Player-directed redesign making melee viable and rewarding — full spec +
+decisions in `hive-matron-rework-plan.md`. As-built:
+
+- **Melee attack-on-arrival** (`GameTickService` attack gate): a melee swing now
+  lands on the tick a move *completes* in range (`meleeArrival`), not a later
+  stationary tick. Ranged/magic still defer (kiting unaffected). One existing
+  test (`MeleeVsMelee_…FirstContactOnArrivalTick`) updated to the new timing.
+- **Melee weakness** (`ApplyMeleeVulnerability`, `MeleeVulnerabilityPercent` =
+  +30% PROVISIONAL): Stab/Slash/Crush hits are amplified — the mirror of Chitin
+  Guard. Melee now kills her in ~17–26 ticks vs. ranged's ~47.
+- **Continuous flee removed** (`ProcessSpacingAiMovement`): she no longer steps
+  away every tick you close (that made melee unreachable). She only closes when
+  you kite out past her band; her space-making is now the Needle Spit.
+- **Needle Spit** (`NeedleSpitDef`, `StartNeedleSpit`/`ResolveNeedleSpit`):
+  replaces the silent dash. Every 3rd attack, *if the player is within 5*, she
+  telegraphs (log tell + `NeedleSpitTiles` marked for the renderer), then 2
+  ticks later leaps 3 back and needles the player's tile + 4 cardinals (dodge
+  diagonally). Two-layer: Range-typed volley (pray Range) + unprayable venom
+  nick, so zero needs pray *and* dodge. Perfect-Dodge eligible.
+- **Drones body-block** (`DroneLaneTile` + `GameState` soft blockers): they now
+  spawn on and track the boss→player lane (fanned by spawn index) instead of
+  freezing at fixed east/west angles, and their live tiles are soft blockers the
+  *player's* pathing must route around (scoped to the player-movement phase, so
+  the boss/drones aren't self-blocked). Kill them or circle to bait them aside.
+
+**Acceptance evidence (harness):** the `melee` probe went from *dying in ~6s
+landing 1 hit* to *killing the boss* (420→0 in ~17–26 ticks). It still trades to
+death because it's a crude probe that flubs ~3 fully-avoidable dodges (a Pin, a
+glob, a Tail Stab) — melee is "viable and rewarding but demanding," which is the
+intended "danced, not held" identity; a clean player wins. The `auto`/ranged
+line is unchanged: still a clean ~28s kill at 96/100 HP.
+
+### Flagged for a browser/renderer pass (not done here)
+
+- **Needle Spit floor visual.** The sim exposes `NpcInstance.NeedleSpitTiles` on
+  the snapshot, but `toon.js` doesn't draw the "+" pattern yet — the current
+  tell is the log line + (future) a wing-flare glow. Draw the marked tiles as a
+  Range-doctrine ground warning and flare her mid-windup. **This is the "she
+  needs a visual indicator" requirement — mechanically wired, visually TODO.**
+- **Drone lane rendering** already works (drones use the generic add mesh), but
+  their new between-boss-and-player motion should be eyeballed on a real device.
+- The whole rework was verified in the sim/unit layer only; no live browser pass
+  (launcher was flaky at session end). Numbers are PROVISIONAL — playtest + tune.
+
 ## Verification
 
 - `dotnet build` clean (0 warnings). `dotnet test` green: 141 tests

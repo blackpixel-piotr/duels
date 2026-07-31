@@ -40,12 +40,10 @@ pass, not later.
     judged the wrong trade against M3's actual scope. Revisit if a future
     boss needs a real stun (a genuine movement-lock, not an attack-delay
     stand-in). *(M3, `m3-findings.md`)*
-36. **Hive Matron's drones station-keep at their orbit radius rather than
-    truly body-blocking melee approach lanes.** The Boss Bible's "body-
-    blocking melee approach lanes" implies real lane-collision the
-    player's pathing must route around; what shipped is real-HP adds
-    (3 hits) near the boss that must be dealt with, not collision
-    geometry. *(M3, `m3-findings.md`)*
+36. ~~Hive Matron's drones station-keep rather than body-blocking.~~
+    **RESOLVED** by the melee rework — drones now track the boss→player lane
+    and their tiles are soft blockers the player must route around (kill or
+    bait aside). See Resolved section / `hive-matron-fixes-findings.md`.
 7. **Shop "why buy" tags** (UI bible §9: e.g. "Unlocks viable Magic swaps
    for Mirrorhide") — omitted; no per-item tag content exists beyond
    Maggot King, and the doc gives no tag table. *(M2, `m2-plan.md` D.1)*
@@ -154,35 +152,28 @@ not reused.)*
     state, not assume this unification already happened. *(M3,
     `m3-findings.md`)*
 
-40. **Hive Matron's melee "weave" is not cleanly executable — the fight's
-    whole lesson is currently unplayable in melee.** Empirically confirmed
-    with the new sim harness (`tools/Duels.SimHarness`, `melee` brain): a
-    melee attempt lands ~1 hit per 3 Tail Stabs and dies in ~6s. Two
-    interacting causes, both needing a designer's call:
-    (a) **Attack-on-arrival.** The combat loop forbids attacking on any tick
-    the player moved (`GameTickService` L145, `!playerMovedThisTick`), so
-    landing a melee hit requires being *stationary*-adjacent — but the Boss
-    Bible's weave is "step in → hit (1 tick) → step out," which assumes the
-    hit lands on the step-in tick. This is a global combat-grammar rule, not
-    Hive-Matron-specific; changing it affects all melee.
-    (b) **Continuous flee.** `ProcessSpacingAiMovement` steps her away every
-    tick the player is inside `PreferredRangeMin` (=3), so in open ground the
-    player can never reach melee range at all; cornered, she can't flee and
-    just Tail-Stabs. This flee is *tested* behavior
-    (`HiveMatronTests.SpacingAi_StepsAwayWhenPlayerCloserThanPreferredRange`),
-    so it's a deliberate choice that contradicts the design's "melee is
-    possible" — not an obvious bug to silently remove. The Boss Bible says
-    spacing is reset by her **dash** (every 3rd attack), which would argue
-    for dash-only spacing (drop the continuous flee), but that's a design
-    decision. **Shipped as a prerequisite (not a full fix):** Tail Stab now
-    only counts *stationary* adjacent ticks ("stands adjacent," per the
-    bible) so a pass-through tick no longer triggers it — necessary for any
-    weave, but insufficient while the flee + attack-on-arrival rules stand.
-    Fix menu: allow melee attack-on-arrival; and/or replace continuous flee
-    with dash-only spacing; and/or retune Tail Stab damage vs. a melee hit.
-    Until then, ranged is the only viable way to fight her (which the perfect
-    sim run demonstrates — a clean, near-zero-damage kill). *(Hive Matron
-    fix pass, `hive-matron-fixes-findings.md`)*
+40. ~~Hive Matron's melee "weave" is not cleanly executable.~~ **RESOLVED** by
+    the melee rework (owner-directed): melee attack-on-arrival, the continuous
+    flee dropped, a +30% melee vulnerability, and the dash replaced by the
+    telegraphed Needle Spit. Melee went from dying-in-6s to killing her in
+    ~17–26 ticks. See `hive-matron-rework-plan.md` / `-fixes-findings.md`.
+    Residual open items promoted below (#42 renderer tell, #43 tuning).
+
+42. **Needle Spit has no floor visual yet (renderer TODO).** The sim marks
+    `NpcInstance.NeedleSpitTiles` on the snapshot, but `toon.js` doesn't draw
+    the "+" ground pattern or flare her mid-windup — the only tell right now is
+    the combat-log line. This is the "she needs a visual indicator before she
+    leaps" requirement: mechanically wired, visually unbuilt. Draw the marked
+    tiles as a Range-doctrine ground warning + a wing-flare telegraph glow.
+    *(Hive Matron rework, `hive-matron-fixes-findings.md`)*
+
+43. **Hive Matron rework numbers are all PROVISIONAL — needs a tuning pass.**
+    Melee vulnerability (+30%), Needle Spit damages (18 needle / 4 venom nick),
+    leap distance (3), trigger range (5), warning (2 ticks). None are
+    doc-sourced. The crude `melee` harness brain still trades to death (flubs
+    ~3 avoidable dodges), so "how demanding should melee be" is a feel call —
+    tune melee vulnerability up (easier) or the close-range punishes down after
+    live play. *(Hive Matron rework)*
 
 ## E. Technical debt / dev tooling
 
