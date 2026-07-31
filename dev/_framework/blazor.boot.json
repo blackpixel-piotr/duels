@@ -1,7 +1,7 @@
 {
   "mainAssemblyName": "Duels.Web",
   "resources": {
-    "hash": "sha256-6zFgCOSSk7ZmkYaMxTdmgSQezl8qnmo/yslZfx4+64k=",
+    "hash": "sha256-wWWDM/DrO22aNkTRC89B7uKhyk0ynF+LkSQoKvDBFh0=",
     "jsModuleNative": {
       "dotnet.native.js": "sha256-JTswf4CBcNmmrTGm6DppxYNII8GVEmbA3iXD3bU1fcA="
     },
@@ -13,10 +13,10 @@
     },
     "coreAssembly": {},
     "assembly": {
-      "Duels.Application.wasm": "sha256-H5qiw8IS3HKUBNrYEolKRpV6gfVMWpvDflzImlgKNuA=",
-      "Duels.Domain.wasm": "sha256-LNKDFj1PHHDvDkIwRSUJpnTPL4umOtEWrWSRRvVEPGk=",
-      "Duels.Infrastructure.wasm": "sha256-Q41qIZ/cM61N3KrLisZKp4TZ+r3AAdovbZidVzLmLiE=",
-      "Duels.Web.wasm": "sha256-xv81L8iqpqna7tMT6FgrrKZfVTayuTqPLHkIS0PUiP8=",
+      "Duels.Application.wasm": "sha256-hOVu+xUtM3Rem5lkGAnvULXv4DtKf4RK+gjgZ52/MQE=",
+      "Duels.Domain.wasm": "sha256-CWUB+l/29Lr0t48VqC+Sx3yYUk0t/+wULvZBm0Ycqmo=",
+      "Duels.Infrastructure.wasm": "sha256-0KXT9fUtLaK3IGyHSBBbIP0+ZQKu8V/elu1ZZKM8zeo=",
+      "Duels.Web.wasm": "sha256-K7pI0KaNgme6HXNMTsn3+ubMVrOlq+OCL40pkyICqRE=",
       "Microsoft.AspNetCore.Components.Web.wasm": "sha256-qX1KyI1ld2ERAD7ZdPprg3yOBnjrwqRmIpZ/QL0i8/8=",
       "Microsoft.AspNetCore.Components.WebAssembly.wasm": "sha256-VJpHvwKmfVfmpiHwzsbYA/m9ilj9Y/wyf2s3QtW9vGY=",
       "Microsoft.AspNetCore.Components.wasm": "sha256-LI5TLwI1cvXiW1S+vAPzE0kRDat3sB0/uiSKoKf/5mc=",
@@ -37,7 +37,7 @@
       "System.ComponentModel.TypeConverter.wasm": "sha256-e9RCgDNYHrlTdQrrMmLGV6l3/IBWGN8JgdHofmSNQrI=",
       "System.ComponentModel.wasm": "sha256-Apgtlc3jtSL83LPPuakJCLmqtIcv6L3s0mGZG3a7B+k=",
       "System.Console.wasm": "sha256-4Vor35qcmrlGW72eQCLFvM17FWGrPk4oL04v7ZoW1Cw=",
-      "System.Linq.wasm": "sha256-CKgpI/Lvf/51QVrlmzRYPeRf06t2aDuV1+kC8HBzT+Q=",
+      "System.Linq.wasm": "sha256-0XCBlEQZxT6/Q9/E/vf40dQH785EryxcRxcuibZqCtI=",
       "System.Memory.wasm": "sha256-cY5F0AsvlS+ZtwOpJRWFMWoPvDZk4MYHrfq+wjqPlbA=",
       "System.ObjectModel.wasm": "sha256-EVO2ljeynXRqpqFKDEKelDPMvfrNeujH7qCSGBshQA0=",
       "System.Private.CoreLib.wasm": "sha256-nt023GRjGTVM3X83y9Mukwbxub258EBhDD0US3nm/30=",

@@ -1442,6 +1442,27 @@ html, body {
 .prefight-fight-btn:hover:not(:disabled) { border-color: var(--yellow); color: var(--yellow); }
 .prefight-fight-btn:disabled { opacity: 0.5; cursor: default; }
 .prefight-hint { font-size: 9px; color: var(--text-dim); text-align: center; }
+/* Playtest (auto) — a dev/watch affordance, styled distinct from the real FIGHT */
+.prefight-playtest-btn {
+    background: linear-gradient(160deg, #10233a, #0a131e);
+    border: 1px solid var(--blue); color: var(--blue);
+    font-family: var(--font); font-size: 11px; letter-spacing: 1px;
+    padding: 7px 0; margin-top: 6px; cursor: pointer;
+    touch-action: manipulation;
+}
+.prefight-playtest-btn:hover:not(:disabled) { border-color: var(--yellow); color: var(--yellow); }
+.prefight-playtest-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Autoplay watch-mode banner, shown in the battle HUD while the autopilot fights */
+.autoplay-banner {
+    position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%);
+    z-index: 20; pointer-events: none;
+    background: rgba(10, 19, 30, 0.8); border: 1px solid var(--blue);
+    color: var(--blue); font-family: var(--font); font-size: 11px;
+    letter-spacing: 1px; padding: 4px 12px; border-radius: 3px;
+    animation: autoplay-pulse 1.6s ease-in-out infinite;
+}
+@keyframes autoplay-pulse { 0%, 100% { opacity: 0.65; } 50% { opacity: 1; } }
 
 /* ─── Bank modal ─── */
 .bank-panel { width: min(560px, 96vw); }
