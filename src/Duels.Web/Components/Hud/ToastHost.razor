@@ -1,18 +1,31 @@
 @using Duels.Application.GameSession
 @implements IDisposable
 
-<div class="toast-stack">
-    @foreach (var t in _toasts)
-    {
-        <div @key="t.Id" class="toast toast-@t.Entry.Kind.ToString().ToLower()">
-            <span class="toast-msg">@t.Entry.Message</span>
-            <button class="toast-close" @onclick="() => Dismiss(t.Id)" title="Dismiss">✕</button>
-        </div>
-    }
-</div>
+@* Combat toasts are hidden for now — they covered too much of the arena. The
+   combat log is slated to move into a semi-transparent bottom-left chatbox in a
+   later pass; until then this whole overlay is suppressed. All the toast
+   plumbing below stays intact — flip Enabled back to true (or wire it to a
+   pref) to restore it. (User request, boss-polish pass.) *@
+@if (Enabled)
+{
+    <div class="toast-stack">
+        @foreach (var t in _toasts)
+        {
+            <div @key="t.Id" class="toast toast-@t.Entry.Kind.ToString().ToLower()">
+                <span class="toast-msg">@t.Entry.Message</span>
+                <button class="toast-close" @onclick="() => Dismiss(t.Id)" title="Dismiss">✕</button>
+            </div>
+        }
+    </div>
+}
 
 @code {
     [Parameter] public IReadOnlyList<CombatLogEntry> LogEntries { get; set; } = [];
+
+    // Master on/off for the on-screen combat toasts. Hidden for now (see the
+    // markup note); the log is moving to a bottom-left chatbox later. static
+    // readonly (not const) so the disabled branch doesn't trip CS0162.
+    private static readonly bool Enabled = false;
 
     private static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(4);
 

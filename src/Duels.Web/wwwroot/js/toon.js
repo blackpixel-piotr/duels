@@ -1519,7 +1519,7 @@ async function initBattle(canvasId, opts) {
         yawTarget: 0.6, zoomTarget: 1, camPitchTarget: 0.62,
         viewRot: 0, // 0 or 90: CSS view rotation of the portrait fight
         player: null, enemy: null, dotnet: opts.dotnetRef ?? null,
-        splats: [], hazardQuads: new Map(), needleQuads: new Map(), marker: null, targetTile: null,
+        splats: [], hazardQuads: new Map(), needleQuads: new Map(), pinQuads: new Map(), marker: null, targetTile: null,
         obstacles: [], flags: {}, projectiles: [], addMeshes: new Map(), addHitboxes: new Map(), telegraph: null,
         projectileMeshes: new Map(),
         clock: new THREE.Clock(), raf: 0, drag: null,
@@ -1897,16 +1897,36 @@ async function initBattle(canvasId, opts) {
         st.targetTile.visible = !st.enemy.crumbled;
         if (st.marker.visible && now - st.markerT > 900) st.marker.visible = false;
 
-        // hazards pulse (scorch stays a steady safe glow, no urgency pulse)
+        // Deadly-tile VFX (shared by Maggot King eruptions/pools + Hive Matron
+        // venom): a danger tile breathes — opacity AND a small scale throb so it
+        // reads as alive/bubbling, not a flat decal. Warnings throb harder and
+        // flash urgently on the final fuse tick; settled pools bubble slowly;
+        // scorch is a steady safe glow with no throb.
         for (const [, q] of st.hazardQuads) {
             const d = q.userData;
-            q.material.opacity = d.scorch ? 0.22
-                : 0.25 + 0.2 * Math.sin(now * (!d.pool && d.t <= 1 ? 0.022 : d.pool ? 0.004 : 0.009));
+            if (d.scorch) {
+                q.material.opacity = 0.22;
+                q.scale.setScalar(1);
+            } else if (d.pool) {
+                const p = Math.sin(now * 0.005);
+                q.material.opacity = 0.4 + 0.14 * p;         // toxic, slow bubble
+                q.scale.setScalar(1 + 0.05 * Math.sin(now * 0.0065 + q.position.x));
+            } else if (d.t <= 1) {
+                const p = Math.sin(now * 0.03);              // ERUPTING NOW — urgent
+                q.material.opacity = 0.55 + 0.3 * p;
+                q.scale.setScalar(1.04 + 0.08 * p);
+            } else {
+                q.material.opacity = 0.34 + 0.18 * Math.sin(now * 0.01);
+                q.scale.setScalar(1 + 0.03 * Math.sin(now * 0.011));
+            }
         }
         // Needle Spit "+" telegraph: a quicker green pulse than a hazard warning
         // — reads as "incoming, move diagonally."
         for (const [, q] of st.needleQuads)
             q.material.opacity = 0.3 + 0.25 * Math.sin(now * 0.016);
+        // Pin charge line: an urgent red pulse — "sidestep perpendicular."
+        for (const [, q] of st.pinQuads)
+            q.material.opacity = 0.32 + 0.28 * Math.sin(now * 0.02);
 
         // punish window ring: pulses under the boss while it can't act
         st.punishRing.visible = !!st.flags.punished && !st.enemy.crumbled;
@@ -1988,8 +2008,12 @@ async function initBattle(canvasId, opts) {
         }
 
         // StyleTelegraphSystem: pulsing doctrine-color rim glow while a
-        // telegraph is live (boss bible "weapon glow / stance").
-        if (st.telegraph?.active && st.telegraph.style) {
+        // telegraph is live (boss bible "weapon glow / stance"). A winding-up
+        // Needle Spit (green "+" on the floor) flares her the same ranged-green
+        // and takes precedence — her "wings screaming" wind-up tell.
+        if (st.needleQuads.size > 0) {
+            setActorTelegraphGlow(st.enemy, DOCTRINE_RGB.ranged, 0.6 + 0.4 * Math.sin(now * 0.02));
+        } else if (st.telegraph?.active && st.telegraph.style) {
             const rgb = DOCTRINE_RGB[st.telegraph.style] ?? [1, 1, 1];
             setActorTelegraphGlow(st.enemy, rgb, 0.55 + 0.35 * Math.sin(now * 0.014));
         } else {
@@ -2568,7 +2592,9 @@ const api = {
                 st.scene.add(q); st.hazardQuads.set(key, q);
             }
             q.userData = info;
-            q.material.color.set(info.scorch ? '#e8c23d' : info.pool ? '#5a7a1e' : info.t <= 1 ? '#ff5555' : '#ffd166');
+            // scorch = safe gold · pool = toxic venom-green · warning = amber
+            // (fuse) ramping to a hot red on the final tick (about to erupt).
+            q.material.color.set(info.scorch ? '#e8c23d' : info.pool ? '#4fbf3a' : info.t <= 1 ? '#ff3b3b' : '#ffb43d');
         }
     },
     setBattleNeedleSpit(canvasId, tiles) {
@@ -2590,6 +2616,26 @@ const api = {
             q.rotation.x = -Math.PI / 2;
             q.position.set(x * TILE, 0.017, z * TILE);
             st.scene.add(q); st.needleQuads.set(key, q);
+        }
+    },
+    setBattlePinLine(canvasId, tiles) {
+        // Hive Matron's Pin: the line of tiles she'll charge along, drawn in the
+        // melee doctrine colour (red — it's a heavy melee charge) so "sidestep
+        // perpendicular" reads on the floor. Same quad lifecycle as the needle
+        // "+"; own map so the two telegraphs never fight over a tile.
+        const st = battles.get(canvasId);
+        if (!st) return;
+        const want = new Set((tiles ?? []).map(t => `${t.x},${t.z}`));
+        for (const [key, q] of st.pinQuads)
+            if (!want.has(key)) { st.scene.remove(q); st.pinQuads.delete(key); }
+        for (const key of want) {
+            if (st.pinQuads.has(key)) continue;
+            const [x, z] = key.split(',').map(Number);
+            const q = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.94, TILE * 0.94),
+                new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX.melee, transparent: true, opacity: 0.35, depthWrite: false }));
+            q.rotation.x = -Math.PI / 2;
+            q.position.set(x * TILE, 0.018, z * TILE);
+            st.scene.add(q); st.pinQuads.set(key, q);
         }
     },
     setBattleAdds(canvasId, adds) {

@@ -159,15 +159,25 @@ not reused.)*
     ~17–26 ticks. See `hive-matron-rework-plan.md` / `-fixes-findings.md`.
     Residual open items promoted below (#42 renderer tell, #43 tuning).
 
-42. **Needle Spit visuals — mostly done, two loose ends.** The "+" floor
-    telegraph (green ranged-doctrine quads via `toon.js setBattleNeedleSpit`)
-    and the venom pools left on the struck tiles are implemented. Remaining:
-    (a) a **wing-flare telegraph glow** on her mid-windup (floor-only for now),
-    and (b) **live browser verification** — the render code builds + node-checks
-    + mirrors the hazard-quad path, but wasn't eyeballed on screen (flaky
-    launcher). Bonus find: **Pin's line-charge has no floor visual at all**
-    (pre-existing) — worth giving it the same treatment.
-    *(Hive Matron rework, `hive-matron-fixes-findings.md`)*
+42. ~~Needle Spit visuals + wing-flare + Pin telegraph.~~ **DONE** (boss-polish
+    pass, browser-verified via static-serve): "+" floor telegraph, wing-flare
+    windup glow, Pin's charge-line floor telegraph (it had none), and the venom
+    pools all render. Deadly-tile VFX (both bosses) got a throb/urgency/toxic-
+    green pass. On-screen hit/telegraph text notifications hidden pending a
+    bottom-left chatbox. See `hive-matron-fixes-findings.md` follow-up 4.
+
+44. **Green-on-green readability of danger VFX.** The arena floor, venom pools,
+    Needle Spit "+", drones, and wing-flare are all green — the green danger
+    elements read weakly against the green ground (the red Pin line / amber
+    warnings pop fine). Give venom pools + needle tiles a darker rim or a more
+    acid yellow-green so they separate. *(Boss-polish pass)*
+
+45. **The combat log needs a home.** On-screen toasts + the telegraph bubble are
+    hidden (they covered the arena); the intended replacement is a
+    semi-transparent bottom-left chatbox. Until it exists, non-visual events
+    (loot, "poisoned", "prayer ran out", phase banners, "Drones rise", Chitin
+    Guard) have no on-screen surface. Build the chatbox and re-home the log.
+    *(Boss-polish pass — user's stated final-version plan)*
 
 43. **Hive Matron rework numbers are all PROVISIONAL — needs a tuning pass.**
     Melee vulnerability (+30%), Needle Spit damages (18 needle / 4 venom nick),

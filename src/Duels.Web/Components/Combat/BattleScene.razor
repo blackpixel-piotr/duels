@@ -42,7 +42,12 @@
         </div>
     </div>
 
-    @if (BubbleText is { } bubble)
+    @* Boss-action text bubble hidden for now (it covered too much of the
+       arena). The tells are increasingly in-world anyway — the doctrine glow,
+       the floor telegraphs (eruptions, Needle Spit's "+", Pin's charge line) —
+       and the combat log is slated to move to a bottom-left chatbox later. Flip
+       ShowTelegraphBubble to re-enable. (User request, boss-polish pass.) *@
+    @if (ShowTelegraphBubble && BubbleText is { } bubble)
     {
         <div class="telegraph-bubble">@bubble</div>
     }
@@ -428,6 +433,11 @@
     // PrayerPoints caps at 99, not 100 — normalize for the bar fill.
     private int PlayerPrayerPct => (int)((State?.Player?.PrayerPoints ?? 0) * 100.0 / 99);
 
+    // Master on/off for the boss-action text bubble. Hidden for now (see the
+    // markup note); tells are in-world (glow + floor telegraphs). static
+    // readonly (not const) so the disabled branch doesn't trip CS0162.
+    private static readonly bool ShowTelegraphBubble = false;
+
     // Non-telegraph boss-script warnings (Rot Burst, swarms, phase shift,
     // eruption waves) still surface as a text bubble — the style-shift
     // telegraph itself moved to the in-world StyleTelegraphSystem (rim glow +
@@ -609,6 +619,12 @@
             // warning so "step diagonally" reads on-screen. Empty array clears.
             await JS.InvokeVoidAsync("voxel.setBattleNeedleSpit", "battle-canvas",
                 (s.ActiveNpc?.NeedleSpitTiles ?? Enumerable.Empty<(int X, int Z)>())
+                    .Select(t => new { x = t.X, z = t.Z }).ToArray());
+            // Pin charge-line telegraph (Hive Matron): the line she'll charge
+            // along, drawn melee-red (it's a heavy melee charge) so "sidestep
+            // perpendicular" reads on the floor. Previously had no visual at all.
+            await JS.InvokeVoidAsync("voxel.setBattlePinLine", "battle-canvas",
+                (s.ActiveNpc?.LineChargeTiles ?? Enumerable.Empty<(int X, int Z)>())
                     .Select(t => new { x = t.X, z = t.Z }).ToArray());
             // Swarm adds (m1-plan Workstream C.7).
             await JS.InvokeVoidAsync("voxel.setBattleAdds", "battle-canvas",

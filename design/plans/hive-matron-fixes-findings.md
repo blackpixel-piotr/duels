@@ -199,14 +199,38 @@ line is unchanged: still a clean ~28s kill at 96/100 HP.
   she leaps" requirement — the floor "+" plus her leap now read the attack; a
   wing-flare telegraph glow is a nice-to-have still open.
 
-### Still flagged
+### Follow-up 4: boss-polish pass (Maggot King + Hive Matron) — browser-verified
 
-- **Not live-verified in the browser.** The render code node-checks, builds, and
-  mirrors the proven hazard-quad path exactly, but the container's app launcher
-  was too flaky to reliably start for a Playwright pass at session end, so the
-  "+" telegraph and drone-lane motion were **not eyeballed on screen**. Worth a
-  quick look on next launch. Pin's line-charge, incidentally, has *no* floor
-  visual either (pre-existing) — Needle Spit is the first marked-tile telegraph.
+A visual polish + declutter pass, and this time it **was** verified in a real
+browser: `dotnet run` reliably gets reaped in this container, so instead the app
+was `dotnet publish`ed and served as static files (`python -m http.server`) —
+Duels.Web is standalone WASM, so that just works. Playwright confirmed each item
+and captured screenshots.
+
+- **Hit/telegraph text notifications hidden.** The on-screen combat toasts
+  (`ToastHost`, `Enabled=false`) and the boss-action `telegraph-bubble`
+  (`BattleScene`, `ShowTelegraphBubble=false`) are suppressed — they covered too
+  much of the arena. All plumbing intact behind those flags; the log is slated
+  to move to a semi-transparent bottom-left chatbox later. Verified: both counts
+  0 on screen mid-fight.
+- **Needle Spit wing-flare.** She now flares ranged-green (`setActorTelegraphGlow`,
+  takes precedence over the style glow) while a Needle Spit winds up — verified
+  on screen (green rim on the boss during the "+" telegraph).
+- **Pin floor telegraph.** `LineChargeTiles` now streamed to `toon.js`
+  `setBattlePinLine`, drawn as a melee-red charge line (Pin had *no* floor
+  visual before) — verified (pin quads rendered).
+- **Deadly-tile VFX (both bosses, shared renderer).** Hazard quads now breathe
+  (opacity + a small scale throb), warnings ramp amber→hot-red and flash on the
+  final fuse tick, settled pools are a brighter toxic green with a slow bubble.
+  Verified (up to 17 hazard quads live).
+
+**Readability note (design "direction" feedback):** the arena ground, the venom
+pools, the Needle Spit "+", the drones, and the wing-flare are *all green* — so
+the green danger elements have only modest contrast against the green floor
+(the red Pin line and amber warnings pop much better). Candidate follow-up: give
+venom pools/needle tiles a darker rim or shift them to a more acid yellow-green
+so they separate from the arena. Flagged, not changed.
+
 - Numbers are all PROVISIONAL — playtest + tune (melee vuln, needle/nick damage,
   pool duration).
 
