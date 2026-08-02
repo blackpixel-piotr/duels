@@ -224,6 +224,19 @@ and captured screenshots.
   final fuse tick, settled pools are a brighter toxic green with a slow bubble.
   Verified (up to 17 hazard quads live).
 
+### Follow-up 5: real poison-pool VFX — texture + rising particles
+
+The flat glowing quads read as placeholder, so deadly tiles are now proper
+surface VFX (browser-verified): pools get a mottled toxic-venom `CanvasTexture`
+(dark base, brighter blobs, bubble rings) plus a per-tile `THREE.Points` cloud
+of rising bubbles; eruption warnings get a hot cracked-ember texture + rising
+ember particles that redden on the final fuse tick; both shared textures slowly
+churn; scorch stays flat/safe. Shared renderer, so Maggot King's eruptions/pools
+and Hive Matron's venom (Sting Lob + Needle Spit) all upgraded at once. Particle
+clouds are created/recycled alongside their hazard quad and torn down with it —
+renderer-only, no gameplay coupling. Verified on screen: pools clearly read as
+bubbling poison now (5 pools + 5 particle clouds live in the capture).
+
 **Readability note (design "direction" feedback):** the arena ground, the venom
 pools, the Needle Spit "+", the drones, and the wing-flare are *all green* — so
 the green danger elements have only modest contrast against the green floor
