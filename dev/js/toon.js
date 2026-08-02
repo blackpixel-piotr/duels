@@ -1011,9 +1011,20 @@ function warnSurfaceTexture() {
     _warnTex = t; return t;
 }
 
-// A per-tile rising-particle cloud (bubbles for a pool, embers for a warning).
+// A per-tile rising-particle cloud, themed per marked-tile kind:
+//   pool   → fat green bubbles of toxic gas (slow)          [venom aftermath]
+//   warn   → orange embers off a cracked ember bed          [eruption incoming]
+//   needle → wispy green toxic gas rising fast              [venom volley incoming]
+//   pin    → red charge sparks streaking up                 [heavy melee charge]
+const _FX = {
+    pool:   { N: 12, color: '#9bee52', size: 0.16, rate: 0.0004, blend: THREE.NormalBlending },
+    warn:   { N: 9,  color: '#ff8a3a', size: 0.13, rate: 0.0007, blend: THREE.AdditiveBlending },
+    needle: { N: 10, color: '#7fe04a', size: 0.13, rate: 0.0009, blend: THREE.AdditiveBlending },
+    pin:    { N: 8,  color: '#ff5a3a', size: 0.12, rate: 0.0011, blend: THREE.AdditiveBlending },
+};
 function makeHazardFx(kind) {
-    const N = kind === 'pool' ? 12 : 9;
+    const cfg = _FX[kind] ?? _FX.pool;
+    const N = cfg.N;
     const baseX = new Float32Array(N), baseZ = new Float32Array(N), seed = new Float32Array(N);
     const geo = new THREE.BufferGeometry();
     const pos = new Float32Array(N * 3);
@@ -1025,14 +1036,37 @@ function makeHazardFx(kind) {
     }
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const mat = new THREE.PointsMaterial({
-        color: kind === 'pool' ? '#9bee52' : '#ff8a3a',
-        size: kind === 'pool' ? 0.16 : 0.13,
-        map: bubbleTexture(), transparent: true, opacity: 0.8, depthWrite: false,
-        blending: kind === 'pool' ? THREE.NormalBlending : THREE.AdditiveBlending,
+        color: cfg.color, size: cfg.size, map: bubbleTexture(),
+        transparent: true, opacity: 0.8, depthWrite: false, blending: cfg.blend,
     });
     const pts = new THREE.Points(geo, mat);
-    pts.userData = { seed, baseX, baseZ, N, kind, h: TILE * 0.95, rate: kind === 'pool' ? 0.0004 : 0.0007 };
+    pts.userData = { seed, baseX, baseZ, N, kind, h: TILE * 0.95, rate: cfg.rate };
     return pts;
+}
+
+// Sync a marked-tile telegraph's quads + particle clouds to a set of tiles.
+// Shared by the Needle Spit "+" and the Pin charge line (both are floor
+// telegraphs, differing only in colour/texture/particle theme).
+function syncMarkedTiles(st, tiles, quadMap, fxMap, opts) {
+    const want = new Set((tiles ?? []).map(t => `${t.x},${t.z}`));
+    for (const [key, q] of quadMap)
+        if (!want.has(key)) {
+            st.scene.remove(q); quadMap.delete(key);
+            const fx = fxMap.get(key);
+            if (fx) { st.scene.remove(fx); fxMap.delete(key); }
+        }
+    for (const key of want) {
+        if (quadMap.has(key)) continue;
+        const [x, z] = key.split(',').map(Number);
+        const q = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.92, TILE * 0.92),
+            new THREE.MeshBasicMaterial({ color: opts.color, map: opts.texture, transparent: true, opacity: 0.35, depthWrite: false }));
+        q.rotation.x = -Math.PI / 2;
+        q.position.set(x * TILE, opts.y, z * TILE);
+        st.scene.add(q); quadMap.set(key, q);
+        const fx = makeHazardFx(opts.fxKind);
+        fx.position.set(x * TILE, 0.05, z * TILE);
+        st.scene.add(fx); fxMap.set(key, fx);
+    }
 }
 
 function makeProjectileVisual(scene, hex, now) {
@@ -1610,7 +1644,7 @@ async function initBattle(canvasId, opts) {
         yawTarget: 0.6, zoomTarget: 1, camPitchTarget: 0.62,
         viewRot: 0, // 0 or 90: CSS view rotation of the portrait fight
         player: null, enemy: null, dotnet: opts.dotnetRef ?? null,
-        splats: [], hazardQuads: new Map(), hazardFx: new Map(), needleQuads: new Map(), pinQuads: new Map(), marker: null, targetTile: null,
+        splats: [], hazardQuads: new Map(), hazardFx: new Map(), needleQuads: new Map(), needleFx: new Map(), pinQuads: new Map(), pinFx: new Map(), marker: null, targetTile: null,
         obstacles: [], flags: {}, projectiles: [], addMeshes: new Map(), addHitboxes: new Map(), telegraph: null,
         projectileMeshes: new Map(),
         clock: new THREE.Clock(), raf: 0, drag: null,
@@ -2013,18 +2047,20 @@ async function initBattle(canvasId, opts) {
         // every tile using them) so the venom/embers roil.
         if (_poolTex) _poolTex.rotation = now * 0.00006;
         if (_warnTex) _warnTex.rotation = now * -0.0001;
-        // Rise + recycle the per-tile particle clouds (bubbles/embers).
-        for (const [, fx] of st.hazardFx) {
-            const u = fx.userData, arr = fx.geometry.attributes.position.array;
-            for (let i = 0; i < u.N; i++) {
-                const ph = (now * u.rate + u.seed[i]) % 1;
-                arr[i * 3]     = u.baseX[i] + Math.sin(now * 0.003 + u.seed[i] * 12) * 0.05;
-                arr[i * 3 + 1] = ph * u.h;
-                arr[i * 3 + 2] = u.baseZ[i] + Math.cos(now * 0.0028 + u.seed[i] * 9) * 0.05;
+        // Rise + recycle the per-tile particle clouds — pools (bubbles),
+        // eruption warnings (embers), Needle Spit (toxic gas), Pin (sparks).
+        for (const map of [st.hazardFx, st.needleFx, st.pinFx])
+            for (const [, fx] of map) {
+                const u = fx.userData, arr = fx.geometry.attributes.position.array;
+                for (let i = 0; i < u.N; i++) {
+                    const ph = (now * u.rate + u.seed[i]) % 1;
+                    arr[i * 3]     = u.baseX[i] + Math.sin(now * 0.003 + u.seed[i] * 12) * 0.05;
+                    arr[i * 3 + 1] = ph * u.h;
+                    arr[i * 3 + 2] = u.baseZ[i] + Math.cos(now * 0.0028 + u.seed[i] * 9) * 0.05;
+                }
+                fx.geometry.attributes.position.needsUpdate = true;
+                fx.material.opacity = (u.kind === 'pool' ? 0.6 : 0.7) + 0.2 * Math.sin(now * 0.004);
             }
-            fx.geometry.attributes.position.needsUpdate = true;
-            fx.material.opacity = (u.kind === 'pool' ? 0.6 : 0.7) + 0.2 * Math.sin(now * 0.004);
-        }
         // Needle Spit "+" telegraph: a quicker green pulse than a hazard warning
         // — reads as "incoming, move diagonally."
         for (const [, q] of st.needleQuads)
@@ -2724,45 +2760,23 @@ const api = {
         }
     },
     setBattleNeedleSpit(canvasId, tiles) {
-        // Hive Matron rework: the "+" of tiles a Needle Spit is about to hit,
-        // drawn in the ranged doctrine colour (green — it's a Range-typed
-        // venom volley) so the "step diagonally" read is on the floor, not just
-        // in the log. The struck tiles become real venom pools after it lands
-        // (those flow through setBattleHazards' pool channel, not this one).
+        // Hive Matron rework: the "+" of tiles a Needle Spit is about to hit —
+        // a venom texture in ranged-green with wisps of toxic gas rising off it,
+        // so "step diagonally" reads on the floor. The struck tiles become real
+        // venom pools after it lands (setBattleHazards' pool channel).
         const st = battles.get(canvasId);
         if (!st) return;
-        const want = new Set((tiles ?? []).map(t => `${t.x},${t.z}`));
-        for (const [key, q] of st.needleQuads)
-            if (!want.has(key)) { st.scene.remove(q); st.needleQuads.delete(key); }
-        for (const key of want) {
-            if (st.needleQuads.has(key)) continue;
-            const [x, z] = key.split(',').map(Number);
-            const q = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.92, TILE * 0.92),
-                new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX.ranged, transparent: true, opacity: 0.35, depthWrite: false }));
-            q.rotation.x = -Math.PI / 2;
-            q.position.set(x * TILE, 0.017, z * TILE);
-            st.scene.add(q); st.needleQuads.set(key, q);
-        }
+        syncMarkedTiles(st, tiles, st.needleQuads, st.needleFx,
+            { color: '#ffffff', texture: poolSurfaceTexture(), fxKind: 'needle', y: 0.017 });
     },
     setBattlePinLine(canvasId, tiles) {
-        // Hive Matron's Pin: the line of tiles she'll charge along, drawn in the
-        // melee doctrine colour (red — it's a heavy melee charge) so "sidestep
-        // perpendicular" reads on the floor. Same quad lifecycle as the needle
-        // "+"; own map so the two telegraphs never fight over a tile.
+        // Hive Matron's Pin: the line she'll charge along — a hot cracked-charge
+        // texture in melee-red with sparks streaking up, so "sidestep
+        // perpendicular" reads on the floor. Previously had no visual at all.
         const st = battles.get(canvasId);
         if (!st) return;
-        const want = new Set((tiles ?? []).map(t => `${t.x},${t.z}`));
-        for (const [key, q] of st.pinQuads)
-            if (!want.has(key)) { st.scene.remove(q); st.pinQuads.delete(key); }
-        for (const key of want) {
-            if (st.pinQuads.has(key)) continue;
-            const [x, z] = key.split(',').map(Number);
-            const q = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.94, TILE * 0.94),
-                new THREE.MeshBasicMaterial({ color: DOCTRINE_HEX.melee, transparent: true, opacity: 0.35, depthWrite: false }));
-            q.rotation.x = -Math.PI / 2;
-            q.position.set(x * TILE, 0.018, z * TILE);
-            st.scene.add(q); st.pinQuads.set(key, q);
-        }
+        syncMarkedTiles(st, tiles, st.pinQuads, st.pinFx,
+            { color: DOCTRINE_HEX.melee, texture: warnSurfaceTexture(), fxKind: 'pin', y: 0.018 });
     },
     setBattleAdds(canvasId, adds) {
         // Swarm adds (m1-plan Workstream C.7): small placeholder blobs at
