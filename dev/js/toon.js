@@ -944,6 +944,97 @@ function projGlowTexture() {
     return _projGlowTex;
 }
 
+// ── Deadly-tile VFX (shared: Maggot King eruptions/pools + Hive Matron venom) ──
+// A hazard tile is a textured, breathing surface with bubbles/embers rising off
+// it — not a flat decal. Textures are baked once and shared; the rising motion
+// is a small per-tile THREE.Points cloud (see makeHazardFx / the render loop).
+let _poolTex, _warnTex, _bubbleTex;
+
+function bubbleTexture() {
+    if (_bubbleTex) return _bubbleTex;
+    const c = document.createElement('canvas'); c.width = c.height = 32;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grad.addColorStop(0, 'rgba(255,255,255,0.95)');
+    grad.addColorStop(0.4, 'rgba(255,255,255,0.5)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad; g.beginPath(); g.arc(16, 16, 16, 0, 7); g.fill();
+    _bubbleTex = new THREE.CanvasTexture(c);
+    return _bubbleTex;
+}
+
+// A mottled toxic surface — dark base, brighter venom blobs, bubble rings.
+function poolSurfaceTexture() {
+    if (_poolTex) return _poolTex;
+    const s = 128, c = document.createElement('canvas'); c.width = c.height = s;
+    const g = c.getContext('2d');
+    g.fillStyle = '#173a12'; g.fillRect(0, 0, s, s);
+    for (let i = 0; i < 46; i++) {
+        const x = Math.random() * s, y = Math.random() * s, r = 4 + Math.random() * 18;
+        const grd = g.createRadialGradient(x, y, 0, x, y, r);
+        grd.addColorStop(0, Math.random() < 0.5 ? '#5fbf2e' : '#9bee52');
+        grd.addColorStop(1, 'rgba(20,50,15,0)');
+        g.fillStyle = grd; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+    }
+    g.strokeStyle = 'rgba(190,255,150,0.45)'; g.lineWidth = 1.3;
+    for (let i = 0; i < 16; i++) {
+        const x = Math.random() * s, y = Math.random() * s, r = 2 + Math.random() * 7;
+        g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.center.set(0.5, 0.5);
+    _poolTex = t; return t;
+}
+
+// A hot cracked surface for an about-to-erupt warning — embers over char.
+function warnSurfaceTexture() {
+    if (_warnTex) return _warnTex;
+    const s = 128, c = document.createElement('canvas'); c.width = c.height = s;
+    const g = c.getContext('2d');
+    g.fillStyle = '#3a1e08'; g.fillRect(0, 0, s, s);
+    for (let i = 0; i < 40; i++) {
+        const x = Math.random() * s, y = Math.random() * s, r = 3 + Math.random() * 14;
+        const grd = g.createRadialGradient(x, y, 0, x, y, r);
+        grd.addColorStop(0, Math.random() < 0.5 ? '#ffb43d' : '#ff6a1e');
+        grd.addColorStop(1, 'rgba(60,25,5,0)');
+        g.fillStyle = grd; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+    }
+    // cracks
+    g.strokeStyle = 'rgba(255,90,20,0.55)'; g.lineWidth = 1.4;
+    for (let i = 0; i < 10; i++) {
+        g.beginPath(); g.moveTo(Math.random() * s, Math.random() * s);
+        for (let k = 0; k < 3; k++) g.lineTo(Math.random() * s, Math.random() * s);
+        g.stroke();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.center.set(0.5, 0.5);
+    _warnTex = t; return t;
+}
+
+// A per-tile rising-particle cloud (bubbles for a pool, embers for a warning).
+function makeHazardFx(kind) {
+    const N = kind === 'pool' ? 12 : 9;
+    const baseX = new Float32Array(N), baseZ = new Float32Array(N), seed = new Float32Array(N);
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+        baseX[i] = (Math.random() - 0.5) * TILE * 0.72;
+        baseZ[i] = (Math.random() - 0.5) * TILE * 0.72;
+        seed[i] = Math.random();
+        pos[i * 3] = baseX[i]; pos[i * 3 + 2] = baseZ[i];
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const mat = new THREE.PointsMaterial({
+        color: kind === 'pool' ? '#9bee52' : '#ff8a3a',
+        size: kind === 'pool' ? 0.16 : 0.13,
+        map: bubbleTexture(), transparent: true, opacity: 0.8, depthWrite: false,
+        blending: kind === 'pool' ? THREE.NormalBlending : THREE.AdditiveBlending,
+    });
+    const pts = new THREE.Points(geo, mat);
+    pts.userData = { seed, baseX, baseZ, N, kind, h: TILE * 0.95, rate: kind === 'pool' ? 0.0004 : 0.0007 };
+    return pts;
+}
+
 function makeProjectileVisual(scene, hex, now) {
     _projCoreGeo ??= new THREE.SphereGeometry(0.13, 12, 12);
     let mats = _projMats.get(hex);
@@ -1519,7 +1610,7 @@ async function initBattle(canvasId, opts) {
         yawTarget: 0.6, zoomTarget: 1, camPitchTarget: 0.62,
         viewRot: 0, // 0 or 90: CSS view rotation of the portrait fight
         player: null, enemy: null, dotnet: opts.dotnetRef ?? null,
-        splats: [], hazardQuads: new Map(), needleQuads: new Map(), pinQuads: new Map(), marker: null, targetTile: null,
+        splats: [], hazardQuads: new Map(), hazardFx: new Map(), needleQuads: new Map(), pinQuads: new Map(), marker: null, targetTile: null,
         obstacles: [], flags: {}, projectiles: [], addMeshes: new Map(), addHitboxes: new Map(), telegraph: null,
         projectileMeshes: new Map(),
         clock: new THREE.Clock(), raf: 0, drag: null,
@@ -1898,27 +1989,41 @@ async function initBattle(canvasId, opts) {
         if (st.marker.visible && now - st.markerT > 900) st.marker.visible = false;
 
         // Deadly-tile VFX (shared by Maggot King eruptions/pools + Hive Matron
-        // venom): a danger tile breathes — opacity AND a small scale throb so it
-        // reads as alive/bubbling, not a flat decal. Warnings throb harder and
-        // flash urgently on the final fuse tick; settled pools bubble slowly;
-        // scorch is a steady safe glow with no throb.
+        // venom): a danger tile is a textured surface that breathes (opacity +
+        // a small scale throb) with particles rising off it, not a flat decal.
+        // Warnings throb harder and flash on the final fuse tick; pools bubble
+        // slowly; scorch is a steady safe glow with no throb.
         for (const [, q] of st.hazardQuads) {
             const d = q.userData;
             if (d.scorch) {
-                q.material.opacity = 0.22;
-                q.scale.setScalar(1);
+                q.material.opacity = 0.28; q.scale.setScalar(1);
             } else if (d.pool) {
-                const p = Math.sin(now * 0.005);
-                q.material.opacity = 0.4 + 0.14 * p;         // toxic, slow bubble
+                q.material.opacity = 0.62 + 0.12 * Math.sin(now * 0.005);   // textured, richer
                 q.scale.setScalar(1 + 0.05 * Math.sin(now * 0.0065 + q.position.x));
             } else if (d.t <= 1) {
-                const p = Math.sin(now * 0.03);              // ERUPTING NOW — urgent
-                q.material.opacity = 0.55 + 0.3 * p;
+                const p = Math.sin(now * 0.03);                              // ERUPTING NOW
+                q.material.opacity = 0.72 + 0.25 * p;
                 q.scale.setScalar(1.04 + 0.08 * p);
             } else {
-                q.material.opacity = 0.34 + 0.18 * Math.sin(now * 0.01);
+                q.material.opacity = 0.5 + 0.16 * Math.sin(now * 0.01);
                 q.scale.setScalar(1 + 0.03 * Math.sin(now * 0.011));
             }
+        }
+        // Slowly churn the shared pool/warning surface textures (one update for
+        // every tile using them) so the venom/embers roil.
+        if (_poolTex) _poolTex.rotation = now * 0.00006;
+        if (_warnTex) _warnTex.rotation = now * -0.0001;
+        // Rise + recycle the per-tile particle clouds (bubbles/embers).
+        for (const [, fx] of st.hazardFx) {
+            const u = fx.userData, arr = fx.geometry.attributes.position.array;
+            for (let i = 0; i < u.N; i++) {
+                const ph = (now * u.rate + u.seed[i]) % 1;
+                arr[i * 3]     = u.baseX[i] + Math.sin(now * 0.003 + u.seed[i] * 12) * 0.05;
+                arr[i * 3 + 1] = ph * u.h;
+                arr[i * 3 + 2] = u.baseZ[i] + Math.cos(now * 0.0028 + u.seed[i] * 9) * 0.05;
+            }
+            fx.geometry.attributes.position.needsUpdate = true;
+            fx.material.opacity = (u.kind === 'pool' ? 0.6 : 0.7) + 0.2 * Math.sin(now * 0.004);
         }
         // Needle Spit "+" telegraph: a quicker green pulse than a hazard warning
         // — reads as "incoming, move diagonally."
@@ -2580,11 +2685,15 @@ const api = {
         for (const t of hz?.pools ?? []) want.set(`${t.x},${t.z}`, { pool: true, scorch: false, t: 0 });
         for (const t of hz?.scorch ?? []) want.set(`${t.x},${t.z}`, { pool: false, scorch: true, t: 0 });
         for (const [key, q] of st.hazardQuads)
-            if (!want.has(key)) { st.scene.remove(q); st.hazardQuads.delete(key); }
+            if (!want.has(key)) {
+                st.scene.remove(q); st.hazardQuads.delete(key);
+                const fx = st.hazardFx.get(key);
+                if (fx) { st.scene.remove(fx); st.hazardFx.delete(key); }
+            }
         for (const [key, info] of want) {
+            const [x, z] = key.split(',').map(Number);
             let q = st.hazardQuads.get(key);
             if (!q) {
-                const [x, z] = key.split(',').map(Number);
                 q = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.9, TILE * 0.9),
                     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.3, depthWrite: false }));
                 q.rotation.x = -Math.PI / 2;
@@ -2592,9 +2701,26 @@ const api = {
                 st.scene.add(q); st.hazardQuads.set(key, q);
             }
             q.userData = info;
-            // scorch = safe gold · pool = toxic venom-green · warning = amber
-            // (fuse) ramping to a hot red on the final tick (about to erupt).
-            q.material.color.set(info.scorch ? '#e8c23d' : info.pool ? '#4fbf3a' : info.t <= 1 ? '#ff3b3b' : '#ffb43d');
+            // Surface texture per state: scorch = flat safe gold; pool = mottled
+            // toxic venom; warning = hot cracked ember bed. Tint multiplies the
+            // texture (white = as-baked; a warning reddens on the final tick).
+            const m = q.material;
+            m.map = info.scorch ? null : info.pool ? poolSurfaceTexture() : warnSurfaceTexture();
+            m.color.set(info.scorch ? '#e8c23d' : info.pool ? '#ffffff' : info.t <= 1 ? '#ff7a5a' : '#ffd9a0');
+            m.needsUpdate = true;
+
+            // Rising-particle cloud (bubbles for a pool, embers for a warning),
+            // recreated if the tile changed kind (warning → pool). Scorch has none.
+            const fxKind = info.scorch ? null : info.pool ? 'pool' : 'warn';
+            const fx = st.hazardFx.get(key);
+            if (!fxKind) {
+                if (fx) { st.scene.remove(fx); st.hazardFx.delete(key); }
+            } else if (!fx || fx.userData.kind !== fxKind) {
+                if (fx) st.scene.remove(fx);
+                const nf = makeHazardFx(fxKind);
+                nf.position.set(x * TILE, 0.05, z * TILE);
+                st.scene.add(nf); st.hazardFx.set(key, nf);
+            }
         }
     },
     setBattleNeedleSpit(canvasId, tiles) {
